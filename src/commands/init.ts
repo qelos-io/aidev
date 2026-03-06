@@ -4,6 +4,7 @@ import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { logger } from '../logger';
 import { detectRemote } from '../git';
+import { validateAgentPermissions } from '../permissions';
 import chalk from 'chalk';
 
 const VALID_AGENTS = ['claude', 'cursor'] as const;
@@ -322,6 +323,11 @@ export async function initCommand(): Promise<void> {
     // ── AI agents ────────────────────────────────────────────
     section('AI agents');
     const agents = await pickAgents(rl);
+
+    // ── Validate agent permissions ──────────────────────────
+    section('Agent permissions');
+    await validateAgentPermissions(agents.split(','), rl);
+
     const devNotesMode = await choose(
       rl,
       `Dev notes mode ${hint('smart = ask AI if unclear, always = ask before every task')}`,
