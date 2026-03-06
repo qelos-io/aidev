@@ -1,0 +1,296 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
+import { logger } from '../logger';
+import { detectRemote } from '../git';
+import chalk from 'chalk';
+
+const VALID_AGENTS = ['claude', 'cursor'] as const;
+
+// Patterns we want guaranteed in .gitignore.
+// Each entry: [pattern to write, regex that matches equivalent existing lines]
+const GITIGNORE_RULES: Array<[string, RegExp]> = [
+  ['.env.*',   /^\.env[\.\*]/m],
+  ['*.log',    /^\*\.log/m],
+];
+
+function ensureGitignore(): void {
+  const gitignorePath = path.join(process.cwd(), '.gitignore');
+  const existing = fs.existsSync(gitignorePath)
+    ? fs.readFileSync(gitignorePath, 'utf8')
+    : '';
+
+  const missing = GITIGNORE_RULES
+    .filter(([, regex]) => !regex.test(existing))
+    .map(([pattern]) => pattern);
+
+  if (missing.length === 0) return;
+
+  const addition = (existing.endsWith('\n') || existing === '' ? '' : '\n')
+    + missing.join('\n') + '\n';
+  fs.appendFileSync(gitignorePath, addition, 'utf8');
+  logger.info(`.gitignore — added: ${missing.join(', ')}`);
+}
+
+interface ClickUpMember {
+  id: number;
+  username: string;
+  email: string;
+}
+
+interface Answers {
+  clickupApiKey: string;
+  clickupTeamId: string;
+  clickupTag: string;
+  clickupPendingStatus: string;
+  clickupInReviewStatus: string;
+  assigneeTag: string;
+  gitRemote: string;
+  githubBaseBranch: string;
+  githubRepo: string;
+  agents: string;
+  devNotesMode: string;
+}
+
+function dim(s: string) {
+  return chalk.dim(s);
+}
+
+function hint(s: string) {
+  return chalk.dim(`(${s})`);
+}
+
+async function ask(
+  rl: readline.Interface,
+  question: string,
+  defaultVal = '',
+  required = false
+): Promise<string> {
+  const suffix = defaultVal ? chalk.dim(` [${defaultVal}]`) : '';
+  while (true) {
+    const raw = await rl.question(`  ${question}${suffix}: `);
+    const val = raw.trim() || defaultVal;
+    if (required && !val) {
+      console.log(chalk.yellow(`  This field is required.`));
+      continue;
+    }
+    return val;
+  }
+}
+
+async function choose(
+  rl: readline.Interface,
+  question: string,
+  options: string[],
+  defaultVal: string
+): Promise<string> {
+  const opts = options
+    .map((o) => (o === defaultVal ? chalk.cyan(o) : o))
+    .join(chalk.dim(' | '));
+  while (true) {
+    const raw = await rl.question(`  ${question} ${dim(`[${opts}]`)}: `);
+    const val = raw.trim() || defaultVal;
+    if (!options.includes(val)) {
+      console.log(chalk.yellow(`  Choose one of: ${options.join(', ')}`));
+      continue;
+    }
+    return val;
+  }
+}
+
+async function pickAgents(rl: readline.Interface): Promise<string> {
+  const available = [...VALID_AGENTS];
+
+  console.log(`\n  Available agents:`);
+  available.forEach((a, i) => console.log(`    ${chalk.cyan(String(i + 1))}. ${a}`));
+
+  console.log(
+    `\n  Enter agents ${hint('numbers or names, comma-separated — first = primary, rest = fallback')}`
+  );
+
+  while (true) {
+    const raw = await rl.question(`  Agents in order ${dim(`[${available.join(',')}]`)}: `);
+
+    if (!raw.trim()) return available.join(',');
+
+    const parts = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const resolved = parts.map((p) => {
+      const idx = parseInt(p, 10);
+      if (!isNaN(idx) && idx >= 1 && idx <= available.length) return available[idx - 1];
+      return p;
+    });
+
+    const invalid = resolved.filter((r) => !available.includes(r as typeof available[number]));
+    if (invalid.length) {
+      console.log(chalk.yellow(`  Unknown agent(s): ${invalid.join(', ')}. Valid: ${available.join(', ')}`));
+      continue;
+    }
+
+    const unique = [...new Set(resolved)];
+    if (unique.length !== resolved.length) {
+      console.log(chalk.yellow(`  Duplicate agents removed: ${unique.join(', ')}`));
+    }
+    return unique.join(',');
+  }
+}
+
+async function fetchCurrentUser(apiKey: string): Promise<ClickUpMember | null> {
+  try {
+    const res = await fetch('https://api.clickup.com/api/v2/user', {
+      headers: { Authorization: apiKey },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { user: ClickUpMember };
+    return data.user;
+  } catch {
+    return null;
+  }
+}
+
+async function pickAssignee(rl: readline.Interface, apiKey: string): Promise<string> {
+  process.stdout.write(`  ${chalk.dim('Fetching current user...')}\r`);
+  const user = await fetchCurrentUser(apiKey);
+  process.stdout.write('                              \r');
+
+  if (!user) {
+    return ask(rl, `Assignee tag ${hint('optional — could not fetch user')}`, '');
+  }
+
+  const display = user.username && user.username !== 'null'
+    ? `${user.username} <${user.email}>`
+    : user.email;
+  return ask(rl, `Assignee tag`, display);
+}
+
+function section(title: string) {
+  console.log('\n' + chalk.bold.underline(title));
+}
+
+/** Wraps value in double quotes if it contains spaces or special chars. */
+function envVal(val: string): string {
+  return /[\s#"']/.test(val) ? `"${val.replace(/"/g, '\\"')}"` : val;
+}
+
+function line(key: string, val: string): string | null {
+  return val ? `${key}=${envVal(val)}` : null;
+}
+
+function renderEnv(a: Answers): string {
+  const lines = [
+    `PROVIDER=clickup`,
+    line('CLICKUP_API_KEY', a.clickupApiKey),
+    line('CLICKUP_TEAM_ID', a.clickupTeamId),
+    line('CLICKUP_TAG', a.clickupTag),
+    `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
+    `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+    ``,
+    line('ASSIGNEE_TAG', a.assigneeTag),
+    `GIT_REMOTE=${envVal(a.gitRemote)}`,
+    `GITHUB_BASE_BRANCH=${envVal(a.githubBaseBranch)}`,
+    line('GITHUB_REPO', a.githubRepo),
+    ``,
+    `# Agents to use, in fallback order (comma-separated: claude, cursor)`,
+    `AGENTS=${a.agents}`,
+    ``,
+    `# DEV_NOTES_MODE: smart (only ask when unclear) | always (ask before every task)`,
+    `DEV_NOTES_MODE=${a.devNotesMode}`,
+    ``,
+  ];
+  return lines.filter((l) => l !== null).join('\n');
+}
+
+export async function initCommand(): Promise<void> {
+  const dest = path.join(process.cwd(), '.env.aidev');
+
+  if (fs.existsSync(dest)) {
+    const rl0 = readline.createInterface({ input, output });
+    const overwrite = await rl0.question(
+      chalk.yellow('.env.aidev already exists. Reconfigure? ') + dim('[y/N] ')
+    );
+    rl0.close();
+    if (overwrite.trim().toLowerCase() !== 'y') {
+      logger.info('Keeping existing .env.aidev.');
+      return;
+    }
+    console.log();
+  }
+
+  console.log(chalk.bold('\naidev setup') + dim(' — press Enter to accept defaults\n'));
+
+  const rl = readline.createInterface({ input, output });
+
+  try {
+    // ── ClickUp ──────────────────────────────────────────────
+    section('ClickUp');
+    const globalEnvHint = hint('leave blank to use global env var');
+    const clickupApiKey = await ask(rl, `API key ${globalEnvHint}`, '');
+    const clickupTeamId = await ask(rl, `Team / workspace ID ${globalEnvHint}`, '');
+    const folderName = path.basename(process.cwd());
+    const clickupTag = await ask(
+      rl,
+      `Tag to filter tasks ${hint('tasks with this tag will be picked up')}`,
+      folderName
+    );
+    const clickupPendingStatus = await ask(rl, 'Pending status name', 'pending');
+    const clickupInReviewStatus = await ask(rl, 'In-review status name', 'review');
+
+    // ── Git / GitHub ─────────────────────────────────────────
+    section('Git & GitHub');
+    const detectedRemote = detectRemote() ?? 'origin';
+    const gitRemote = await ask(rl, 'Git remote', detectedRemote);
+    const githubBaseBranch = await ask(rl, 'Base branch', 'main');
+    const githubRepo = await ask(
+      rl,
+      `GitHub repo ${hint('owner/repo — used for PR links, optional')}`,
+      ''
+    );
+
+    // ── AI agents ────────────────────────────────────────────
+    section('AI agents');
+    const agents = await pickAgents(rl);
+    const devNotesMode = await choose(
+      rl,
+      `Dev notes mode ${hint('smart = ask AI if unclear, always = ask before every task')}`,
+      ['smart', 'always'],
+      'smart'
+    );
+
+    // ── Assignee ─────────────────────────────────────────────
+    section('Assignee');
+    const effectiveApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
+    let assigneeTag: string;
+
+    if (effectiveApiKey) {
+      assigneeTag = await pickAssignee(rl, effectiveApiKey);
+    } else {
+      assigneeTag = await ask(
+        rl,
+        `Assignee tag ${hint('optional — provide API key above to auto-detect')}`,
+        ''
+      );
+    }
+
+    const answers: Answers = {
+      clickupApiKey,
+      clickupTeamId,
+      clickupTag,
+      clickupPendingStatus,
+      clickupInReviewStatus,
+      assigneeTag,
+      gitRemote,
+      githubBaseBranch,
+      githubRepo,
+      agents,
+      devNotesMode,
+    };
+
+    ensureGitignore();
+    fs.writeFileSync(dest, renderEnv(answers), 'utf8');
+    console.log();
+    logger.success(`.env.aidev written to ${dest}`);
+    logger.info(`Agents: ${agents} ${dim('(first = primary, rest = fallback)')}`);
+  } finally {
+    rl.close();
+  }
+}

@@ -1,0 +1,57 @@
+---
+description: aidev project rules
+globs: ["**/*.ts", "**/*.js", "package.json", "tsconfig.json"]
+alwaysApply: true
+---
+
+# aidev Project Rules
+
+## Stack
+- TypeScript 5, CommonJS (`"type": "commonjs"`), Node.js ≥ 18
+- Dependencies: `chalk@4`, `commander@12`, `dotenv@16`
+- No HTTP libraries — use native `fetch` (Node 18+) only
+- chalk v4 specifically (v5 is ESM-only and incompatible)
+
+## Code Conventions
+- All native Node.js imports use the `node:` prefix:
+  `node:fs`, `node:path`, `node:child_process`, `node:os`, etc.
+- All subprocess calls use `spawnSync(bin, [...args])` with array arguments — never string interpolation into shell commands
+- Strict TypeScript: no `any`, explicit return types on exported functions
+
+## Architecture
+
+### Providers (`src/providers/`)
+- `TaskProvider` interface: `fetchTasks()`, `postComment()`, `getComments()`, `updateStatus()`
+- Only ClickUp is implemented; Jira/Notion/Trello stubs throw descriptive errors
+- To add a provider: implement `TaskProvider`, register in `createProvider()` factory
+
+### AI Runners (`src/ai/`)
+- `AIRunner` interface: `name`, `isAvailable()`, `run(prompt, notes?)`
+- Runners: `ClaudeRunner` (claude CLI), `CursorRunner` (cursor --agent)
+- `auto` mode: no TTY → Claude first; TTY → Cursor first; fallback to next on failure
+
+### Commands (`src/commands/`)
+- `init` — writes `.env.aidev` from inline template; skips if file exists
+- `run` — fetches tasks, applies filter (all/open/pending), implements each
+- `schedule` — manages per-directory crontab entries using marker `# aidev-cwd:/path`
+
+### CLI (`src/cli.ts`)
+- `run [filter]` is registered with `{ isDefault: true }` — do not use `program.action()` as default, it causes double-execution
+
+## Task Processing Flow
+```
+fetchTasks()
+  skip: closed/done/cancelled/complete statuses
+  skip: remote branch already exists (taskId prefix)
+  pending tasks: check for human reply before proceeding
+  open tasks: checkNeedsClarification() → postComment + set pending if unclear
+  implementTask():
+    updateStatus("in progress") → git branch → AI runner → commit → push
+    postComment(branch + PR link) → updateStatus(CLICKUP_IN_REVIEW_STATUS)
+```
+
+## Build
+```bash
+npm run build    # tsc + chmod +x dist/cli.js
+npm run dev -- run --help
+```
