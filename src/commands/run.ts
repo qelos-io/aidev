@@ -235,10 +235,14 @@ async function implementTask(
   }
 
   // Post completion comment
-  const prUrl = buildPRUrl(config, branchName);
-  const comment = buildCompletionComment(branchName, prUrl, config);
-  await provider.postComment(task.id, comment);
-  await provider.updateStatus(task.id, config.clickupInReviewStatus);
+  try {
+    const prUrl = buildPRUrl(config, branchName);
+    const comment = buildCompletionComment(branchName, prUrl, config);
+    await provider.postComment(task.id, comment);
+    await provider.updateStatus(task.id, config.clickupInReviewStatus);
+  } catch (err) {
+    logger.warn(`Branch pushed but failed to update task: ${err instanceof Error ? err.message : err}`);
+  }
 
   logger.success(`Task implemented: branch ${branchName} pushed`);
 }
