@@ -5,6 +5,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { logger } from '../logger';
 import { detectRemote } from '../git';
 import { validateAgentPermissions } from '../permissions';
+import { scheduleSetCommand } from './schedule';
 import chalk from 'chalk';
 
 const VALID_AGENTS = ['claude', 'cursor', 'windsurf'] as const;
@@ -377,6 +378,19 @@ export async function initCommand(): Promise<void> {
     console.log();
     logger.success(`.env.aidev written to ${dest}`);
     logger.info(`Agents: ${agents} ${dim('(first = primary, rest = fallback)')}`);
+
+    if (process.platform === 'darwin') {
+      console.log();
+      console.log(chalk.bold('  macOS: enable cron scheduling'));
+      console.log(chalk.dim('  ─────────────────────────────────────────────────'));
+      console.log(`  For ${chalk.cyan('aidev schedule')} to work, cron needs Full Disk Access:`);
+      console.log(`    1. Open ${chalk.cyan('System Settings → Privacy & Security → Full Disk Access')}`);
+      console.log(`    2. Click ${chalk.cyan('+')} and add ${chalk.cyan('/usr/sbin/cron')}`);
+      console.log();
+    }
+
+    section('Schedule');
+    await scheduleSetCommand();
   } finally {
     rl.close();
   }

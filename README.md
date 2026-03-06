@@ -205,6 +205,16 @@ aidev schedule get
 
 Each directory gets its own cron entry identified by a `# aidev-cwd:/path` marker — running `schedule set` again replaces the existing entry rather than adding a duplicate.
 
+### macOS: Full Disk Access required
+
+On macOS (Ventura and later), cron jobs are silently blocked unless `/usr/sbin/cron` has Full Disk Access:
+
+1. Open **System Settings → Privacy & Security → Full Disk Access**
+2. Click **+** and add `/usr/sbin/cron`
+3. Re-run `aidev schedule set` to apply your schedule
+
+Without this, cron will appear to be configured but jobs will never fire.
+
 ---
 
 ## Logging

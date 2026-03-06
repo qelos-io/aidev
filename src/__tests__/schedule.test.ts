@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { cronToSchtasksArgs, windowsTaskName } from '../commands/schedule';
+import { cronToSchtasksArgs, windowsTaskName, buildUnixCronLine } from '../commands/schedule';
 
 describe('cronToSchtasksArgs', () => {
   it('every 15 minutes', () => {
@@ -31,6 +31,47 @@ describe('cronToSchtasksArgs', () => {
     assert.equal(cronToSchtasksArgs('0 9 * * 1'), null); // weekday not supported
     assert.equal(cronToSchtasksArgs('*/5 */2 * * *'), null);
     assert.equal(cronToSchtasksArgs('not a cron'), null);
+  });
+});
+
+describe('buildUnixCronLine', () => {
+  const cwd = '/home/user/myproject';
+  const node = '/usr/local/bin/node';
+  const aidev = '/usr/local/bin/aidev';
+
+  it('starts with the cron expression', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
+    assert.ok(line.startsWith('*/15 * * * *'));
+  });
+
+  it('includes absolute node binary before aidev binary', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
+    const nodePos = line.indexOf(node);
+    const aidevPos = line.indexOf(aidev);
+    assert.ok(nodePos !== -1, 'node binary missing');
+    assert.ok(aidevPos !== -1, 'aidev binary missing');
+    assert.ok(nodePos < aidevPos, 'node must come before aidev');
+  });
+
+  it('includes cd to the project directory', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
+    assert.ok(line.includes(`cd ${cwd}`));
+  });
+
+  it('appends the aidev-cwd marker', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
+    assert.ok(line.includes(`# aidev-cwd:${cwd}`));
+  });
+
+  it('ends with "run" followed by the marker', () => {
+    const line = buildUnixCronLine('*/30 * * * *', cwd, node, aidev);
+    assert.ok(line.includes(`${aidev} run # aidev-cwd:${cwd}`));
+  });
+
+  it('uses the provided cron expression verbatim', () => {
+    const expr = '0 8 * * *';
+    const line = buildUnixCronLine(expr, cwd, node, aidev);
+    assert.ok(line.startsWith(expr));
   });
 });
 
