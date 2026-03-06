@@ -6,7 +6,7 @@
 
 **aidev** turns your ClickUp tasks into merged code — automatically.
 
-It polls your task manager, checks whether tasks are clear, runs Claude or Cursor to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
+It polls your task manager, checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
 
 ```
 ClickUp task  →  AI implements  →  git push  →  "in review"
@@ -142,6 +142,7 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 |---|---|
 | `claude` | [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated |
 | `cursor` | [Cursor](https://cursor.sh) installed with Agent mode |
+| `windsurf` | [Windsurf](https://windsurf.com) installed with CLI available in PATH |
 
 **Configure agent order in `.env.aidev`:**
 
@@ -154,6 +155,12 @@ AGENTS=cursor
 
 # Cursor first (useful when working locally with a monitor)
 AGENTS=cursor,claude
+
+# All three: Claude first, then Windsurf, then Cursor
+AGENTS=claude,windsurf,cursor
+
+# Windsurf only
+AGENTS=windsurf
 ```
 
 ---

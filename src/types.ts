@@ -15,7 +15,7 @@ export interface Comment {
   date: number; // epoch ms
 }
 
-export type AgentName = 'claude' | 'cursor';
+export type AgentName = 'claude' | 'cursor' | 'windsurf';
 
 export interface Config {
   provider: string;
