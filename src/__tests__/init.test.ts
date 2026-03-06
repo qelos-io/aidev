@@ -36,11 +36,19 @@ describe('envVal', () => {
 // ─── renderEnv ───────────────────────────────────────────────────────────────
 
 const baseAnswers: Answers = {
+  provider: 'clickup',
   clickupApiKey: 'pk_abc123',
   clickupTeamId: 'team_456',
   clickupTag: 'myproject',
   clickupPendingStatus: 'pending',
   clickupInReviewStatus: 'review',
+  jiraBaseUrl: '',
+  jiraEmail: '',
+  jiraApiToken: '',
+  jiraProject: '',
+  jiraLabel: '',
+  jiraPendingStatus: '',
+  jiraInReviewStatus: '',
   assigneeTag: '',
   gitRemote: 'origin',
   githubBaseBranch: 'main',

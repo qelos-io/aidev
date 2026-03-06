@@ -40,11 +40,22 @@ interface ClickUpMember {
 }
 
 export interface Answers {
+  provider: 'clickup' | 'jira';
+  // ClickUp
   clickupApiKey: string;
   clickupTeamId: string;
   clickupTag: string;
   clickupPendingStatus: string;
   clickupInReviewStatus: string;
+  // Jira
+  jiraBaseUrl: string;
+  jiraEmail: string;
+  jiraApiToken: string;
+  jiraProject: string;
+  jiraLabel: string;
+  jiraPendingStatus: string;
+  jiraInReviewStatus: string;
+  // Shared
   assigneeTag: string;
   gitRemote: string;
   githubBaseBranch: string;
@@ -177,13 +188,29 @@ function line(key: string, val: string): string | null {
 }
 
 export function renderEnv(a: Answers): string {
+  const providerLines =
+    a.provider === 'jira'
+      ? [
+          `PROVIDER=jira`,
+          line('JIRA_BASE_URL', a.jiraBaseUrl),
+          line('JIRA_EMAIL', a.jiraEmail),
+          line('JIRA_API_TOKEN', a.jiraApiToken),
+          line('JIRA_PROJECT', a.jiraProject),
+          line('JIRA_LABEL', a.jiraLabel),
+          `JIRA_PENDING_STATUS=${envVal(a.jiraPendingStatus)}`,
+          `JIRA_IN_REVIEW_STATUS=${envVal(a.jiraInReviewStatus)}`,
+        ]
+      : [
+          `PROVIDER=clickup`,
+          line('CLICKUP_API_KEY', a.clickupApiKey),
+          line('CLICKUP_TEAM_ID', a.clickupTeamId),
+          line('CLICKUP_TAG', a.clickupTag),
+          `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
+          `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+        ];
+
   const lines = [
-    `PROVIDER=clickup`,
-    line('CLICKUP_API_KEY', a.clickupApiKey),
-    line('CLICKUP_TEAM_ID', a.clickupTeamId),
-    line('CLICKUP_TAG', a.clickupTag),
-    `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
-    `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+    ...providerLines,
     ``,
     line('ASSIGNEE_TAG', a.assigneeTag),
     `GIT_REMOTE=${envVal(a.gitRemote)}`,
@@ -221,19 +248,65 @@ export async function initCommand(): Promise<void> {
   const rl = readline.createInterface({ input, output });
 
   try {
-    // ── ClickUp ──────────────────────────────────────────────
-    section('ClickUp');
+    // ── Provider ─────────────────────────────────────────────
+    section('Task provider');
+    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira'], 'clickup') as 'clickup' | 'jira';
+
+    // Provider-specific config
     const globalEnvHint = hint('leave blank to use global env var');
-    const clickupApiKey = await ask(rl, `API key ${globalEnvHint}`, '');
-    const clickupTeamId = await ask(rl, `Team / workspace ID ${globalEnvHint}`, '');
     const folderName = path.basename(process.cwd());
-    const clickupTag = await ask(
-      rl,
-      `Tag to filter tasks ${hint('tasks with this tag will be picked up')}`,
-      folderName
-    );
-    const clickupPendingStatus = await ask(rl, 'Pending status name', 'pending');
-    const clickupInReviewStatus = await ask(rl, 'In-review status name', 'review');
+
+    let clickupApiKey = '';
+    let clickupTeamId = '';
+    let clickupTag = '';
+    let clickupPendingStatus = 'pending';
+    let clickupInReviewStatus = 'review';
+
+    let jiraBaseUrl = '';
+    let jiraEmail = '';
+    let jiraApiToken = '';
+    let jiraProject = '';
+    let jiraLabel = '';
+    let jiraPendingStatus = 'To Do';
+    let jiraInReviewStatus = 'In Review';
+
+    if (provider === 'jira') {
+      // ── Jira ─────────────────────────────────────────────
+      section('Jira');
+      jiraBaseUrl = await ask(
+        rl,
+        `Jira base URL ${hint('e.g. https://mycompany.atlassian.net')}`,
+        '',
+        true
+      );
+      jiraEmail = await ask(rl, `Jira email ${globalEnvHint}`, '', true);
+      jiraApiToken = await ask(rl, `Jira API token ${globalEnvHint}`, '', true);
+      jiraProject = await ask(
+        rl,
+        `Project key ${hint('e.g. PROJ')}`,
+        '',
+        true
+      );
+      jiraLabel = await ask(
+        rl,
+        `Label to filter issues ${hint('issues with this label will be picked up')}`,
+        folderName
+      );
+      jiraPendingStatus = await ask(rl, 'Pending status name', 'To Do');
+      jiraInReviewStatus = await ask(rl, 'In-review status name', 'In Review');
+    } else {
+      // ── ClickUp ──────────────────────────────────────────────
+      section('ClickUp');
+      clickupApiKey = await ask(rl, `API key ${globalEnvHint}`, '');
+      clickupTeamId = await ask(rl, `Team / workspace ID ${globalEnvHint}`, '');
+      clickupTag = await ask(
+        rl,
+        `Tag to filter tasks ${hint('tasks with this tag will be picked up')}`,
+        folderName
+      );
+      clickupPendingStatus = await ask(rl, 'Pending status name', 'pending');
+      clickupInReviewStatus = await ask(rl, 'In-review status name', 'review');
+    }
 
     // ── Git / GitHub ─────────────────────────────────────────
     section('Git & GitHub');
@@ -261,22 +334,30 @@ export async function initCommand(): Promise<void> {
     const effectiveApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
     let assigneeTag: string;
 
-    if (effectiveApiKey) {
+    if (provider === 'clickup' && effectiveApiKey) {
       assigneeTag = await pickAssignee(rl, effectiveApiKey);
     } else {
       assigneeTag = await ask(
         rl,
-        `Assignee tag ${hint('optional — provide API key above to auto-detect')}`,
+        `Assignee tag ${hint('optional')}`,
         ''
       );
     }
 
     const answers: Answers = {
+      provider,
       clickupApiKey,
       clickupTeamId,
       clickupTag,
       clickupPendingStatus,
       clickupInReviewStatus,
+      jiraBaseUrl,
+      jiraEmail,
+      jiraApiToken,
+      jiraProject,
+      jiraLabel,
+      jiraPendingStatus,
+      jiraInReviewStatus,
       assigneeTag,
       gitRemote,
       githubBaseBranch,
