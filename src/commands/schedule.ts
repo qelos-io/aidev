@@ -55,11 +55,17 @@ function setCrontab(content: string): boolean {
   return result.status === 0;
 }
 
+export function buildUnixCronLine(cronExpr: string, cwd: string, nodeBin: string, aidevBin: string): string {
+  const marker = `${UNIX_MARKER_PREFIX}${cwd}`;
+  return `${cronExpr} zsh -l -c 'cd ${cwd} && ${nodeBin} ${aidevBin} run' ${marker}`;
+}
+
 function scheduleSetUnix(cronExpr: string): void {
   const cwd = process.cwd();
   const marker = `${UNIX_MARKER_PREFIX}${cwd}`;
   const aidevBin = getAidevBin();
-  const newLine = `${cronExpr} cd ${cwd} && ${aidevBin} run ${marker}`;
+  const nodeBin = findBin('node') ?? 'node';
+  const newLine = buildUnixCronLine(cronExpr, cwd, nodeBin, aidevBin);
 
   const lines = getCrontab().split('\n').filter((l) => !l.includes(marker));
   lines.push(newLine);

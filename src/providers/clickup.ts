@@ -17,21 +17,46 @@ export class ClickUpProvider implements TaskProvider {
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const url = `https://api.clickup.com/api/v2${path}`;
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        Authorization: this.apiKey,
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
-      },
-    });
+    const maxAttempts = 3;
+    let lastError: Error | undefined;
 
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`ClickUp API error ${res.status}: ${body}`);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetch(url, {
+          ...options,
+          headers: {
+            Authorization: this.apiKey,
+            'Content-Type': 'application/json',
+            ...(options.headers || {}),
+          },
+        });
+
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`ClickUp API error ${res.status}: ${body}`);
+        }
+
+        return res.json() as Promise<T>;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        const isNetworkError = lastError.message.includes('fetch failed')
+          || lastError.message.includes('ECONNRESET')
+          || lastError.message.includes('ETIMEDOUT')
+          || lastError.message.includes('UND_ERR_SOCKET');
+
+        if (!isNetworkError || attempt === maxAttempts) {
+          const cause = (err as Record<string, unknown>)?.cause;
+          const detail = cause instanceof Error ? `: ${cause.message}` : '';
+          throw new Error(`ClickUp API request failed (${options.method || 'GET'} ${path})${detail}`);
+        }
+
+        const delay = attempt * 1000;
+        logger.debug(`Fetch attempt ${attempt}/${maxAttempts} failed, retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
     }
 
-    return res.json() as Promise<T>;
+    throw lastError;
   }
 
   async fetchTasks(): Promise<Task[]> {

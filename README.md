@@ -6,7 +6,7 @@
 
 **aidev** turns your ClickUp tasks into merged code — automatically.
 
-It polls your task manager, checks whether tasks are clear, runs Claude or Cursor to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
+It polls your task manager, checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
 
 ```
 ClickUp task  →  AI implements  →  git push  →  "in review"
@@ -142,6 +142,7 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 |---|---|
 | `claude` | [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated |
 | `cursor` | [Cursor](https://cursor.sh) installed with Agent mode |
+| `windsurf` | [Windsurf](https://windsurf.com) installed with CLI available in PATH |
 
 **Configure agent order in `.env.aidev`:**
 
@@ -154,6 +155,12 @@ AGENTS=cursor
 
 # Cursor first (useful when working locally with a monitor)
 AGENTS=cursor,claude
+
+# All three: Claude first, then Windsurf, then Cursor
+AGENTS=claude,windsurf,cursor
+
+# Windsurf only
+AGENTS=windsurf
 ```
 
 ---
@@ -198,6 +205,16 @@ aidev schedule get
 
 Each directory gets its own cron entry identified by a `# aidev-cwd:/path` marker — running `schedule set` again replaces the existing entry rather than adding a duplicate.
 
+### macOS: Full Disk Access required
+
+On macOS (Ventura and later), cron jobs are silently blocked unless `/usr/sbin/cron` has Full Disk Access:
+
+1. Open **System Settings → Privacy & Security → Full Disk Access**
+2. Click **+** and add `/usr/sbin/cron`
+3. Re-run `aidev schedule set` to apply your schedule
+
+Without this, cron will appear to be configured but jobs will never fire.
+
 ---
 
 ## Logging
@@ -224,7 +241,7 @@ ANSI colour codes are stripped so the file stays readable in any editor or `tail
 | Provider | Status |
 |---|---|
 | ClickUp | ✅ Implemented |
-| Jira | 🔜 Stub — contributions welcome |
+| Jira | ✅ Implemented |
 | Notion | 🔜 Stub — contributions welcome |
 | Trello | 🔜 Stub — contributions welcome |
 

@@ -28,7 +28,7 @@ export function loadConfig(customEnvPath?: string): Config {
     }
   }
 
-  const validAgents: AgentName[] = ['claude', 'cursor'];
+  const validAgents: AgentName[] = ['claude', 'cursor', 'windsurf'];
   const agentsRaw = process.env.AGENTS || 'claude,cursor';
   const agents = agentsRaw
     .split(',')

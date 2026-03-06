@@ -5,9 +5,10 @@ import { stdin as input, stdout as output } from 'node:process';
 import { logger } from '../logger';
 import { detectRemote } from '../git';
 import { validateAgentPermissions } from '../permissions';
+import { scheduleSetCommand } from './schedule';
 import chalk from 'chalk';
 
-const VALID_AGENTS = ['claude', 'cursor'] as const;
+const VALID_AGENTS = ['claude', 'cursor', 'windsurf'] as const;
 
 // Patterns we want guaranteed in .gitignore.
 // Each entry: [pattern to write, regex that matches equivalent existing lines]
@@ -218,7 +219,7 @@ export function renderEnv(a: Answers): string {
     `GITHUB_BASE_BRANCH=${envVal(a.githubBaseBranch)}`,
     line('GITHUB_REPO', a.githubRepo),
     ``,
-    `# Agents to use, in fallback order (comma-separated: claude, cursor)`,
+    `# Agents to use, in fallback order (comma-separated: claude, cursor, windsurf)`,
     `AGENTS=${a.agents}`,
     ``,
     `# DEV_NOTES_MODE: smart (only ask when unclear) | always (ask before every task)`,
@@ -377,6 +378,19 @@ export async function initCommand(): Promise<void> {
     console.log();
     logger.success(`.env.aidev written to ${dest}`);
     logger.info(`Agents: ${agents} ${dim('(first = primary, rest = fallback)')}`);
+
+    if (process.platform === 'darwin') {
+      console.log();
+      console.log(chalk.bold('  macOS: enable cron scheduling'));
+      console.log(chalk.dim('  ─────────────────────────────────────────────────'));
+      console.log(`  For ${chalk.cyan('aidev schedule')} to work, cron needs Full Disk Access:`);
+      console.log(`    1. Open ${chalk.cyan('System Settings → Privacy & Security → Full Disk Access')}`);
+      console.log(`    2. Click ${chalk.cyan('+')} and add ${chalk.cyan('/usr/sbin/cron')}`);
+      console.log();
+    }
+
+    section('Schedule');
+    await scheduleSetCommand();
   } finally {
     rl.close();
   }
