@@ -7,7 +7,7 @@ import { detectRemote } from '../git';
 import { validateAgentPermissions } from '../permissions';
 import chalk from 'chalk';
 
-const VALID_AGENTS = ['claude', 'cursor'] as const;
+const VALID_AGENTS = ['claude', 'cursor', 'windsurf'] as const;
 
 // Patterns we want guaranteed in .gitignore.
 // Each entry: [pattern to write, regex that matches equivalent existing lines]
@@ -218,7 +218,7 @@ export function renderEnv(a: Answers): string {
     `GITHUB_BASE_BRANCH=${envVal(a.githubBaseBranch)}`,
     line('GITHUB_REPO', a.githubRepo),
     ``,
-    `# Agents to use, in fallback order (comma-separated: claude, cursor)`,
+    `# Agents to use, in fallback order (comma-separated: claude, cursor, windsurf)`,
     `AGENTS=${a.agents}`,
     ``,
     `# DEV_NOTES_MODE: smart (only ask when unclear) | always (ask before every task)`,
