@@ -1,0 +1,8 @@
+src/
+.claude/
+.cursor/
+.github/
+.env.aidev
+CLAUDE.md
+tsconfig.json
+*.tgz

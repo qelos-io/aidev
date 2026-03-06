@@ -1,6 +1,6 @@
-# aidev
+# @qelos/aidev
 
-[![npm version](https://img.shields.io/npm/v/aidev.svg?style=flat-square)](https://www.npmjs.com/package/aidev)
+[![npm version](https://img.shields.io/npm/v/%40qelos%2Faidev.svg?style=flat-square)](https://www.npmjs.com/package/@qelos/aidev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg?style=flat-square)](https://nodejs.org)
 
