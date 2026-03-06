@@ -16,7 +16,12 @@ export function loadConfig(customEnvPath?: string): Config {
     dotenv.config({ path: envPath });
   }
 
-  const required = ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID', 'CLICKUP_TAG'];
+  const provider = (process.env.PROVIDER || 'clickup').toLowerCase();
+
+  const required =
+    provider === 'jira'
+      ? ['JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_PROJECT']
+      : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID', 'CLICKUP_TAG'];
   for (const key of required) {
     if (!process.env[key]) {
       throw new Error(`Missing required config: ${key}. Run 'aidev init' to create .env.aidev`);
@@ -43,12 +48,19 @@ export function loadConfig(customEnvPath?: string): Config {
   }
 
   return {
-    provider: process.env.PROVIDER || 'clickup',
-    clickupApiKey: process.env.CLICKUP_API_KEY!,
-    clickupTeamId: process.env.CLICKUP_TEAM_ID!,
-    clickupTag: process.env.CLICKUP_TAG!,
+    provider,
+    clickupApiKey: process.env.CLICKUP_API_KEY || '',
+    clickupTeamId: process.env.CLICKUP_TEAM_ID || '',
+    clickupTag: process.env.CLICKUP_TAG || '',
     clickupPendingStatus: process.env.CLICKUP_PENDING_STATUS || 'pending',
     clickupInReviewStatus: process.env.CLICKUP_IN_REVIEW_STATUS || 'review',
+    jiraBaseUrl: process.env.JIRA_BASE_URL || '',
+    jiraEmail: process.env.JIRA_EMAIL || '',
+    jiraApiToken: process.env.JIRA_API_TOKEN || '',
+    jiraProject: process.env.JIRA_PROJECT || '',
+    jiraLabel: process.env.JIRA_LABEL || '',
+    jiraPendingStatus: process.env.JIRA_PENDING_STATUS || 'To Do',
+    jiraInReviewStatus: process.env.JIRA_IN_REVIEW_STATUS || 'In Review',
     assigneeTag: process.env.ASSIGNEE_TAG || '',
     gitRemote: process.env.GIT_REMOTE || detectRemote() || 'origin',
     githubBaseBranch: process.env.GITHUB_BASE_BRANCH || 'main',
