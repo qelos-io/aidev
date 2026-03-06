@@ -249,7 +249,7 @@ async function implementTask(
   logger.success(`Task implemented: branch ${branchName} pushed`);
 }
 
-function buildImplementPrompt(task: Task, context: string): string {
+export function buildImplementPrompt(task: Task, context: string): string {
   return `You are implementing a software development task. Make the necessary code changes to complete the task described below.
 
 Task: ${task.name}
@@ -261,13 +261,13 @@ ${context}
 Please implement the required changes. Focus on correctness and follow the existing code style in the project.`;
 }
 
-function buildPRUrl(config: Config, branch: string): string {
+export function buildPRUrl(config: Config, branch: string): string {
   if (!config.githubRepo) return '';
   const encoded = encodeURIComponent(branch);
   return `https://github.com/${config.githubRepo}/compare/${config.githubBaseBranch}...${encoded}?expand=1`;
 }
 
-function buildCompletionComment(branch: string, prUrl: string, config: Config): string {
+export function buildCompletionComment(branch: string, prUrl: string, config: Config): string {
   const lines = [
     `[aidev] Implementation complete!`,
     ``,

@@ -94,7 +94,7 @@ function scheduleGetUnix(): void {
  * Converts a cron expression to schtasks /sc + /mo + /st arguments.
  * Supports the subset used by the preset list.
  */
-function cronToSchtasksArgs(cron: string): string[] | null {
+export function cronToSchtasksArgs(cron: string): string[] | null {
   // */N * * * *  →  every N minutes
   const everyMin = cron.match(/^\*\/(\d+) \* \* \* \*$/);
   if (everyMin) return ['/sc', 'MINUTE', '/mo', everyMin[1]];
@@ -114,7 +114,7 @@ function cronToSchtasksArgs(cron: string): string[] | null {
 }
 
 /** Stable task name derived from cwd — safe for Task Scheduler. */
-function windowsTaskName(cwd: string): string {
+export function windowsTaskName(cwd: string): string {
   const sanitized = cwd.replace(/[:\\\/]+/g, '-').replace(/^-+|-+$/g, '');
   return `aidev\\${sanitized}`;
 }

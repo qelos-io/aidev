@@ -43,7 +43,7 @@ ClickUp task  →  AI implements  →  git push  →  "in review"
 ## Quick start
 
 ```bash
-npm install -g aidev
+npm install -g @qelos/aidev
 ```
 
 Navigate to your project and run the interactive setup:

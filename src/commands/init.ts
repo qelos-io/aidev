@@ -15,8 +15,8 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.log',    /^\*\.log/m],
 ];
 
-function ensureGitignore(): void {
-  const gitignorePath = path.join(process.cwd(), '.gitignore');
+export function ensureGitignore(dir = process.cwd()): void {
+  const gitignorePath = path.join(dir, '.gitignore');
   const existing = fs.existsSync(gitignorePath)
     ? fs.readFileSync(gitignorePath, 'utf8')
     : '';
@@ -30,7 +30,7 @@ function ensureGitignore(): void {
   const addition = (existing.endsWith('\n') || existing === '' ? '' : '\n')
     + missing.join('\n') + '\n';
   fs.appendFileSync(gitignorePath, addition, 'utf8');
-  logger.info(`.gitignore — added: ${missing.join(', ')}`);
+  if (dir === process.cwd()) logger.info(`.gitignore — added: ${missing.join(', ')}`);
 }
 
 interface ClickUpMember {
@@ -39,7 +39,7 @@ interface ClickUpMember {
   email: string;
 }
 
-interface Answers {
+export interface Answers {
   clickupApiKey: string;
   clickupTeamId: string;
   clickupTag: string;
@@ -168,7 +168,7 @@ function section(title: string) {
 }
 
 /** Wraps value in double quotes if it contains spaces or special chars. */
-function envVal(val: string): string {
+export function envVal(val: string): string {
   return /[\s#"']/.test(val) ? `"${val.replace(/"/g, '\\"')}"` : val;
 }
 
@@ -176,7 +176,7 @@ function line(key: string, val: string): string | null {
   return val ? `${key}=${envVal(val)}` : null;
 }
 
-function renderEnv(a: Answers): string {
+export function renderEnv(a: Answers): string {
   const lines = [
     `PROVIDER=clickup`,
     line('CLICKUP_API_KEY', a.clickupApiKey),

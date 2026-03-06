@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc && node -e \"if(process.platform!=='win32')require('fs').chmodSync('dist/cli.js',0o755)\"",
     "dev": "tsx src/cli.ts",
+    "test": "node --require tsx/cjs --test src/__tests__/git.test.ts src/__tests__/platform.test.ts src/__tests__/schedule.test.ts src/__tests__/init.test.ts src/__tests__/run.test.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": ["ai", "cli", "clickup", "claude", "cursor", "automation"],
