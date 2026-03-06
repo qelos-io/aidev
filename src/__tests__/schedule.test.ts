@@ -65,7 +65,8 @@ describe('buildUnixCronLine', () => {
 
   it('ends with "run" followed by the marker', () => {
     const line = buildUnixCronLine('*/30 * * * *', cwd, node, aidev);
-    assert.ok(line.includes(`${aidev} run # aidev-cwd:${cwd}`));
+    assert.ok(line.includes(`${aidev} run`));
+    assert.ok(line.endsWith(`# aidev-cwd:${cwd}`));
   });
 
   it('uses the provided cron expression verbatim', () => {
@@ -90,5 +91,28 @@ describe('windowsTaskName', () => {
     const name = windowsTaskName('/home/user/myproject');
     assert.ok(name.startsWith('aidev\\'));
     assert.ok(!name.includes('/'));
+  });
+
+  it('without cronExpr returns base name only', () => {
+    const a = windowsTaskName('C:\\Users\\dev\\myproject');
+    const b = windowsTaskName('C:\\Users\\dev\\myproject', undefined);
+    assert.equal(a, b);
+    assert.ok(!a.includes('--'));
+  });
+
+  it('with cronExpr produces unique names per schedule', () => {
+    const cwd = 'C:\\Users\\dev\\myproject';
+    const a = windowsTaskName(cwd, '0 8 * * *');
+    const b = windowsTaskName(cwd, '0 16 * * *');
+    assert.notEqual(a, b);
+    assert.ok(a.startsWith('aidev\\'));
+    assert.ok(b.startsWith('aidev\\'));
+  });
+
+  it('same cwd + cronExpr produces the same name', () => {
+    const cwd = 'C:\\Users\\dev\\myproject';
+    const a = windowsTaskName(cwd, '*/15 * * * *');
+    const b = windowsTaskName(cwd, '*/15 * * * *');
+    assert.equal(a, b);
   });
 });

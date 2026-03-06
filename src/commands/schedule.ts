@@ -57,17 +57,16 @@ function setCrontab(content: string): boolean {
 
 export function buildUnixCronLine(cronExpr: string, cwd: string, nodeBin: string, aidevBin: string): string {
   const marker = `${UNIX_MARKER_PREFIX}${cwd}`;
-  return `${cronExpr} zsh -l -c 'cd ${cwd} && ${nodeBin} ${aidevBin} run' ${marker}`;
+  return `${cronExpr} zsh -i -l -c 'cd ${cwd} && ${nodeBin} ${aidevBin} run' ${marker}`;
 }
 
 function scheduleSetUnix(cronExpr: string): void {
   const cwd = process.cwd();
-  const marker = `${UNIX_MARKER_PREFIX}${cwd}`;
   const aidevBin = getAidevBin();
   const nodeBin = findBin('node') ?? 'node';
   const newLine = buildUnixCronLine(cronExpr, cwd, nodeBin, aidevBin);
 
-  const lines = getCrontab().split('\n').filter((l) => !l.includes(marker));
+  const lines = getCrontab().split('\n').filter((l) => l !== newLine);
   lines.push(newLine);
   const updated = lines.join('\n').replace(/\n+$/, '') + '\n';
 
@@ -207,10 +206,12 @@ export function cronToSchtasksArgs(cron: string): string[] | null {
   return null;
 }
 
-/** Stable task name derived from cwd — safe for Task Scheduler. */
-export function windowsTaskName(cwd: string): string {
+/** Stable task name derived from cwd + optional cron expr — safe for Task Scheduler. */
+export function windowsTaskName(cwd: string, cronExpr?: string): string {
   const sanitized = cwd.replace(/[:\\\/]+/g, '-').replace(/^-+|-+$/g, '');
-  return `aidev\\${sanitized}`;
+  if (!cronExpr) return `aidev\\${sanitized}`;
+  const cronTag = cronExpr.replace(/\*/g, 'x').replace(/\//g, 'e').replace(/\s+/g, '_');
+  return `aidev\\${sanitized}--${cronTag}`;
 }
 
 function scheduleSetWindows(cronExpr: string): void {
@@ -224,7 +225,7 @@ function scheduleSetWindows(cronExpr: string): void {
     process.exit(1);
   }
 
-  const taskName = windowsTaskName(cwd);
+  const taskName = windowsTaskName(cwd, cronExpr);
   const aidevBin = getAidevBin();
   // cmd /c: run command and exit; /d: change drive+dir
   const command = `cmd /c cd /d "${cwd}" && "${aidevBin}" run`;
@@ -244,30 +245,98 @@ function scheduleSetWindows(cronExpr: string): void {
   }
 }
 
-function scheduleGetWindows(): void {
-  const cwd = process.cwd();
-  const taskName = windowsTaskName(cwd);
-
-  const result = spawnSync('schtasks', ['/query', '/tn', taskName, '/fo', 'LIST'], {
-    encoding: 'utf8',
-  });
-
-  if (result.status === 0) {
-    logger.info(`Task Scheduler entry for ${cwd}:`);
-    console.log(result.stdout.trim());
-  } else {
-    logger.warn(`No Task Scheduler entry found for ${cwd}`);
-    logger.info('Use "aidev schedule set" to configure one.');
-  }
+interface WindowsTaskEntry {
+  taskName: string;
+  nextRun: string;
+  status: string;
 }
 
-function scheduleRemoveWindows(): void {
-  const cwd = process.cwd();
-  const taskName = windowsTaskName(cwd);
+const WINDOWS_TASK_PREFIX = 'aidev\\';
 
-  const result = spawnSync('schtasks', ['/delete', '/f', '/tn', taskName], { encoding: 'utf8' });
+function listWindowsAidevTasks(): WindowsTaskEntry[] {
+  const result = spawnSync('schtasks', ['/query', '/fo', 'CSV', '/nh'], { encoding: 'utf8' });
+  if (result.status !== 0) return [];
+  return result.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.includes(`"\\${WINDOWS_TASK_PREFIX}`))
+    .map((line) => {
+      const cols = line.match(/"([^"]*)"/g)?.map((s) => s.replace(/"/g, ''));
+      if (!cols || cols.length < 3) return null;
+      return { taskName: cols[0].replace(/^\\/, ''), nextRun: cols[1], status: cols[2] };
+    })
+    .filter((x): x is WindowsTaskEntry => x !== null);
+}
+
+function printWindowsEntriesTable(entries: WindowsTaskEntry[]): void {
+  const nameW = Math.max(4, ...entries.map((e) => e.taskName.length));
+  const nextW = Math.max(8, ...entries.map((e) => e.nextRun.length));
+  const header =
+    `  ${chalk.bold('ID')}  ` +
+    `${chalk.bold('Task'.padEnd(nameW))}  ` +
+    chalk.bold('Next Run'.padEnd(nextW));
+  const sep = `  ──  ` + `${'─'.repeat(nameW)}  ` + '─'.repeat(nextW);
+  console.log(header);
+  console.log(sep);
+  entries.forEach((e, i) => {
+    const id = chalk.cyan(String(i + 1).padStart(2));
+    console.log(`  ${id}  ${e.taskName.padEnd(nameW)}  ${e.nextRun}`);
+  });
+}
+
+function scheduleGetWindows(): void {
+  const entries = listWindowsAidevTasks();
+  if (entries.length === 0) {
+    logger.warn('No aidev schedules found');
+    logger.info('Use "aidev schedule set" to configure one.');
+    return;
+  }
+  logger.info('Scheduled aidev jobs:');
+  console.log();
+  printWindowsEntriesTable(entries);
+  console.log();
+}
+
+async function scheduleRemoveWindows(id?: number): Promise<void> {
+  const entries = listWindowsAidevTasks();
+
+  if (entries.length === 0) {
+    logger.warn('No aidev schedules found');
+    return;
+  }
+
+  let idx: number;
+  if (id !== undefined) {
+    idx = id - 1;
+  } else {
+    logger.info('Scheduled aidev jobs:');
+    console.log();
+    printWindowsEntriesTable(entries);
+    console.log();
+    const rl = readline.createInterface({ input, output });
+    try {
+      while (true) {
+        const raw = await rl.question(`  Remove ID ${chalk.dim('[1]')}: `);
+        const val = raw.trim() || '1';
+        const n = parseInt(val, 10);
+        if (n >= 1 && n <= entries.length) { idx = n - 1; break; }
+        console.log(chalk.yellow(`  Enter a number between 1 and ${entries.length}.`));
+      }
+    } finally {
+      rl.close();
+    }
+  }
+
+  if (idx! < 0 || idx! >= entries.length) {
+    logger.error(`Invalid ID: ${id}. Valid range: 1–${entries.length}`);
+    process.exit(1);
+  }
+
+  const toRemove = entries[idx!];
+  const result = spawnSync('schtasks', ['/delete', '/f', '/tn', toRemove.taskName], {
+    encoding: 'utf8',
+  });
   if (result.status === 0) {
-    logger.success(`Removed Task Scheduler entry: ${taskName}`);
+    logger.success(`Removed Task Scheduler entry: ${toRemove.taskName}`);
   } else {
     logger.error(`Failed to remove task:\n${result.stderr}`);
     process.exit(1);
@@ -287,7 +356,7 @@ export async function scheduleGetCommand(): Promise<void> {
 
 export async function scheduleRemoveCommand(id?: number): Promise<void> {
   if (isWindows) {
-    scheduleRemoveWindows();
+    await scheduleRemoveWindows(id);
   } else {
     await scheduleRemoveUnix(id);
   }
