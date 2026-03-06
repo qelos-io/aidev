@@ -74,17 +74,105 @@ function scheduleSetUnix(cronExpr: string): void {
   }
 }
 
-function scheduleGetUnix(): void {
-  const cwd = process.cwd();
-  const marker = `${UNIX_MARKER_PREFIX}${cwd}`;
-  const entry = getCrontab().split('\n').find((l) => l.includes(marker));
+interface CronEntry {
+  cron: string;
+  cwd: string;
+  line: string;
+}
 
-  if (entry) {
-    logger.info(`Current schedule for ${cwd}:`);
-    console.log(entry);
-  } else {
-    logger.warn(`No schedule found for ${cwd}`);
+function parseAidevEntries(crontab: string): CronEntry[] {
+  return crontab
+    .split('\n')
+    .filter((l) => l.includes(UNIX_MARKER_PREFIX))
+    .map((line) => {
+      const cwdMatch = line.match(/# aidev-cwd:(.+)$/);
+      const cwd = cwdMatch ? cwdMatch[1].trim() : '(unknown)';
+      const parts = line.trim().split(/\s+/);
+      const cron = parts.slice(0, 5).join(' ');
+      return { cron, cwd, line };
+    });
+}
+
+function printEntriesTable(entries: CronEntry[]): void {
+  const cwdW = Math.max(9, ...entries.map((e) => e.cwd.length));
+  const cronW = Math.max(8, ...entries.map((e) => e.cron.length));
+  const header =
+    `  ${chalk.bold('ID')}  ` +
+    `${chalk.bold('Directory'.padEnd(cwdW))}  ` +
+    chalk.bold('Schedule'.padEnd(cronW));
+  const sep =
+    `  ──  ` + `${'─'.repeat(cwdW)}  ` + '─'.repeat(cronW);
+  console.log(header);
+  console.log(sep);
+  entries.forEach((e, i) => {
+    const id = chalk.cyan(String(i + 1).padStart(2));
+    const isCurrentDir = e.cwd === process.cwd();
+    const dir = isCurrentDir ? chalk.green(e.cwd.padEnd(cwdW)) : e.cwd.padEnd(cwdW);
+    console.log(`  ${id}  ${dir}  ${e.cron}`);
+  });
+}
+
+function scheduleGetUnix(): void {
+  const entries = parseAidevEntries(getCrontab());
+  if (entries.length === 0) {
+    logger.warn('No aidev schedules found');
     logger.info('Use "aidev schedule set" to configure one.');
+    return;
+  }
+  logger.info('Scheduled aidev jobs:');
+  console.log();
+  printEntriesTable(entries);
+  console.log();
+}
+
+async function scheduleRemoveUnix(id?: number): Promise<void> {
+  const crontab = getCrontab();
+  const entries = parseAidevEntries(crontab);
+
+  if (entries.length === 0) {
+    logger.warn('No aidev schedules found');
+    return;
+  }
+
+  let idx: number;
+  if (id !== undefined) {
+    idx = id - 1;
+  } else {
+    logger.info('Scheduled aidev jobs:');
+    console.log();
+    printEntriesTable(entries);
+    console.log();
+    const rl = readline.createInterface({ input, output });
+    try {
+      while (true) {
+        const raw = await rl.question(`  Remove ID ${chalk.dim('[1]')}: `);
+        const val = raw.trim() || '1';
+        const n = parseInt(val, 10);
+        if (n >= 1 && n <= entries.length) { idx = n - 1; break; }
+        console.log(chalk.yellow(`  Enter a number between 1 and ${entries.length}.`));
+      }
+    } finally {
+      rl.close();
+    }
+  }
+
+  if (idx! < 0 || idx! >= entries.length) {
+    logger.error(`Invalid ID: ${id}. Valid range: 1–${entries.length}`);
+    process.exit(1);
+  }
+
+  const toRemove = entries[idx!];
+  const updated = crontab
+    .split('\n')
+    .filter((l) => l !== toRemove.line)
+    .join('\n')
+    .replace(/\n+$/, '') + '\n';
+
+  if (setCrontab(updated)) {
+    logger.success(`Removed schedule for ${toRemove.cwd}`);
+  } else {
+    logger.error('Failed to update crontab');
+    process.exit(1);
   }
 }
 
@@ -167,6 +255,19 @@ function scheduleGetWindows(): void {
   }
 }
 
+function scheduleRemoveWindows(): void {
+  const cwd = process.cwd();
+  const taskName = windowsTaskName(cwd);
+
+  const result = spawnSync('schtasks', ['/delete', '/f', '/tn', taskName], { encoding: 'utf8' });
+  if (result.status === 0) {
+    logger.success(`Removed Task Scheduler entry: ${taskName}`);
+  } else {
+    logger.error(`Failed to remove task:\n${result.stderr}`);
+    process.exit(1);
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function scheduleSetCommand(cronExpr?: string): Promise<void> {
@@ -176,4 +277,12 @@ export async function scheduleSetCommand(cronExpr?: string): Promise<void> {
 
 export async function scheduleGetCommand(): Promise<void> {
   isWindows ? scheduleGetWindows() : scheduleGetUnix();
+}
+
+export async function scheduleRemoveCommand(id?: number): Promise<void> {
+  if (isWindows) {
+    scheduleRemoveWindows();
+  } else {
+    await scheduleRemoveUnix(id);
+  }
 }

@@ -202,29 +202,23 @@ async function implementTask(
     logger.info(`Running ${runner.name}...`);
     const result = await runner.run(implementPrompt, previousNotes || undefined);
 
-    if (result.success) {
+    if (result.success && git.hasChanges()) {
       implemented = true;
       break;
     }
 
-    logger.warn(`${runner.name} failed — trying next runner`);
-    previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
+    if (!result.success) {
+      logger.warn(`${runner.name} failed — trying next runner`);
+      previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
+    } else {
+      logger.warn(`${runner.name} produced no file changes — trying next runner`);
+      previousNotes = `Previous runner (${runner.name}) made no changes. Output:\n${result.output}`;
+    }
   }
 
   if (!implemented) {
-    logger.error('All AI runners failed');
+    logger.error('All AI runners failed or produced no changes');
     await provider.postComment(task.id, '[aidev] All AI runners failed. Manual implementation needed.');
-    git.deleteBranch(branchName);
-    return;
-  }
-
-  // Check if AI made changes
-  if (!git.hasChanges()) {
-    logger.warn('AI runner produced no file changes');
-    await provider.postComment(
-      task.id,
-      '[aidev] AI runner completed but made no code changes. More information may be needed.'
-    );
     git.deleteBranch(branchName);
     return;
   }

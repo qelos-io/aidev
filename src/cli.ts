@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { initCommand } from './commands/init';
 import { runCommand, RunFilter } from './commands/run';
-import { scheduleSetCommand, scheduleGetCommand } from './commands/schedule';
+import { scheduleSetCommand, scheduleGetCommand, scheduleRemoveCommand } from './commands/schedule';
 import { helpCommand } from './commands/help';
 import { loadConfig } from './config';
 import { createProvider } from './providers';
@@ -75,9 +75,16 @@ scheduleCmd
 
 scheduleCmd
   .command('get')
-  .description('Show current cron schedule for this directory')
+  .description('Show all aidev cron schedules as a table')
   .action(async () => {
     await scheduleGetCommand();
+  });
+
+scheduleCmd
+  .command('remove [id]')
+  .description('Remove an aidev cron schedule by table ID (interactive if omitted)')
+  .action(async (id?: string) => {
+    await scheduleRemoveCommand(id ? parseInt(id, 10) : undefined);
   });
 
 program.parse(process.argv);
