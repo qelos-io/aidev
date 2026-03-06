@@ -231,7 +231,7 @@ ANSI colour codes are stripped so the file stays readable in any editor or `tail
 | Provider | Status |
 |---|---|
 | ClickUp | ✅ Implemented |
-| Jira | 🔜 Stub — contributions welcome |
+| Jira | ✅ Implemented |
 | Notion | 🔜 Stub — contributions welcome |
 | Trello | 🔜 Stub — contributions welcome |
 
