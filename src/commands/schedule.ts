@@ -57,7 +57,7 @@ function setCrontab(content: string): boolean {
 
 export function buildUnixCronLine(cronExpr: string, cwd: string, nodeBin: string, aidevBin: string): string {
   const marker = `${UNIX_MARKER_PREFIX}${cwd}`;
-  return `${cronExpr} cd ${cwd} && ${nodeBin} ${aidevBin} run ${marker}`;
+  return `${cronExpr} zsh -l -c 'cd ${cwd} && ${nodeBin} ${aidevBin} run' ${marker}`;
 }
 
 function scheduleSetUnix(cronExpr: string): void {
