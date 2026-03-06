@@ -7,7 +7,7 @@ export class CursorRunner implements AIRunner {
   readonly name = 'cursor';
 
   isAvailable(): boolean {
-    return commandExists('cursor');
+    return commandExists('agent');
   }
 
   async run(prompt: string, notes?: string): Promise<AIRunResult> {
@@ -16,18 +16,24 @@ export class CursorRunner implements AIRunner {
     logger.info('Running Cursor Agent...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-    const result = spawnSync('cursor', ['--agent', fullPrompt], {
-      encoding: 'utf8',
-      timeout: 10 * 60 * 1000,
-      cwd: process.cwd(),
-    });
+    const cwd = process.cwd();
+    const result = spawnSync(
+      'agent',
+      ['--print', '--force', '--trust', '--workspace', cwd, fullPrompt],
+      {
+        encoding: 'utf8',
+        timeout: 10 * 60 * 1000,
+        cwd,
+      }
+    );
 
     const success = result.status === 0;
     const output = result.stdout || '';
     const error = result.stderr || '';
 
     if (!success) {
-      logger.warn(`Cursor exited with status ${result.status}`);
+      logger.warn(`Cursor Agent exited with status ${result.status}`);
+      if (error) logger.debug(`stderr: ${error.slice(0, 300)}`);
     }
 
     return { success, output, error };
