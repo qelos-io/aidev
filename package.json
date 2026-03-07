@@ -26,6 +26,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qelos-io/aidev.git"
+  },
+  "bugs": {
+    "url": "https://github.com/qelos-io/aidev/issues"
+  },
+  "homepage": "https://github.com/qelos-io/aidev#readme",
   "publishConfig": {
     "access": "public"
   },
