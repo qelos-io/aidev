@@ -47,6 +47,8 @@ export function loadConfig(customEnvPath?: string): Config {
     throw new Error(`Invalid DEV_NOTES_MODE: ${devNotesMode}. Must be smart or always`);
   }
 
+  const triggerWord = process.env.AIDEV_TRIGGER_WORD || 'aidev-continue';
+
   return {
     provider,
     clickupApiKey: process.env.CLICKUP_API_KEY || '',
@@ -67,5 +69,6 @@ export function loadConfig(customEnvPath?: string): Config {
     githubRepo: process.env.GITHUB_REPO || '',
     agents,
     devNotesMode,
+    triggerWord,
   };
 }

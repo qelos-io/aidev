@@ -2,9 +2,11 @@ import { Config, Task, Comment } from '../types';
 import { TaskProvider } from '../providers';
 import { AIRunner } from '../ai';
 import { logger, logRunStart } from '../logger';
+import { isScreenAvailable } from '../platform';
 import * as git from '../git';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
+const SLEEPING_MARKER = 'machine appears to be asleep';
 
 export type RunFilter = 'all' | 'open' | 'pending';
 
@@ -15,6 +17,12 @@ export async function runCommand(
   runners: AIRunner[]
 ): Promise<void> {
   logRunStart();
+
+  const screenAvailable = isScreenAvailable();
+  if (!screenAvailable) {
+    logger.warn('Screen is locked or display is asleep — AI agents cannot operate');
+  }
+
   logger.info(`Fetching tasks (filter: ${filter})...`);
   const tasks = await provider.fetchTasks();
   logger.info(`Found ${tasks.length} tagged task(s)`);
@@ -23,7 +31,7 @@ export async function runCommand(
   let skipped = 0;
 
   for (const task of tasks) {
-    const result = await processTask(task, filter, config, provider, runners);
+    const result = await processTask(task, filter, config, provider, runners, screenAvailable);
     if (result === 'processed') processed++;
     else skipped++;
   }
@@ -36,26 +44,21 @@ async function processTask(
   filter: RunFilter,
   config: Config,
   provider: TaskProvider,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
   const isPending = task.status.toLowerCase() === config.clickupPendingStatus.toLowerCase();
 
   logger.task(`[${task.id}] "${task.name}" (status: ${task.status})`);
 
-  // Skip terminal statuses
   if (SKIP_STATUSES.has(task.status.toLowerCase())) {
     logger.debug(`Skipping — terminal status: ${task.status}`);
     return 'skipped';
   }
 
-  // Skip if remote branch already exists for this task
   const branchName = `${task.id}/${git.slugify(task.name)}`;
-  if (git.remoteBranchExists(config.gitRemote, branchName)) {
-    logger.debug(`Skipping — branch already exists: ${branchName}`);
-    return 'skipped';
-  }
+  const branchExists = git.remoteBranchExists(config.gitRemote, branchName);
 
-  // Apply filter
   if (filter === 'open' && isPending) {
     logger.debug('Skipping — filter=open, task is pending');
     return 'skipped';
@@ -65,37 +68,86 @@ async function processTask(
     return 'skipped';
   }
 
-  // Handle pending tasks: check if a human replied
-  if (isPending) {
-    const hasReply = await checkForHumanReply(task, provider);
-    if (!hasReply) {
-      logger.debug('Skipping — pending task has no human reply yet');
+  if (isPending || branchExists) {
+    const comments = await provider.getComments(task.id);
+    const trigger = hasTriggerWord(comments, config.triggerWord);
+
+    if (isPending) {
+      const reply = hasHumanReply(comments);
+      if (!reply && !trigger) {
+        logger.debug('Skipping — pending task has no human reply or trigger word');
+        return 'skipped';
+      }
+      logger.info(
+        trigger
+          ? `Trigger word "${config.triggerWord}" found — re-processing pending task`
+          : 'Pending task has a human reply — proceeding'
+      );
+    } else {
+      if (!trigger) {
+        logger.debug(`Skipping — branch already exists: ${branchName}`);
+        return 'skipped';
+      }
+      logger.info(`Trigger word "${config.triggerWord}" found — re-processing task`);
+    }
+
+    if (!screenAvailable) {
+      await notifySleeping(task, provider);
       return 'skipped';
     }
-    logger.info('Pending task has a human reply — proceeding');
   } else {
-    // Check if task needs clarification
+    if (!screenAvailable) {
+      await notifySleeping(task, provider);
+      return 'skipped';
+    }
+
     const clarification = await checkNeedsClarification(task, config, provider, runners);
     if (clarification) {
-      await provider.postComment(task.id, clarification);
+      await provider.postComment(task.id, `[aidev] ${clarification}`);
       await provider.updateStatus(task.id, config.clickupPendingStatus);
       logger.info(`Posted clarification question, set status to ${config.clickupPendingStatus}`);
       return 'skipped';
     }
   }
 
-  // Implement the task
-  await implementTask(task, branchName, config, provider, runners);
+  await implementTask(task, branchName, branchExists, config, provider, runners);
   return 'processed';
 }
 
-async function checkForHumanReply(task: Task, provider: TaskProvider): Promise<boolean> {
-  const comments = await provider.getComments(task.id);
+export function hasHumanReply(comments: Comment[]): boolean {
   if (comments.length < 2) return false;
-
-  // The last comment should be from a human (not a bot — heuristic: not containing "[aidev]")
   const lastComment = comments[comments.length - 1];
   return !lastComment.text.includes('[aidev]');
+}
+
+export function hasTriggerWord(comments: Comment[], triggerWord: string): boolean {
+  if (comments.length === 0 || !triggerWord) return false;
+  const lastComment = comments[comments.length - 1];
+  return lastComment.text.toLowerCase().includes(triggerWord.toLowerCase());
+}
+
+async function notifySleeping(task: Task, provider: TaskProvider): Promise<void> {
+  try {
+    const comments = await provider.getComments(task.id);
+    const lastComment = comments.length > 0 ? comments[comments.length - 1] : null;
+    if (lastComment && lastComment.text.includes(SLEEPING_MARKER)) {
+      logger.debug(`[${task.id}] Already notified about sleep — skipping`);
+      return;
+    }
+  } catch {
+    // If we can't check comments, still attempt to post
+  }
+
+  try {
+    await provider.postComment(
+      task.id,
+      `[aidev] Cannot work on this task — the ${SLEEPING_MARKER} or the screen is locked. ` +
+        'AI agents require an active display session to operate. Please wake the machine and unlock the screen so I can continue.'
+    );
+    logger.info(`[${task.id}] Posted sleep notification`);
+  } catch (err) {
+    logger.warn(`[${task.id}] Failed to post sleep notification: ${err}`);
+  }
 }
 
 async function checkNeedsClarification(
@@ -150,30 +202,39 @@ Respond with valid JSON only:
 async function implementTask(
   task: Task,
   branchName: string,
+  branchExists: boolean,
   config: Config,
   provider: TaskProvider,
   runners: AIRunner[]
 ): Promise<void> {
   logger.info(`Implementing task: ${task.name}`);
 
-  // Mark as in progress
   try {
     await provider.updateStatus(task.id, 'in progress');
-    await provider.postComment(task.id, `[aidev] Starting implementation on branch \`${branchName}\``);
+    const verb = branchExists ? 'Continuing' : 'Starting';
+    await provider.postComment(task.id, `[aidev] ${verb} implementation on branch \`${branchName}\``);
   } catch (err) {
     logger.warn(`Could not update task status: ${err}`);
   }
 
-  // Prepare git branch
-  if (!git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch)) {
-    logger.error('Failed to prepare base branch');
-    await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
-    return;
-  }
+  if (branchExists) {
+    if (!git.fetchAndCheckoutBranch(config.gitRemote, branchName)) {
+      logger.error(`Failed to checkout existing branch ${branchName}`);
+      await provider.postComment(task.id, '[aidev] Failed to checkout existing branch. Manual intervention needed.');
+      return;
+    }
+    logger.info(`Continuing on existing branch: ${branchName}`);
+  } else {
+    if (!git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch)) {
+      logger.error('Failed to prepare base branch');
+      await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
+      return;
+    }
 
-  if (!git.createBranch(branchName)) {
-    logger.error(`Failed to create branch ${branchName}`);
-    return;
+    if (!git.createBranch(branchName)) {
+      logger.error(`Failed to create branch ${branchName}`);
+      return;
+    }
   }
 
   // Get conversation context for pending tasks
@@ -219,7 +280,9 @@ async function implementTask(
   if (!implemented) {
     logger.error('All AI runners failed or produced no changes');
     await provider.postComment(task.id, '[aidev] All AI runners failed. Manual implementation needed.');
-    git.deleteBranch(branchName);
+    if (!branchExists) {
+      git.deleteBranch(branchName);
+    }
     return;
   }
 
