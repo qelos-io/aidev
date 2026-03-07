@@ -9,12 +9,15 @@ import { createProvider } from './providers';
 import { createRunners } from './ai';
 import { logger } from './logger';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { version } = require('../package.json') as { version: string };
+
 const program = new Command();
 
 program
   .name('aidev')
   .description('AI-powered task executor — implements ClickUp tasks with Claude or Cursor')
-  .version('0.1.0')
+  .version(version)
   .option('-e, --env <path>', 'path to env file (default: .env.aidev)');
 
 program

@@ -100,9 +100,14 @@ export class ClickUpProvider implements TaskProvider {
   async getComments(taskId: string): Promise<Comment[]> {
     logger.debug(`Fetching comments for task ${taskId}`);
 
+    interface RawCommentBlock {
+      text?: string;
+    }
+
     interface RawComment {
       id: string;
-      comment_text: string;
+      comment_text: string | RawCommentBlock[];
+      comment?: RawCommentBlock[];
       user: { username: string; id: number };
       date: string;
     }
@@ -113,13 +118,28 @@ export class ClickUpProvider implements TaskProvider {
 
     const data = await this.request<CommentsResponse>(`/task/${taskId}/comment`);
 
-    return data.comments.map((c) => ({
-      id: c.id,
-      text: c.comment_text,
-      author: c.user.username,
-      authorId: String(c.user.id),
-      date: parseInt(c.date, 10),
-    }));
+    // ClickUp returns comments newest-first; sort ascending so newest is last
+    const sorted = [...data.comments].sort((a, b) => parseInt(a.date, 10) - parseInt(b.date, 10));
+
+    return sorted.map((c) => {
+      let text: string;
+      if (typeof c.comment_text === 'string' && c.comment_text) {
+        text = c.comment_text;
+      } else if (Array.isArray(c.comment_text) && c.comment_text.length > 0) {
+        text = c.comment_text.map((b) => b.text || '').join('');
+      } else if (Array.isArray(c.comment) && c.comment.length > 0) {
+        text = c.comment.map((b) => b.text || '').join('');
+      } else {
+        text = '';
+      }
+      return {
+        id: c.id,
+        text,
+        author: c.user.username,
+        authorId: String(c.user.id),
+        date: parseInt(c.date, 10),
+      };
+    });
   }
 
   async updateStatus(taskId: string, status: string): Promise<void> {

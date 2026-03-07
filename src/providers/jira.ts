@@ -119,7 +119,12 @@ export class JiraProvider implements TaskProvider {
 
     const data = await this.request<CommentsResponse>(`/issue/${taskId}/comment`);
 
-    return data.comments.map((c) => ({
+    // Sort ascending by date so newest is always last (consistent with ClickUp provider)
+    const sorted = [...data.comments].sort(
+      (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime()
+    );
+
+    return sorted.map((c) => ({
       id: c.id,
       text: this.adfToText(c.body),
       author: c.author.displayName,

@@ -1,6 +1,6 @@
 {
   "name": "@qelos/aidev",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "AI-powered task executor — polls ClickUp (and more) to implement tasks with Claude or Cursor",
   "type": "commonjs",
   "bin": {
@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc && node -e \"if(process.platform!=='win32')require('fs').chmodSync('dist/cli.js',0o755)\"",
     "dev": "tsx src/cli.ts",
-    "test": "node --require tsx/cjs --test src/__tests__/git.test.ts src/__tests__/platform.test.ts src/__tests__/schedule.test.ts src/__tests__/init.test.ts src/__tests__/run.test.ts src/__tests__/permissions.test.ts",
+    "test": "node --require tsx/cjs --test src/__tests__/git.test.ts src/__tests__/platform.test.ts src/__tests__/schedule.test.ts src/__tests__/init.test.ts src/__tests__/run.test.ts src/__tests__/permissions.test.ts src/__tests__/providers.test.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
