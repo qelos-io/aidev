@@ -7,6 +7,7 @@ import * as git from '../git';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
 const SLEEPING_MARKER = 'machine appears to be asleep';
+export const DEFAULT_TRIGGER_WORD = 'aidev-continue';
 
 export type RunFilter = 'all' | 'open' | 'pending';
 
@@ -52,7 +53,7 @@ async function processTask(
   logger.task(`[${task.id}] "${task.name}" (status: ${task.status})`);
 
   if (SKIP_STATUSES.has(task.status.toLowerCase())) {
-    logger.debug(`Skipping — terminal status: ${task.status}`);
+    logger.info(`[${task.id}] "${task.name}" skipped — terminal status: ${task.status}`);
     return 'skipped';
   }
 
@@ -60,11 +61,11 @@ async function processTask(
   const branchExists = git.remoteBranchExists(config.gitRemote, branchName);
 
   if (filter === 'open' && isPending) {
-    logger.debug('Skipping — filter=open, task is pending');
+    logger.info(`[${task.id}] "${task.name}" skipped — filter=open but task is pending`);
     return 'skipped';
   }
   if (filter === 'pending' && !isPending) {
-    logger.debug('Skipping — filter=pending, task is not pending');
+    logger.info(`[${task.id}] "${task.name}" skipped — filter=pending but task is not pending`);
     return 'skipped';
   }
 
@@ -75,7 +76,7 @@ async function processTask(
     if (isPending) {
       const reply = hasHumanReply(comments);
       if (!reply && !trigger) {
-        logger.debug('Skipping — pending task has no human reply or trigger word');
+        logger.info(`[${task.id}] "${task.name}" skipped — pending task has no human reply or trigger word ("${config.triggerWord}")`);
         return 'skipped';
       }
       logger.info(
@@ -85,7 +86,7 @@ async function processTask(
       );
     } else {
       if (!trigger) {
-        logger.debug(`Skipping — branch already exists: ${branchName}`);
+        logger.info(`[${task.id}] "${task.name}" skipped — branch already exists (${branchName}) and no trigger word found`);
         return 'skipped';
       }
       logger.info(`Trigger word "${config.triggerWord}" found — re-processing task`);
@@ -120,10 +121,17 @@ export function hasHumanReply(comments: Comment[]): boolean {
   return !lastComment.text.includes('[aidev]');
 }
 
+/**
+ * Returns true if the last comment contains the trigger word.
+ * DEFAULT_TRIGGER_WORD ('aidev-continue') is always recognised regardless of
+ * the configured triggerWord, so it works out-of-the-box without env config.
+ */
 export function hasTriggerWord(comments: Comment[], triggerWord: string): boolean {
-  if (comments.length === 0 || !triggerWord) return false;
-  const lastComment = comments[comments.length - 1];
-  return lastComment.text.toLowerCase().includes(triggerWord.toLowerCase());
+  if (comments.length === 0) return false;
+  const lastText = comments[comments.length - 1].text.toLowerCase();
+  if (lastText.includes(DEFAULT_TRIGGER_WORD)) return true;
+  if (triggerWord && lastText.includes(triggerWord.toLowerCase())) return true;
+  return false;
 }
 
 async function notifySleeping(task: Task, provider: TaskProvider): Promise<void> {

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildImplementPrompt, hasHumanReply, hasTriggerWord } from '../commands/run';
+import { buildPRUrl, buildCompletionComment, buildImplementPrompt, hasHumanReply, hasTriggerWord, DEFAULT_TRIGGER_WORD } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 
@@ -139,8 +139,38 @@ describe('hasTriggerWord', () => {
     assert.equal(hasTriggerWord(comments, 'aidev-continue'), false);
   });
 
-  it('returns false when trigger word is empty', () => {
+  it('returns false when trigger word is empty and no default trigger present', () => {
     const comments = [makeComment('any text')];
     assert.equal(hasTriggerWord(comments, ''), false);
+  });
+
+  // ── Default trigger word always works regardless of configured triggerWord ──
+
+  it('DEFAULT_TRIGGER_WORD is "aidev-continue"', () => {
+    assert.equal(DEFAULT_TRIGGER_WORD, 'aidev-continue');
+  });
+
+  it('aidev-continue works even when triggerWord is empty (no env config)', () => {
+    const comments = [makeComment('aidev-continue')];
+    assert.equal(hasTriggerWord(comments, ''), true);
+  });
+
+  it('aidev-continue works even when a different triggerWord is configured', () => {
+    const comments = [makeComment('aidev-continue')];
+    assert.equal(hasTriggerWord(comments, 'my-custom-word'), true);
+  });
+
+  it('configured custom trigger word also works', () => {
+    const comments = [makeComment('my-custom-word go ahead')];
+    assert.equal(hasTriggerWord(comments, 'my-custom-word'), true);
+  });
+
+  it('only checks the last comment — earlier trigger word is ignored', () => {
+    const comments = [
+      makeComment('aidev-continue'),
+      makeComment('Please review my changes'),
+    ];
+    // last comment has no trigger word
+    assert.equal(hasTriggerWord(comments, 'aidev-continue'), false);
   });
 });
