@@ -15,6 +15,8 @@ const VALID_AGENTS = ['claude', 'cursor', 'windsurf'] as const;
 const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['.env.*',   /^\.env[\.\*]/m],
   ['*.log',    /^\*\.log/m],
+  ['*.aidev.instructions.md', /^\*\.aidev\.instructions\.md/m],
+  ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
 ];
 
 export function ensureGitignore(dir = process.cwd()): void {
@@ -65,6 +67,7 @@ export interface Answers {
   agents: string;
   devNotesMode: string;
   triggerWord: string;
+  thinkingTag: string;
 }
 
 function dim(s: string) {
@@ -229,6 +232,9 @@ export function renderEnv(a: Answers): string {
     `# AIDEV_TRIGGER_WORD: comment containing this word re-triggers task processing (default: aidev-continue)`,
     `AIDEV_TRIGGER_WORD=${envVal(a.triggerWord)}`,
     ``,
+    `# THINKING_TAG: tasks with this tag are analyzed and broken into sub-tasks before execution`,
+    line('THINKING_TAG', a.thinkingTag),
+    ``,
   ];
   return lines.filter((l) => l !== null).join('\n');
 }
@@ -348,6 +354,14 @@ export async function initCommand(): Promise<void> {
       'aidev-continue'
     );
 
+    // ── Thinking tag ────────────────────────────────────────
+    section('Thinking tasks');
+    const thinkingTag = await ask(
+      rl,
+      `Thinking tag ${hint('tasks with this tag are broken into sub-tasks before execution, optional')}`,
+      ''
+    );
+
     // ── Assignee ─────────────────────────────────────────────
     section('Assignee');
     const effectiveApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
@@ -384,6 +398,7 @@ export async function initCommand(): Promise<void> {
       agents,
       devNotesMode,
       triggerWord,
+      thinkingTag,
     };
 
     ensureGitignore();

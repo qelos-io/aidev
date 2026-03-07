@@ -41,4 +41,5 @@ export interface Config {
   agents: AgentName[];
   devNotesMode: 'smart' | 'always';
   triggerWord: string;
+  thinkingTag: string;
 }

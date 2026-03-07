@@ -4,3 +4,5 @@ dist/
 aidev.log
 *.js.map
 *.d.ts
+*.aidev.instructions.md
+*.aidev.task.json

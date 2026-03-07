@@ -48,6 +48,7 @@ export function loadConfig(customEnvPath?: string): Config {
   }
 
   const triggerWord = process.env.AIDEV_TRIGGER_WORD || 'aidev-continue';
+  const thinkingTag = process.env.THINKING_TAG || '';
 
   return {
     provider,
@@ -70,5 +71,6 @@ export function loadConfig(customEnvPath?: string): Config {
     agents,
     devNotesMode,
     triggerWord,
+    thinkingTag,
   };
 }

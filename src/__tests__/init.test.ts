@@ -56,6 +56,7 @@ const baseAnswers: Answers = {
   agents: 'claude,cursor',
   devNotesMode: 'smart',
   triggerWord: 'aidev-continue',
+  thinkingTag: '',
 };
 
 describe('renderEnv', () => {
