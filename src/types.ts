@@ -40,4 +40,5 @@ export interface Config {
   githubRepo: string;
   agents: AgentName[];
   devNotesMode: 'smart' | 'always';
+  triggerWord: string;
 }

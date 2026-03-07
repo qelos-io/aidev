@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildImplementPrompt } from '../commands/run';
-import type { Config } from '../types';
+import { buildPRUrl, buildCompletionComment, buildImplementPrompt, hasHumanReply, hasTriggerWord } from '../commands/run';
+import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 
 const baseConfig = {
@@ -85,5 +85,62 @@ describe('buildImplementPrompt', () => {
   it('handles missing description gracefully', () => {
     const prompt = buildImplementPrompt({ ...task, description: '' }, '');
     assert.ok(prompt.includes('no description provided'));
+  });
+});
+
+// ─── hasHumanReply ────────────────────────────────────────────────────────────
+
+function makeComment(text: string): Comment {
+  return { id: '1', text, author: 'user', authorId: '100', date: Date.now() };
+}
+
+describe('hasHumanReply', () => {
+  it('returns false when fewer than 2 comments', () => {
+    assert.equal(hasHumanReply([]), false);
+    assert.equal(hasHumanReply([makeComment('hello')]), false);
+  });
+
+  it('returns true when last comment is from a human', () => {
+    const comments = [
+      makeComment('[aidev] Starting implementation'),
+      makeComment('Please also fix the tests'),
+    ];
+    assert.equal(hasHumanReply(comments), true);
+  });
+
+  it('returns false when last comment is from aidev', () => {
+    const comments = [
+      makeComment('[aidev] Starting implementation'),
+      makeComment('[aidev] All AI runners failed.'),
+    ];
+    assert.equal(hasHumanReply(comments), false);
+  });
+});
+
+// ─── hasTriggerWord ───────────────────────────────────────────────────────────
+
+describe('hasTriggerWord', () => {
+  it('returns false on empty comments', () => {
+    assert.equal(hasTriggerWord([], 'aidev-continue'), false);
+  });
+
+  it('returns true when last comment contains the trigger word', () => {
+    const comments = [makeComment('aidev-continue please re-run')];
+    assert.equal(hasTriggerWord(comments, 'aidev-continue'), true);
+  });
+
+  it('is case-insensitive', () => {
+    const comments = [makeComment('AIDEV-CONTINUE')];
+    assert.equal(hasTriggerWord(comments, 'aidev-continue'), true);
+  });
+
+  it('returns false when trigger word is absent', () => {
+    const comments = [makeComment('Please fix the tests')];
+    assert.equal(hasTriggerWord(comments, 'aidev-continue'), false);
+  });
+
+  it('returns false when trigger word is empty', () => {
+    const comments = [makeComment('any text')];
+    assert.equal(hasTriggerWord(comments, ''), false);
   });
 });

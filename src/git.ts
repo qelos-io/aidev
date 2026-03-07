@@ -43,6 +43,34 @@ export function fetchAndCheckout(remote: string, baseBranch: string): boolean {
   return true;
 }
 
+export function fetchAndCheckoutBranch(remote: string, branch: string): boolean {
+  logger.debug(`git fetch ${remote}`);
+  const fetchResult = git(['fetch', remote]);
+  if (fetchResult.status !== 0) {
+    logger.error(`git fetch failed: ${fetchResult.stderr}`);
+    return false;
+  }
+
+  logger.debug(`git checkout ${branch}`);
+  const checkout = git(['checkout', branch]);
+  if (checkout.status === 0) {
+    logger.debug(`git pull ${remote} ${branch}`);
+    const pull = git(['pull', remote, branch]);
+    if (pull.status !== 0) {
+      logger.warn(`git pull failed: ${pull.stderr} — continuing with local state`);
+    }
+    return true;
+  }
+
+  logger.debug(`git checkout --track ${remote}/${branch}`);
+  const track = git(['checkout', '--track', `${remote}/${branch}`]);
+  if (track.status !== 0) {
+    logger.error(`git checkout --track failed: ${track.stderr}`);
+    return false;
+  }
+  return true;
+}
+
 export function createBranch(branch: string): boolean {
   logger.debug(`git checkout -b ${branch}`);
   const result = git(['checkout', '-b', branch]);

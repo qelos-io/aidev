@@ -21,6 +21,11 @@ ${b('COMMANDS')}
   ${c('schedule get')}                Show current cron schedule
   ${c('help')}                        Show this help message
 
+${b('TRIGGER WORD')}
+  When a task is skipped (branch exists or pending with no reply), post a comment
+  containing the trigger word ${d('(default: aidev-continue)')} to re-trigger processing.
+  The existing branch will be reused. Set ${c('AIDEV_TRIGGER_WORD')} to customise.
+
 ${b('EXAMPLES')}
   ${d('$')} ${g('aidev init')}
   ${d('$')} ${g('aidev run')}
@@ -34,6 +39,7 @@ ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
   ${d('CLICKUP_TAG')}          Tag used to filter tasks
   ${d('AGENTS')}               Agent order: ${c('claude,cursor')} ${d('| cursor,claude | claude | cursor')}
   ${d('DEV_NOTES_MODE')}       ${c('smart')} ${d('(default) | always')}
+  ${d('AIDEV_TRIGGER_WORD')}   Trigger word to re-process a skipped task ${d('(default: aidev-continue)')}
   ${d('GIT_REMOTE')}           Remote name ${d('(auto-detected if unset)')}
   ${d('GITHUB_BASE_BRANCH')}   Base branch ${d('(default: main)')}
   ${d('GITHUB_REPO')}          ${d('owner/repo')} for PR links

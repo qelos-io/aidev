@@ -33,9 +33,9 @@ ClickUp task  →  AI implements  →  git push  →  "in review"
 
 1. **Fetch** — pulls all tasks tagged with your configured tag from ClickUp
 2. **Filter** — skips done/cancelled tasks and tasks that already have a branch
-3. **Clarify** — in `smart` mode, asks the AI if the task description is clear enough; if not, posts a question as a comment and marks the task `pending`
-4. **Wait** — pending tasks are re-checked on the next run; if a human replied, implementation proceeds with the reply as extra context
-5. **Implement** — checks out a fresh branch, runs your configured AI agent(s), falls back to the next agent if one fails
+3. **Clarify** — in `smart` mode, asks the AI if the task description is clear enough; if not, posts a question as a comment (prefixed with `[aidev]`) and marks the task `pending`
+4. **Wait** — pending tasks are re-checked on the next run; if a human replied or the trigger word is found, implementation proceeds with the conversation as context
+5. **Implement** — checks out a fresh branch (or reuses an existing one), runs your configured AI agent(s), falls back to the next agent if one fails
 6. **Ship** — commits all changes, pushes the branch, posts a comment with the branch name and a PR link, moves the task to your "in review" status
 
 ---
@@ -123,12 +123,13 @@ Run `aidev init` for an interactive setup, or create `.env.aidev` manually using
 | `GITHUB_BASE_BRANCH` | `main` | Base branch; new task branches are cut from here |
 | `GITHUB_REPO` | — | `owner/repo` — used to generate PR links in comments |
 
-### AI agents
+### Behaviour
 
 | Variable | Default | Description |
 |---|---|---|
 | `AGENTS` | `claude,cursor` | Comma-separated list of agents in priority order |
 | `DEV_NOTES_MODE` | `smart` | When to ask for clarification (`smart` or `always`) |
+| `AIDEV_TRIGGER_WORD` | `aidev-continue` | Comment containing this word re-triggers a skipped task |
 
 ---
 
@@ -162,6 +163,27 @@ AGENTS=claude,windsurf,cursor
 # Windsurf only
 AGENTS=windsurf
 ```
+
+---
+
+## Trigger word & re-processing
+
+aidev prefixes every comment it posts with `[aidev]`. This lets it distinguish its own comments from human replies when deciding whether to re-process a task.
+
+A task is normally skipped when:
+- A remote branch already exists for it, **or**
+- It is `pending` and no human has replied yet
+
+To force aidev to pick the task up again, post a comment containing the **trigger word** (default: `aidev-continue`). aidev will reuse the existing branch and continue implementation from where it left off.
+
+```bash
+# Customise the trigger word in .env.aidev
+AIDEV_TRIGGER_WORD=please-retry
+```
+
+The trigger word match is case-insensitive, so `aidev-continue`, `AIDEV-CONTINUE`, and `Aidev-Continue` all work.
+
+For pending tasks, a regular human reply (any comment without `[aidev]`) also triggers re-processing — the trigger word is an additional explicit mechanism.
 
 ---
 

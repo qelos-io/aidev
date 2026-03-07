@@ -55,6 +55,7 @@ const baseAnswers: Answers = {
   githubRepo: 'owner/repo',
   agents: 'claude,cursor',
   devNotesMode: 'smart',
+  triggerWord: 'aidev-continue',
 };
 
 describe('renderEnv', () => {

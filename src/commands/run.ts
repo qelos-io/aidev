@@ -42,20 +42,14 @@ async function processTask(
 
   logger.task(`[${task.id}] "${task.name}" (status: ${task.status})`);
 
-  // Skip terminal statuses
   if (SKIP_STATUSES.has(task.status.toLowerCase())) {
     logger.debug(`Skipping — terminal status: ${task.status}`);
     return 'skipped';
   }
 
-  // Skip if remote branch already exists for this task
   const branchName = `${task.id}/${git.slugify(task.name)}`;
-  if (git.remoteBranchExists(config.gitRemote, branchName)) {
-    logger.debug(`Skipping — branch already exists: ${branchName}`);
-    return 'skipped';
-  }
+  const branchExists = git.remoteBranchExists(config.gitRemote, branchName);
 
-  // Apply filter
   if (filter === 'open' && isPending) {
     logger.debug('Skipping — filter=open, task is pending');
     return 'skipped';
@@ -65,37 +59,52 @@ async function processTask(
     return 'skipped';
   }
 
-  // Handle pending tasks: check if a human replied
-  if (isPending) {
-    const hasReply = await checkForHumanReply(task, provider);
-    if (!hasReply) {
-      logger.debug('Skipping — pending task has no human reply yet');
-      return 'skipped';
+  if (isPending || branchExists) {
+    const comments = await provider.getComments(task.id);
+    const trigger = hasTriggerWord(comments, config.triggerWord);
+
+    if (isPending) {
+      const reply = hasHumanReply(comments);
+      if (!reply && !trigger) {
+        logger.debug('Skipping — pending task has no human reply or trigger word');
+        return 'skipped';
+      }
+      logger.info(
+        trigger
+          ? `Trigger word "${config.triggerWord}" found — re-processing pending task`
+          : 'Pending task has a human reply — proceeding'
+      );
+    } else {
+      if (!trigger) {
+        logger.debug(`Skipping — branch already exists: ${branchName}`);
+        return 'skipped';
+      }
+      logger.info(`Trigger word "${config.triggerWord}" found — re-processing task`);
     }
-    logger.info('Pending task has a human reply — proceeding');
   } else {
-    // Check if task needs clarification
     const clarification = await checkNeedsClarification(task, config, provider, runners);
     if (clarification) {
-      await provider.postComment(task.id, clarification);
+      await provider.postComment(task.id, `[aidev] ${clarification}`);
       await provider.updateStatus(task.id, config.clickupPendingStatus);
       logger.info(`Posted clarification question, set status to ${config.clickupPendingStatus}`);
       return 'skipped';
     }
   }
 
-  // Implement the task
-  await implementTask(task, branchName, config, provider, runners);
+  await implementTask(task, branchName, branchExists, config, provider, runners);
   return 'processed';
 }
 
-async function checkForHumanReply(task: Task, provider: TaskProvider): Promise<boolean> {
-  const comments = await provider.getComments(task.id);
+export function hasHumanReply(comments: Comment[]): boolean {
   if (comments.length < 2) return false;
-
-  // The last comment should be from a human (not a bot — heuristic: not containing "[aidev]")
   const lastComment = comments[comments.length - 1];
   return !lastComment.text.includes('[aidev]');
+}
+
+export function hasTriggerWord(comments: Comment[], triggerWord: string): boolean {
+  if (comments.length === 0 || !triggerWord) return false;
+  const lastComment = comments[comments.length - 1];
+  return lastComment.text.toLowerCase().includes(triggerWord.toLowerCase());
 }
 
 async function checkNeedsClarification(
@@ -150,30 +159,39 @@ Respond with valid JSON only:
 async function implementTask(
   task: Task,
   branchName: string,
+  branchExists: boolean,
   config: Config,
   provider: TaskProvider,
   runners: AIRunner[]
 ): Promise<void> {
   logger.info(`Implementing task: ${task.name}`);
 
-  // Mark as in progress
   try {
     await provider.updateStatus(task.id, 'in progress');
-    await provider.postComment(task.id, `[aidev] Starting implementation on branch \`${branchName}\``);
+    const verb = branchExists ? 'Continuing' : 'Starting';
+    await provider.postComment(task.id, `[aidev] ${verb} implementation on branch \`${branchName}\``);
   } catch (err) {
     logger.warn(`Could not update task status: ${err}`);
   }
 
-  // Prepare git branch
-  if (!git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch)) {
-    logger.error('Failed to prepare base branch');
-    await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
-    return;
-  }
+  if (branchExists) {
+    if (!git.fetchAndCheckoutBranch(config.gitRemote, branchName)) {
+      logger.error(`Failed to checkout existing branch ${branchName}`);
+      await provider.postComment(task.id, '[aidev] Failed to checkout existing branch. Manual intervention needed.');
+      return;
+    }
+    logger.info(`Continuing on existing branch: ${branchName}`);
+  } else {
+    if (!git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch)) {
+      logger.error('Failed to prepare base branch');
+      await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
+      return;
+    }
 
-  if (!git.createBranch(branchName)) {
-    logger.error(`Failed to create branch ${branchName}`);
-    return;
+    if (!git.createBranch(branchName)) {
+      logger.error(`Failed to create branch ${branchName}`);
+      return;
+    }
   }
 
   // Get conversation context for pending tasks
@@ -219,7 +237,9 @@ async function implementTask(
   if (!implemented) {
     logger.error('All AI runners failed or produced no changes');
     await provider.postComment(task.id, '[aidev] All AI runners failed. Manual implementation needed.');
-    git.deleteBranch(branchName);
+    if (!branchExists) {
+      git.deleteBranch(branchName);
+    }
     return;
   }
 

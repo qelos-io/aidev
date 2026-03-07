@@ -64,6 +64,7 @@ export interface Answers {
   githubRepo: string;
   agents: string;
   devNotesMode: string;
+  triggerWord: string;
 }
 
 function dim(s: string) {
@@ -225,6 +226,9 @@ export function renderEnv(a: Answers): string {
     `# DEV_NOTES_MODE: smart (only ask when unclear) | always (ask before every task)`,
     `DEV_NOTES_MODE=${a.devNotesMode}`,
     ``,
+    `# AIDEV_TRIGGER_WORD: comment containing this word re-triggers task processing (default: aidev-continue)`,
+    `AIDEV_TRIGGER_WORD=${envVal(a.triggerWord)}`,
+    ``,
   ];
   return lines.filter((l) => l !== null).join('\n');
 }
@@ -336,6 +340,14 @@ export async function initCommand(): Promise<void> {
       'smart'
     );
 
+    // ── Trigger word ─────────────────────────────────────────
+    section('Trigger word');
+    const triggerWord = await ask(
+      rl,
+      `Trigger word ${hint('comment containing this re-triggers a skipped task')}`,
+      'aidev-continue'
+    );
+
     // ── Assignee ─────────────────────────────────────────────
     section('Assignee');
     const effectiveApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
@@ -371,6 +383,7 @@ export async function initCommand(): Promise<void> {
       githubRepo,
       agents,
       devNotesMode,
+      triggerWord,
     };
 
     ensureGitignore();
