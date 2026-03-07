@@ -2,9 +2,11 @@ import { Config, Task, Comment } from '../types';
 import { TaskProvider } from '../providers';
 import { AIRunner } from '../ai';
 import { logger, logRunStart } from '../logger';
+import { isScreenAvailable } from '../platform';
 import * as git from '../git';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
+const SLEEPING_MARKER = 'machine appears to be asleep';
 
 export type RunFilter = 'all' | 'open' | 'pending';
 
@@ -15,6 +17,12 @@ export async function runCommand(
   runners: AIRunner[]
 ): Promise<void> {
   logRunStart();
+
+  const screenAvailable = isScreenAvailable();
+  if (!screenAvailable) {
+    logger.warn('Screen is locked or display is asleep — AI agents cannot operate');
+  }
+
   logger.info(`Fetching tasks (filter: ${filter})...`);
   const tasks = await provider.fetchTasks();
   logger.info(`Found ${tasks.length} tagged task(s)`);
@@ -23,7 +31,7 @@ export async function runCommand(
   let skipped = 0;
 
   for (const task of tasks) {
-    const result = await processTask(task, filter, config, provider, runners);
+    const result = await processTask(task, filter, config, provider, runners, screenAvailable);
     if (result === 'processed') processed++;
     else skipped++;
   }
@@ -36,7 +44,8 @@ async function processTask(
   filter: RunFilter,
   config: Config,
   provider: TaskProvider,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
   const isPending = task.status.toLowerCase() === config.clickupPendingStatus.toLowerCase();
 
@@ -81,7 +90,17 @@ async function processTask(
       }
       logger.info(`Trigger word "${config.triggerWord}" found — re-processing task`);
     }
+
+    if (!screenAvailable) {
+      await notifySleeping(task, provider);
+      return 'skipped';
+    }
   } else {
+    if (!screenAvailable) {
+      await notifySleeping(task, provider);
+      return 'skipped';
+    }
+
     const clarification = await checkNeedsClarification(task, config, provider, runners);
     if (clarification) {
       await provider.postComment(task.id, `[aidev] ${clarification}`);
@@ -105,6 +124,30 @@ export function hasTriggerWord(comments: Comment[], triggerWord: string): boolea
   if (comments.length === 0 || !triggerWord) return false;
   const lastComment = comments[comments.length - 1];
   return lastComment.text.toLowerCase().includes(triggerWord.toLowerCase());
+}
+
+async function notifySleeping(task: Task, provider: TaskProvider): Promise<void> {
+  try {
+    const comments = await provider.getComments(task.id);
+    const lastComment = comments.length > 0 ? comments[comments.length - 1] : null;
+    if (lastComment && lastComment.text.includes(SLEEPING_MARKER)) {
+      logger.debug(`[${task.id}] Already notified about sleep — skipping`);
+      return;
+    }
+  } catch {
+    // If we can't check comments, still attempt to post
+  }
+
+  try {
+    await provider.postComment(
+      task.id,
+      `[aidev] Cannot work on this task — the ${SLEEPING_MARKER} or the screen is locked. ` +
+        'AI agents require an active display session to operate. Please wake the machine and unlock the screen so I can continue.'
+    );
+    logger.info(`[${task.id}] Posted sleep notification`);
+  } catch (err) {
+    logger.warn(`[${task.id}] Failed to post sleep notification: ${err}`);
+  }
 }
 
 async function checkNeedsClarification(
