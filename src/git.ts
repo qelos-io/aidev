@@ -13,6 +13,18 @@ function git(args: string[], cwd?: string): { stdout: string; stderr: string; st
   };
 }
 
+const PROTECTED_BRANCHES = new Set(['main', 'master', 'develop', 'production']);
+
+export function isProtectedBranch(branch: string): boolean {
+  return PROTECTED_BRANCHES.has(branch.toLowerCase());
+}
+
+export function getCurrentBranch(): string | null {
+  const result = git(['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (result.status !== 0) return null;
+  return result.stdout.trim() || null;
+}
+
 export function remoteBranchExists(remote: string, branch: string): boolean {
   const result = git(['ls-remote', '--heads', remote, branch]);
   return result.status === 0 && result.stdout.trim().length > 0;
@@ -37,6 +49,17 @@ export function fetchAndCheckout(remote: string, baseBranch: string): boolean {
   const pull = git(['pull', remote, baseBranch]);
   if (pull.status !== 0) {
     logger.error(`git pull failed: ${pull.stderr}`);
+    return false;
+  }
+
+  const localRev = git(['rev-parse', 'HEAD']);
+  const remoteRev = git(['rev-parse', `${remote}/${baseBranch}`]);
+  if (localRev.status === 0 && remoteRev.status === 0 &&
+      localRev.stdout.trim() !== remoteRev.stdout.trim()) {
+    logger.error(
+      `Local ${baseBranch} is out of sync with ${remote}/${baseBranch} after pull — ` +
+      'local branch may have diverged. Please resolve manually.'
+    );
     return false;
   }
 
@@ -71,7 +94,16 @@ export function fetchAndCheckoutBranch(remote: string, branch: string): boolean 
   return true;
 }
 
-export function createBranch(branch: string): boolean {
+export function createBranch(branch: string, expectedBase?: string): boolean {
+  if (expectedBase) {
+    const current = getCurrentBranch();
+    if (current !== expectedBase) {
+      logger.error(
+        `Cannot create branch "${branch}": expected to be on "${expectedBase}" but currently on "${current}"`
+      );
+      return false;
+    }
+  }
   logger.debug(`git checkout -b ${branch}`);
   const result = git(['checkout', '-b', branch]);
   if (result.status !== 0) {
@@ -91,7 +123,18 @@ export function addAll(): boolean {
   return result.status === 0;
 }
 
-export function commit(message: string): boolean {
+export function commit(message: string, expectedBranch?: string): boolean {
+  if (expectedBranch) {
+    const current = getCurrentBranch();
+    if (current !== expectedBranch) {
+      logger.error(`Refusing to commit: expected branch "${expectedBranch}" but currently on "${current}"`);
+      return false;
+    }
+    if (isProtectedBranch(current)) {
+      logger.error(`Refusing to commit directly to protected branch "${current}"`);
+      return false;
+    }
+  }
   logger.debug(`git commit -m "${message}"`);
   const result = git(['commit', '-m', message]);
   if (result.status !== 0) {
@@ -102,8 +145,17 @@ export function commit(message: string): boolean {
 }
 
 export function push(remote: string, branch: string): boolean {
-  logger.debug(`git push ${remote} ${branch}`);
-  const result = git(['push', remote, branch]);
+  const current = getCurrentBranch();
+  if (current !== branch) {
+    logger.error(`Refusing to push: current branch "${current}" does not match target branch "${branch}"`);
+    return false;
+  }
+  if (isProtectedBranch(branch)) {
+    logger.error(`Refusing to push directly to protected branch "${branch}"`);
+    return false;
+  }
+  logger.debug(`git push ${remote} HEAD:refs/heads/${branch}`);
+  const result = git(['push', remote, `HEAD:refs/heads/${branch}`]);
   if (result.status !== 0) {
     logger.error(`git push failed: ${result.stderr}`);
     return false;

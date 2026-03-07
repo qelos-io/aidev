@@ -304,7 +304,7 @@ async function implementTask(
       return;
     }
 
-    if (!git.createBranch(branchName)) {
+    if (!git.createBranch(branchName, config.githubBaseBranch)) {
       logger.error(`Failed to create branch ${branchName}`);
       return;
     }
@@ -360,7 +360,7 @@ async function implementTask(
   }
 
   // Commit and push
-  if (!git.addAll() || !git.commit(`[aidev] Implement: ${task.name}\n\nTask: ${task.url}`)) {
+  if (!git.addAll() || !git.commit(`[aidev] Implement: ${task.name}\n\nTask: ${task.url}`, branchName)) {
     logger.error('Failed to commit changes');
     return;
   }
@@ -572,7 +572,7 @@ async function implementThinkingTask(
       return;
     }
 
-    if (!git.createBranch(branchName)) {
+    if (!git.createBranch(branchName, config.githubBaseBranch)) {
       logger.error(`Failed to create branch ${branchName}`);
       return;
     }
@@ -642,7 +642,7 @@ async function implementThinkingTask(
       break;
     }
 
-    if (!git.addAll() || !git.commit(`[aidev] Step ${subtask.id}: ${subtask.title}\n\nTask: ${task.url}`)) {
+    if (!git.addAll() || !git.commit(`[aidev] Step ${subtask.id}: ${subtask.title}\n\nTask: ${task.url}`, branchName)) {
       subtask.status = 'failed';
       writeTaskPlan(plan);
       allSucceeded = false;
