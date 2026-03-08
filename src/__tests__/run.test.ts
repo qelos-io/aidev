@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildImplementPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification } from '../commands/run';
+import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -308,5 +308,43 @@ describe('buildNonCodeCompletionComment', () => {
     const comment = buildNonCodeCompletionComment(baseConfig);
     assert.ok(!comment.includes('Branch:'));
     assert.ok(!comment.includes('PR'));
+  });
+
+  it('includes agent response when provided', () => {
+    const comment = buildNonCodeCompletionComment(baseConfig, 'The answer to your question is 42.');
+    assert.ok(comment.includes('The answer to your question is 42.'));
+    assert.ok(comment.includes('[aidev] Non-code task complete'));
+  });
+
+  it('omits agent response section when not provided', () => {
+    const comment = buildNonCodeCompletionComment(baseConfig);
+    assert.ok(!comment.includes('---'));
+  });
+});
+
+// ─── buildNonCodePrompt ──────────────────────────────────────────────────────
+
+describe('buildNonCodePrompt', () => {
+  const task = { id: '1', name: 'Research question', description: 'What is X?', status: 'open', url: 'http://example.com', tags: [] };
+
+  it('indicates the task is non-code', () => {
+    const prompt = buildNonCodePrompt(task, '');
+    assert.ok(prompt.includes('non-code'));
+  });
+
+  it('asks for a verbal response', () => {
+    const prompt = buildNonCodePrompt(task, '');
+    assert.ok(prompt.includes('verbal response'));
+  });
+
+  it('includes task name and description', () => {
+    const prompt = buildNonCodePrompt(task, '');
+    assert.ok(prompt.includes('Research question'));
+    assert.ok(prompt.includes('What is X?'));
+  });
+
+  it('includes conversation context when provided', () => {
+    const prompt = buildNonCodePrompt(task, '\n\nConversation context:\nAlice: Please clarify');
+    assert.ok(prompt.includes('Alice: Please clarify'));
   });
 });

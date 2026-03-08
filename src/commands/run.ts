@@ -774,12 +774,29 @@ export function buildCompletionComment(branch: string, prUrl: string, config: Co
   return lines.join('\n');
 }
 
-export function buildNonCodeCompletionComment(config: Config): string {
-  return [
+export function buildNonCodePrompt(task: Task, context: string): string {
+  return `You are handling a non-code task. This task does NOT require code changes — it requires a thoughtful, verbal response.
+
+Task: ${task.name}
+
+Description:
+${task.description || '(no description provided)'}
+${context}
+
+Please provide a clear, detailed response to this task. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who created the task.`;
+}
+
+export function buildNonCodeCompletionComment(config: Config, agentResponse?: string): string {
+  const lines = [
     `[aidev] Non-code task complete!`,
-    ``,
-    `Status set to: ${config.clickupInReviewStatus}`,
-  ].join('\n');
+  ];
+
+  if (agentResponse) {
+    lines.push(``, `---`, ``, agentResponse);
+  }
+
+  lines.push(``, `Status set to: ${config.clickupInReviewStatus}`);
+  return lines.join('\n');
 }
 
 export function hasAidevComment(comments: Comment[]): boolean {
@@ -885,9 +902,10 @@ async function implementNonCodeTask(
     // ignore
   }
 
-  const implementPrompt = buildImplementPrompt(task, context);
+  const nonCodePrompt = buildNonCodePrompt(task, context);
 
   let implemented = false;
+  let agentOutput = '';
   let previousNotes = '';
 
   for (const runner of runners) {
@@ -897,10 +915,11 @@ async function implementNonCodeTask(
     }
 
     logger.info(`Running ${runner.name}...`);
-    const result = await runner.run(implementPrompt, previousNotes || undefined);
+    const result = await runner.run(nonCodePrompt, previousNotes || undefined);
 
     if (result.success) {
       implemented = true;
+      agentOutput = result.output;
       break;
     }
 
@@ -919,7 +938,7 @@ async function implementNonCodeTask(
   }
 
   try {
-    const comment = buildNonCodeCompletionComment(config);
+    const comment = buildNonCodeCompletionComment(config, agentOutput);
     await provider.postComment(task.id, comment);
     await provider.updateStatus(task.id, config.clickupInReviewStatus);
   } catch (err) {
