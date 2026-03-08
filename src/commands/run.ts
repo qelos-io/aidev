@@ -7,6 +7,7 @@ import { logger, logRunStart } from '../logger';
 import { isScreenAvailable } from '../platform';
 import * as git from '../git';
 import { isGhAuthenticated, isGitHubRemote, createPullRequest } from '../github';
+import { collectAndLogDiagnostics } from '../diagnostics';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
 const SLEEPING_MARKER = 'machine appears to be asleep';
@@ -360,7 +361,11 @@ async function implementTask(
 
   if (!implemented) {
     logger.error('All AI runners failed or produced no changes');
-    await provider.postComment(task.id, '[aidev] All AI runners failed. Manual implementation needed.');
+    const diagnostics = collectAndLogDiagnostics();
+    await provider.postComment(
+      task.id,
+      `[aidev] All AI runners failed. Manual implementation needed.\n\n${diagnostics}`
+    );
     if (!branchExists) {
       git.deleteBranch(branchName);
     }
@@ -639,11 +644,12 @@ async function implementThinkingTask(
       writeTaskPlan(plan);
       allSucceeded = false;
       logger.error(`  Step ${subtask.id} failed: ${subtask.title}`);
+      const diagnostics = collectAndLogDiagnostics();
 
       try {
         await provider.postComment(
           task.id,
-          `[aidev] Step ${subtask.id} failed: ${subtask.title}\n\n${formatSubtaskList(plan)}`
+          `[aidev] Step ${subtask.id} failed: ${subtask.title}\n\n${formatSubtaskList(plan)}\n\n${diagnostics}`
         );
       } catch { /* ignore */ }
 
@@ -682,6 +688,13 @@ async function implementThinkingTask(
 
   if (!allSucceeded) {
     logger.error('Thinking task did not complete all sub-tasks');
+    try {
+      const diagnostics = collectAndLogDiagnostics();
+      await provider.postComment(
+        task.id,
+        `[aidev] Thinking task did not complete all sub-tasks. Manual intervention needed.\n\n${diagnostics}`
+      );
+    } catch { /* ignore */ }
     return;
   }
 

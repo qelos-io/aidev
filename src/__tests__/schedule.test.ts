@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { cronToSchtasksArgs, windowsTaskName, buildUnixCronLine } from '../commands/schedule';
+import { cronToSchtasksArgs, windowsTaskName, buildUnixCronLine, cronToLaunchdSchedule, buildLaunchAgentPlist } from '../commands/schedule';
+import type { LaunchdSchedule } from '../commands/schedule';
 
 describe('cronToSchtasksArgs', () => {
   it('every 15 minutes', () => {
@@ -114,5 +115,122 @@ describe('windowsTaskName', () => {
     const a = windowsTaskName(cwd, '*/15 * * * *');
     const b = windowsTaskName(cwd, '*/15 * * * *');
     assert.equal(a, b);
+  });
+});
+
+// ─── cronToLaunchdSchedule ────────────────────────────────────────────────────
+
+describe('cronToLaunchdSchedule', () => {
+  it('every 15 minutes → StartInterval 900s', () => {
+    const s = cronToLaunchdSchedule('*/15 * * * *');
+    assert.deepEqual(s, { key: 'StartInterval', seconds: 900 });
+  });
+
+  it('every 30 minutes → StartInterval 1800s', () => {
+    const s = cronToLaunchdSchedule('*/30 * * * *');
+    assert.deepEqual(s, { key: 'StartInterval', seconds: 1800 });
+  });
+
+  it('every hour (0 * * * *) → StartInterval 3600s', () => {
+    const s = cronToLaunchdSchedule('0 * * * *');
+    assert.deepEqual(s, { key: 'StartInterval', seconds: 3600 });
+  });
+
+  it('every 5 hours → StartInterval 18000s', () => {
+    const s = cronToLaunchdSchedule('0 */5 * * *');
+    assert.deepEqual(s, { key: 'StartInterval', seconds: 18000 });
+  });
+
+  it('daily at 8am → StartCalendarInterval hour=8 minute=0', () => {
+    const s = cronToLaunchdSchedule('0 8 * * *');
+    assert.deepEqual(s, { key: 'StartCalendarInterval', hour: 8, minute: 0 });
+  });
+
+  it('daily at midnight → StartCalendarInterval hour=0 minute=0', () => {
+    const s = cronToLaunchdSchedule('0 0 * * *');
+    assert.deepEqual(s, { key: 'StartCalendarInterval', hour: 0, minute: 0 });
+  });
+
+  it('returns null for unsupported expressions', () => {
+    assert.equal(cronToLaunchdSchedule('0 9 * * 1'), null);
+    assert.equal(cronToLaunchdSchedule('*/5 */2 * * *'), null);
+    assert.equal(cronToLaunchdSchedule('not a cron'), null);
+  });
+});
+
+// ─── buildLaunchAgentPlist ────────────────────────────────────────────────────
+
+describe('buildLaunchAgentPlist', () => {
+  const label = 'com.aidev.run.abc123';
+  const nodeBin = '/usr/local/bin/node';
+  const aidevBin = '/usr/local/bin/aidev';
+  const cwd = '/Users/dev/myproject';
+
+  const intervalSchedule: LaunchdSchedule = { key: 'StartInterval', seconds: 900 };
+  const calendarSchedule: LaunchdSchedule = { key: 'StartCalendarInterval', hour: 8, minute: 0 };
+
+  it('generates valid XML plist header', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
+    assert.ok(plist.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+    assert.ok(plist.includes('<!DOCTYPE plist'));
+    assert.ok(plist.includes('<plist version="1.0">'));
+  });
+
+  it('includes the label', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
+    assert.ok(plist.includes(`<string>${label}</string>`));
+  });
+
+  it('includes ProgramArguments with node, aidev, and "run"', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
+    assert.ok(plist.includes('<key>ProgramArguments</key>'));
+    assert.ok(plist.includes(`<string>${nodeBin}</string>`));
+    assert.ok(plist.includes(`<string>${aidevBin}</string>`));
+    assert.ok(plist.includes('<string>run</string>'));
+  });
+
+  it('includes WorkingDirectory', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
+    assert.ok(plist.includes(`<string>${cwd}</string>`));
+  });
+
+  it('generates StartInterval for interval schedules', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
+    assert.ok(plist.includes('<key>StartInterval</key>'));
+    assert.ok(plist.includes('<integer>900</integer>'));
+  });
+
+  it('generates StartCalendarInterval for calendar schedules', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, calendarSchedule);
+    assert.ok(plist.includes('<key>StartCalendarInterval</key>'));
+    assert.ok(plist.includes('<key>Hour</key>'));
+    assert.ok(plist.includes('<integer>8</integer>'));
+    assert.ok(plist.includes('<key>Minute</key>'));
+    assert.ok(plist.includes('<integer>0</integer>'));
+  });
+
+  it('does not contain XML-escaped values for normal paths', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
+    // Normal paths should not be escaped — no &amp; &lt; &gt;
+    assert.ok(!plist.includes('&amp;'));
+    assert.ok(!plist.includes('&lt;'));
+    assert.ok(!plist.includes('&gt;'));
+  });
+
+  it('includes PATH environment variable', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
+    assert.ok(plist.includes('<key>PATH</key>'));
+    assert.ok(plist.includes('<key>EnvironmentVariables</key>'));
+  });
+
+  it('includes HOME environment variable', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
+    assert.ok(plist.includes('<key>HOME</key>'));
+  });
+
+  it('sets RunAtLoad to false', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
+    assert.ok(plist.includes('<key>RunAtLoad</key>'));
+    assert.ok(plist.includes('<false/>'));
   });
 });

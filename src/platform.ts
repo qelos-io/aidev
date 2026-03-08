@@ -33,6 +33,41 @@ export function commandExists(name: string): boolean {
   return findBin(name) !== null;
 }
 
+let _shellEnvCache: NodeJS.ProcessEnv | undefined;
+
+/**
+ * Returns the user's full login-shell environment merged with process.env.
+ * process.env always wins on conflicts, so we never lose what we already have.
+ * Falls back to process.env if the shell can't be invoked (e.g. Windows).
+ * Result is cached after the first call.
+ */
+export function getUserShellEnv(): NodeJS.ProcessEnv {
+  if (isWindows) return process.env;
+  if (_shellEnvCache !== undefined) return _shellEnvCache;
+
+  const shell = process.env.SHELL ?? '/bin/sh';
+  try {
+    const result = spawnSync(shell, ['-l', '-c', 'env -0'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (result.status === 0 && result.stdout) {
+      const shellEnv: NodeJS.ProcessEnv = {};
+      for (const entry of result.stdout.split('\0')) {
+        const idx = entry.indexOf('=');
+        if (idx > 0) shellEnv[entry.slice(0, idx)] = entry.slice(idx + 1);
+      }
+      // process.env wins: never lose what we already have, but pick up extras
+      _shellEnvCache = { ...shellEnv, ...process.env };
+      return _shellEnvCache;
+    }
+  } catch { /* fall through */ }
+
+  _shellEnvCache = process.env;
+  return process.env;
+}
+
 /**
  * Returns false when the machine's display is asleep or the screen is locked,
  * meaning GUI-dependent AI agents (Cursor, Windsurf, Claude) cannot operate.
