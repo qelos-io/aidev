@@ -57,7 +57,7 @@ describe('ClaudeRunner – failed tasks', () => {
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
-    assert.ok(warnCalls.some((msg: string) => msg.includes('status 2')));
+    assert.ok(warnCalls.some((msg) => msg?.includes('status 2')));
   });
 
   it('logs stderr on failure', async () => {
@@ -68,7 +68,7 @@ describe('ClaudeRunner – failed tasks', () => {
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
-    assert.ok(warnCalls.some((msg: string) => msg.includes('heap out of memory')));
+    assert.ok(warnCalls.some((msg) => msg?.includes('heap out of memory')));
   });
 
   it('logs spawn error when present', async () => {
@@ -79,7 +79,7 @@ describe('ClaudeRunner – failed tasks', () => {
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
-    assert.ok(warnCalls.some((msg: string) => msg.includes('ENOENT')));
+    assert.ok(warnCalls.some((msg) => msg?.includes('ENOENT')));
   });
 
   it('returns empty output on failure', async () => {
@@ -118,7 +118,7 @@ describe('CursorRunner – failed tasks', () => {
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
-    assert.ok(warnCalls.some((msg: string) => msg.includes('status 3')));
+    assert.ok(warnCalls.some((msg) => msg?.includes('status 3')));
   });
 
   it('logs stderr on failure', async () => {
@@ -129,7 +129,7 @@ describe('CursorRunner – failed tasks', () => {
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
-    assert.ok(warnCalls.some((msg: string) => msg.includes('workspace not found')));
+    assert.ok(warnCalls.some((msg) => msg?.includes('workspace not found')));
   });
 
   it('logs spawn error when present', async () => {
@@ -140,7 +140,7 @@ describe('CursorRunner – failed tasks', () => {
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
-    assert.ok(warnCalls.some((msg: string) => msg.includes('EACCES')));
+    assert.ok(warnCalls.some((msg) => msg?.includes('EACCES')));
   });
 
   it('returns empty output on failure', async () => {
@@ -179,7 +179,7 @@ describe('WindsurfRunner – failed tasks', () => {
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
-    assert.ok(warnCalls.some((msg: string) => msg.includes('status 127')));
+    assert.ok(warnCalls.some((msg) => msg?.includes('status 127')));
   });
 
   it('logs stderr on failure', async () => {
@@ -190,7 +190,7 @@ describe('WindsurfRunner – failed tasks', () => {
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
-    assert.ok(warnCalls.some((msg: string) => msg.includes('license expired')));
+    assert.ok(warnCalls.some((msg) => msg?.includes('license expired')));
   });
 
   it('logs spawn error when present', async () => {
@@ -201,7 +201,7 @@ describe('WindsurfRunner – failed tasks', () => {
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
-    assert.ok(warnCalls.some((msg: string) => msg.includes('SIGTERM')));
+    assert.ok(warnCalls.some((msg) => msg?.includes('SIGTERM')));
   });
 
   it('returns empty output on failure', async () => {
