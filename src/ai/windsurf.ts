@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists } from '../platform';
+import { commandExists, getUserShellEnv } from '../platform';
 
 export class WindsurfRunner implements AIRunner {
   readonly name = 'windsurf';
@@ -24,6 +24,7 @@ export class WindsurfRunner implements AIRunner {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
         cwd,
+        env: getUserShellEnv(),
       }
     );
 
@@ -33,7 +34,8 @@ export class WindsurfRunner implements AIRunner {
 
     if (!success) {
       logger.warn(`Windsurf exited with status ${result.status}`);
-      if (error) logger.debug(`stderr: ${error.slice(0, 300)}`);
+      if (error) logger.warn(`windsurf stderr: ${error.slice(0, 500)}`);
+      if (result.error) logger.warn(`windsurf spawn error: ${result.error.message}`);
     }
 
     return { success, output, error };

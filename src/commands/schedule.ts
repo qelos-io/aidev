@@ -1,4 +1,7 @@
 import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { logger } from '../logger';
@@ -181,6 +184,277 @@ async function scheduleRemoveUnix(id?: number): Promise<void> {
   }
 }
 
+// ─── macOS (launchd) ─────────────────────────────────────────────────────────
+//
+// On macOS, LaunchAgents (unlike cron) run inside the user's GUI session and
+// have access to the login Keychain. This lets claude / cursor / windsurf read
+// their OAuth tokens, which they store in the Keychain via Electron safeStorage.
+
+const DARWIN_LABEL_PREFIX = 'com.aidev.run.';
+
+function launchdLabel(cwd: string): string {
+  // djb2 hash — stable, unique label per project directory
+  let h = 5381;
+  for (let i = 0; i < cwd.length; i++) {
+    h = (((h << 5) + h) ^ cwd.charCodeAt(i)) >>> 0;
+  }
+  return `${DARWIN_LABEL_PREFIX}${h.toString(16)}`;
+}
+
+function getLaunchAgentsDir(): string {
+  return path.join(os.homedir(), 'Library', 'LaunchAgents');
+}
+
+function xmlEscape(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+export type LaunchdSchedule =
+  | { key: 'StartInterval'; seconds: number }
+  | { key: 'StartCalendarInterval'; hour: number; minute: number };
+
+/**
+ * Maps a cron expression to a launchd schedule.
+ * Supports the same subset as cronToSchtasksArgs.
+ */
+export function cronToLaunchdSchedule(cron: string): LaunchdSchedule | null {
+  // */N * * * * → every N minutes
+  const everyMin = cron.match(/^\*\/(\d+) \* \* \* \*$/);
+  if (everyMin) return { key: 'StartInterval', seconds: parseInt(everyMin[1], 10) * 60 };
+
+  // 0 * * * * → every hour
+  if (cron === '0 * * * *') return { key: 'StartInterval', seconds: 3600 };
+
+  // 0 */H * * * → every H hours
+  const everyHr = cron.match(/^0 \*\/(\d+) \* \* \*$/);
+  if (everyHr) return { key: 'StartInterval', seconds: parseInt(everyHr[1], 10) * 3600 };
+
+  // 0 H * * * → daily at H:00
+  const daily = cron.match(/^0 (\d+) \* \* \*$/);
+  if (daily) return { key: 'StartCalendarInterval', hour: parseInt(daily[1], 10), minute: 0 };
+
+  return null;
+}
+
+export function buildLaunchAgentPlist(
+  label: string,
+  nodeBin: string,
+  aidevBin: string,
+  cwd: string,
+  schedule: LaunchdSchedule,
+): string {
+  // Capture PATH at scheduling time (from the developer's live terminal session).
+  // This ensures the right node/claude/cursor/windsurf binaries are found when
+  // the agent fires later.
+  const envPath = process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+  const home = process.env.HOME ?? os.homedir();
+
+  const scheduleXml =
+    schedule.key === 'StartInterval'
+      ? `\t<key>StartInterval</key>\n\t<integer>${schedule.seconds}</integer>`
+      : [
+          '\t<key>StartCalendarInterval</key>',
+          '\t<dict>',
+          '\t\t<key>Hour</key>',
+          `\t\t<integer>${schedule.hour}</integer>`,
+          '\t\t<key>Minute</key>',
+          `\t\t<integer>${schedule.minute}</integer>`,
+          '\t</dict>',
+        ].join('\n');
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0">',
+    '<dict>',
+    '\t<key>Label</key>',
+    `\t<string>${xmlEscape(label)}</string>`,
+    '\t<key>ProgramArguments</key>',
+    '\t<array>',
+    `\t\t<string>${xmlEscape(nodeBin)}</string>`,
+    `\t\t<string>${xmlEscape(aidevBin)}</string>`,
+    '\t\t<string>run</string>',
+    '\t</array>',
+    '\t<key>WorkingDirectory</key>',
+    `\t<string>${xmlEscape(cwd)}</string>`,
+    scheduleXml,
+    '\t<key>EnvironmentVariables</key>',
+    '\t<dict>',
+    '\t\t<key>PATH</key>',
+    `\t\t<string>${xmlEscape(envPath)}</string>`,
+    '\t\t<key>HOME</key>',
+    `\t\t<string>${xmlEscape(home)}</string>`,
+    '\t</dict>',
+    '\t<key>RunAtLoad</key>',
+    '\t<false/>',
+    '</dict>',
+    '</plist>',
+    '',
+  ].join('\n');
+}
+
+function scheduleSetDarwin(cronExpr: string): void {
+  const schedule = cronToLaunchdSchedule(cronExpr);
+  if (!schedule) {
+    logger.error(
+      `Cron expression "${cronExpr}" cannot be mapped to a launchd schedule.\n` +
+        '  Use "aidev schedule set" (no argument) to choose a supported preset.',
+    );
+    process.exit(1);
+  }
+
+  const cwd = process.cwd();
+  const label = launchdLabel(cwd);
+  const aidevBin = getAidevBin();
+  const nodeBin = findBin('node') ?? 'node';
+  const launchAgentsDir = getLaunchAgentsDir();
+  const plistPath = path.join(launchAgentsDir, `${label}.plist`);
+  const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule);
+
+  try {
+    fs.mkdirSync(launchAgentsDir, { recursive: true });
+  } catch { /* already exists */ }
+
+  // Unload any existing version first (ignore errors — it may not be loaded)
+  if (fs.existsSync(plistPath)) {
+    spawnSync('launchctl', ['unload', '-w', plistPath], { encoding: 'utf8' });
+  }
+
+  fs.writeFileSync(plistPath, plist, 'utf8');
+
+  const loadResult = spawnSync('launchctl', ['load', '-w', plistPath], { encoding: 'utf8' });
+  if (loadResult.status !== 0) {
+    logger.error(`Failed to load Launch Agent:\n${loadResult.stderr}`);
+    process.exit(1);
+  }
+
+  logger.success(`Launch Agent scheduled: ${cronExpr}`);
+  logger.info(`Plist: ${plistPath}`);
+}
+
+interface DarwinEntry {
+  label: string;
+  cwd: string;
+  schedule: string;
+  plistPath: string;
+}
+
+function parseDarwinEntries(): DarwinEntry[] {
+  const dir = getLaunchAgentsDir();
+  let files: string[];
+  try {
+    files = fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith(DARWIN_LABEL_PREFIX) && f.endsWith('.plist'))
+      .map((f) => path.join(dir, f));
+  } catch {
+    return [];
+  }
+
+  return files.map((plistPath) => {
+    const xml = fs.readFileSync(plistPath, 'utf8');
+
+    const cwdMatch = xml.match(/<key>WorkingDirectory<\/key>\s*<string>([^<]+)<\/string>/);
+    const cwd = cwdMatch ? cwdMatch[1] : '(unknown)';
+
+    const labelMatch = xml.match(/<key>Label<\/key>\s*<string>([^<]+)<\/string>/);
+    const label = labelMatch ? labelMatch[1] : path.basename(plistPath, '.plist');
+
+    const intervalMatch = xml.match(/<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/);
+    let schedule = '(custom)';
+    if (intervalMatch) {
+      const secs = parseInt(intervalMatch[1], 10);
+      schedule = secs % 3600 === 0 ? `every ${secs / 3600}h` : `every ${secs / 60}m`;
+    } else {
+      const hourMatch = xml.match(
+        /<key>StartCalendarInterval<\/key>[\s\S]*?<key>Hour<\/key>\s*<integer>(\d+)<\/integer>/,
+      );
+      if (hourMatch) {
+        schedule = `daily at ${String(parseInt(hourMatch[1], 10)).padStart(2, '0')}:00`;
+      }
+    }
+
+    return { label, cwd, schedule, plistPath };
+  });
+}
+
+function printDarwinEntriesTable(entries: DarwinEntry[]): void {
+  const cwdW = Math.max(9, ...entries.map((e) => e.cwd.length));
+  const schedW = Math.max(8, ...entries.map((e) => e.schedule.length));
+  const header =
+    `  ${chalk.bold('ID')}  ` +
+    `${chalk.bold('Directory'.padEnd(cwdW))}  ` +
+    chalk.bold('Schedule'.padEnd(schedW));
+  const sep = `  ──  ${'─'.repeat(cwdW)}  ${'─'.repeat(schedW)}`;
+  console.log(header);
+  console.log(sep);
+  entries.forEach((e, i) => {
+    const id = chalk.cyan(String(i + 1).padStart(2));
+    const isCurrentDir = e.cwd === process.cwd();
+    const dir = isCurrentDir ? chalk.green(e.cwd.padEnd(cwdW)) : e.cwd.padEnd(cwdW);
+    console.log(`  ${id}  ${dir}  ${e.schedule}`);
+  });
+}
+
+function scheduleGetDarwin(): void {
+  const entries = parseDarwinEntries();
+  if (entries.length === 0) {
+    logger.warn('No aidev schedules found');
+    logger.info('Use "aidev schedule set" to configure one.');
+    return;
+  }
+  logger.info('Scheduled aidev jobs:');
+  console.log();
+  printDarwinEntriesTable(entries);
+  console.log();
+}
+
+async function scheduleRemoveDarwin(id?: number): Promise<void> {
+  const entries = parseDarwinEntries();
+
+  if (entries.length === 0) {
+    logger.warn('No aidev schedules found');
+    return;
+  }
+
+  let idx: number;
+  if (id !== undefined) {
+    idx = id - 1;
+  } else {
+    logger.info('Scheduled aidev jobs:');
+    console.log();
+    printDarwinEntriesTable(entries);
+    console.log();
+    const rl = readline.createInterface({ input, output });
+    try {
+      while (true) {
+        const raw = await rl.question(`  Remove ID ${chalk.dim('[1]')}: `);
+        const val = raw.trim() || '1';
+        const n = parseInt(val, 10);
+        if (n >= 1 && n <= entries.length) {
+          idx = n - 1;
+          break;
+        }
+        console.log(chalk.yellow(`  Enter a number between 1 and ${entries.length}.`));
+      }
+    } finally {
+      rl.close();
+    }
+  }
+
+  if (idx! < 0 || idx! >= entries.length) {
+    logger.error(`Invalid ID: ${id}. Valid range: 1–${entries.length}`);
+    process.exit(1);
+  }
+
+  const toRemove = entries[idx!];
+  spawnSync('launchctl', ['unload', '-w', toRemove.plistPath], { encoding: 'utf8' });
+  try {
+    fs.unlinkSync(toRemove.plistPath);
+  } catch { /* already removed */ }
+  logger.success(`Removed schedule for ${toRemove.cwd}`);
+}
+
 // ─── Windows (schtasks) ───────────────────────────────────────────────────────
 
 /**
@@ -347,17 +621,19 @@ async function scheduleRemoveWindows(id?: number): Promise<void> {
 
 export async function scheduleSetCommand(cronExpr?: string): Promise<void> {
   if (!cronExpr) cronExpr = await pickCron();
-  isWindows ? scheduleSetWindows(cronExpr) : scheduleSetUnix(cronExpr);
+  if (isWindows) scheduleSetWindows(cronExpr);
+  else if (process.platform === 'darwin') scheduleSetDarwin(cronExpr);
+  else scheduleSetUnix(cronExpr);
 }
 
 export async function scheduleGetCommand(): Promise<void> {
-  isWindows ? scheduleGetWindows() : scheduleGetUnix();
+  if (isWindows) scheduleGetWindows();
+  else if (process.platform === 'darwin') scheduleGetDarwin();
+  else scheduleGetUnix();
 }
 
 export async function scheduleRemoveCommand(id?: number): Promise<void> {
-  if (isWindows) {
-    await scheduleRemoveWindows(id);
-  } else {
-    await scheduleRemoveUnix(id);
-  }
+  if (isWindows) await scheduleRemoveWindows(id);
+  else if (process.platform === 'darwin') await scheduleRemoveDarwin(id);
+  else await scheduleRemoveUnix(id);
 }

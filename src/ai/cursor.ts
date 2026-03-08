@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists } from '../platform';
+import { commandExists, getUserShellEnv } from '../platform';
 
 export class CursorRunner implements AIRunner {
   readonly name = 'cursor';
@@ -24,6 +24,7 @@ export class CursorRunner implements AIRunner {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
         cwd,
+        env: getUserShellEnv(),
       }
     );
 
@@ -33,7 +34,8 @@ export class CursorRunner implements AIRunner {
 
     if (!success) {
       logger.warn(`Cursor Agent exited with status ${result.status}`);
-      if (error) logger.debug(`stderr: ${error.slice(0, 300)}`);
+      if (error) logger.warn(`cursor stderr: ${error.slice(0, 500)}`);
+      if (result.error) logger.warn(`cursor spawn error: ${result.error.message}`);
     }
 
     return { success, output, error };

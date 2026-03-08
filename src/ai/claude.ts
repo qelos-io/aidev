@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists } from '../platform';
+import { commandExists, getUserShellEnv } from '../platform';
 
 export class ClaudeRunner implements AIRunner {
   readonly name = 'claude';
@@ -20,6 +20,7 @@ export class ClaudeRunner implements AIRunner {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       cwd: process.cwd(),
+      env: getUserShellEnv(),
     });
 
     const success = result.status === 0;
@@ -28,6 +29,8 @@ export class ClaudeRunner implements AIRunner {
 
     if (!success) {
       logger.warn(`Claude exited with status ${result.status}`);
+      if (error) logger.warn(`claude stderr: ${error.slice(0, 500)}`);
+      if (result.error) logger.warn(`claude spawn error: ${result.error.message}`);
     }
 
     return { success, output, error };
