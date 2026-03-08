@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import * as dotenv from 'dotenv';
 import { logger } from '../logger';
 import { detectRemote } from '../git';
 import { validateAgentPermissions } from '../permissions';
@@ -118,7 +119,7 @@ async function choose(
   }
 }
 
-async function pickAgents(rl: readline.Interface): Promise<string> {
+async function pickAgents(rl: readline.Interface, defaultAgents = ''): Promise<string> {
   const available = [...VALID_AGENTS];
 
   console.log(`\n  Available agents:`);
@@ -128,10 +129,11 @@ async function pickAgents(rl: readline.Interface): Promise<string> {
     `\n  Enter agents ${hint('numbers or names, comma-separated — first = primary, rest = fallback')}`
   );
 
+  const defaultDisplay = defaultAgents || available.join(',');
   while (true) {
-    const raw = await rl.question(`  Agents in order ${dim(`[${available.join(',')}]`)}: `);
+    const raw = await rl.question(`  Agents in order ${dim(`[${defaultDisplay}]`)}: `);
 
-    if (!raw.trim()) return available.join(',');
+    if (!raw.trim()) return defaultDisplay;
 
     const parts = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
     const resolved = parts.map((p) => {
@@ -167,19 +169,19 @@ async function fetchCurrentUser(apiKey: string): Promise<ClickUpMember | null> {
   }
 }
 
-async function pickAssignee(rl: readline.Interface, apiKey: string): Promise<string> {
+async function pickAssignee(rl: readline.Interface, apiKey: string, existingDefault = ''): Promise<string> {
   process.stdout.write(`  ${chalk.dim('Fetching current user...')}\r`);
   const user = await fetchCurrentUser(apiKey);
   process.stdout.write('                              \r');
 
   if (!user) {
-    return ask(rl, `Assignee tag ${hint('optional — could not fetch user')}`, '');
+    return ask(rl, `Assignee tag ${hint('optional — could not fetch user')}`, existingDefault);
   }
 
-  const display = user.username && user.username !== 'null'
+  const fetched = user.username && user.username !== 'null'
     ? `${user.username} <${user.email}>`
     : user.email;
-  return ask(rl, `Assignee tag`, display);
+  return ask(rl, `Assignee tag`, existingDefault || fetched);
 }
 
 function section(title: string) {
@@ -279,6 +281,7 @@ export function printGhSuggestion(remote: string): void {
 export async function initCommand(): Promise<void> {
   const dest = path.join(process.cwd(), '.env.aidev');
 
+  let existing: Record<string, string> = {};
   if (fs.existsSync(dest)) {
     const rl0 = readline.createInterface({ input, output });
     const overwrite = await rl0.question(
@@ -289,6 +292,7 @@ export async function initCommand(): Promise<void> {
       logger.info('Keeping existing .env.aidev.');
       return;
     }
+    existing = dotenv.parse(fs.readFileSync(dest, 'utf8'));
     console.log();
   }
 
@@ -308,12 +312,12 @@ export async function initCommand(): Promise<void> {
     const aidevEnvExtend = await ask(
       rl,
       `Path to global env file ${hint('e.g. ~/.aidev.global — leave blank to skip')}`,
-      process.env.AIDEV_ENV_EXTEND || ''
+      existing.AIDEV_ENV_EXTEND || process.env.AIDEV_ENV_EXTEND || ''
     );
 
     // ── Provider ─────────────────────────────────────────────
     section('Task provider');
-    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira'], 'clickup') as 'clickup' | 'jira';
+    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira'], existing.PROVIDER || 'clickup') as 'clickup' | 'jira';
 
     // Provider-specific config
     const globalEnvHint = hint('leave blank to use global env var');
@@ -339,52 +343,52 @@ export async function initCommand(): Promise<void> {
       jiraBaseUrl = await ask(
         rl,
         `Jira base URL ${hint('e.g. https://mycompany.atlassian.net')}`,
-        '',
+        existing.JIRA_BASE_URL || '',
         true
       );
-      jiraEmail = await ask(rl, `Jira email ${globalEnvHint}`, '', true);
-      jiraApiToken = await ask(rl, `Jira API token ${globalEnvHint}`, '', true);
+      jiraEmail = await ask(rl, `Jira email ${globalEnvHint}`, existing.JIRA_EMAIL || '', true);
+      jiraApiToken = await ask(rl, `Jira API token ${globalEnvHint}`, existing.JIRA_API_TOKEN || '', true);
       jiraProject = await ask(
         rl,
         `Project key ${hint('e.g. PROJ')}`,
-        '',
+        existing.JIRA_PROJECT || '',
         true
       );
       jiraLabel = await ask(
         rl,
         `Label to filter issues ${hint('issues with this label will be picked up')}`,
-        folderName
+        existing.JIRA_LABEL || folderName
       );
-      jiraPendingStatus = await ask(rl, 'Pending status name', 'To Do');
-      jiraInReviewStatus = await ask(rl, 'In-review status name', 'In Review');
+      jiraPendingStatus = await ask(rl, 'Pending status name', existing.JIRA_PENDING_STATUS || 'To Do');
+      jiraInReviewStatus = await ask(rl, 'In-review status name', existing.JIRA_IN_REVIEW_STATUS || 'In Review');
     } else {
       // ── ClickUp ──────────────────────────────────────────────
       section('ClickUp');
-      clickupApiKey = await ask(rl, `API key ${globalEnvHint}`, '');
-      clickupTeamId = await ask(rl, `Team / workspace ID ${globalEnvHint}`, '');
+      clickupApiKey = await ask(rl, `API key ${globalEnvHint}`, existing.CLICKUP_API_KEY || '');
+      clickupTeamId = await ask(rl, `Team / workspace ID ${globalEnvHint}`, existing.CLICKUP_TEAM_ID || '');
       clickupTag = await ask(
         rl,
         `Tag to filter tasks ${hint('tasks with this tag will be picked up')}`,
-        folderName
+        existing.CLICKUP_TAG || folderName
       );
-      clickupPendingStatus = await ask(rl, 'Pending status name', 'pending');
-      clickupInReviewStatus = await ask(rl, 'In-review status name', 'review');
+      clickupPendingStatus = await ask(rl, 'Pending status name', existing.CLICKUP_PENDING_STATUS || 'pending');
+      clickupInReviewStatus = await ask(rl, 'In-review status name', existing.CLICKUP_IN_REVIEW_STATUS || 'review');
     }
 
     // ── Git / GitHub ─────────────────────────────────────────
     section('Git & GitHub');
     const detectedRemote = detectRemote() ?? 'origin';
-    const gitRemote = await ask(rl, 'Git remote', detectedRemote);
-    const githubBaseBranch = await ask(rl, 'Base branch', 'main');
+    const gitRemote = await ask(rl, 'Git remote', existing.GIT_REMOTE || detectedRemote);
+    const githubBaseBranch = await ask(rl, 'Base branch', existing.GITHUB_BASE_BRANCH || 'main');
     const githubRepo = await ask(
       rl,
       `GitHub repo ${hint('owner/repo — used for PR links, optional')}`,
-      ''
+      existing.GITHUB_REPO || ''
     );
 
     // ── AI agents ────────────────────────────────────────────
     section('AI agents');
-    const agents = await pickAgents(rl);
+    const agents = await pickAgents(rl, existing.AGENTS || '');
 
     // ── Validate agent permissions ──────────────────────────
     section('Agent permissions');
@@ -394,7 +398,7 @@ export async function initCommand(): Promise<void> {
       rl,
       `Dev notes mode ${hint('smart = ask AI if unclear, always = ask before every task')}`,
       ['smart', 'always'],
-      'smart'
+      existing.DEV_NOTES_MODE || 'smart'
     );
 
     // ── Trigger word ─────────────────────────────────────────
@@ -402,7 +406,7 @@ export async function initCommand(): Promise<void> {
     const triggerWord = await ask(
       rl,
       `Trigger word ${hint('comment containing this re-triggers a skipped task')}`,
-      'aidev-continue'
+      existing.AIDEV_TRIGGER_WORD || 'aidev-continue'
     );
 
     // ── Thinking tag ────────────────────────────────────────
@@ -410,7 +414,7 @@ export async function initCommand(): Promise<void> {
     const thinkingTag = await ask(
       rl,
       `Thinking tag ${hint('tasks with this tag are broken into sub-tasks before execution, optional')}`,
-      ''
+      existing.THINKING_TAG || ''
     );
 
     // ── Assignee ─────────────────────────────────────────────
@@ -419,12 +423,12 @@ export async function initCommand(): Promise<void> {
     let assigneeTag: string;
 
     if (provider === 'clickup' && effectiveApiKey) {
-      assigneeTag = await pickAssignee(rl, effectiveApiKey);
+      assigneeTag = await pickAssignee(rl, effectiveApiKey, existing.ASSIGNEE_TAG || '');
     } else {
       assigneeTag = await ask(
         rl,
         `Assignee tag ${hint('optional')}`,
-        ''
+        existing.ASSIGNEE_TAG || ''
       );
     }
 

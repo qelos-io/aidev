@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as dotenv from 'dotenv';
 import { envVal, renderEnv, ensureGitignore, Answers } from '../commands/init';
 
 // ─── envVal ──────────────────────────────────────────────────────────────────
@@ -112,6 +113,157 @@ describe('renderEnv', () => {
   it('includes a descriptive comment before AIDEV_ENV_EXTEND when set', () => {
     const out = renderEnv({ ...baseAnswers, aidevEnvExtend: '/home/user/.aidev.global' });
     assert.ok(out.includes('# Global env base'));
+  });
+});
+
+// ─── existing env round-trip (edit flow) ─────────────────────────────────────
+//
+// Core guarantee: when the user presses Enter for every prompt during a
+// re-edit, the written .env.aidev must be byte-for-byte identical to the
+// original.  We verify this by:
+//   1. renderEnv(answers) → parse with dotenv → feed parsed values back in →
+//      renderEnv again → assert equal.
+// This mirrors exactly what initCommand does: it reads the file with
+// dotenv.parse() and uses the result as the `defaultVal` for each prompt.
+
+/** Reconstruct an Answers object from a dotenv-parsed record (same logic as initCommand). */
+function answersFromParsed(p: Record<string, string>, folderName = 'myproject'): Answers {
+  return {
+    provider: (p.PROVIDER || 'clickup') as 'clickup' | 'jira',
+    aidevEnvExtend: p.AIDEV_ENV_EXTEND || '',
+    clickupApiKey: p.CLICKUP_API_KEY || '',
+    clickupTeamId: p.CLICKUP_TEAM_ID || '',
+    clickupTag: p.CLICKUP_TAG || folderName,
+    clickupPendingStatus: p.CLICKUP_PENDING_STATUS || 'pending',
+    clickupInReviewStatus: p.CLICKUP_IN_REVIEW_STATUS || 'review',
+    jiraBaseUrl: p.JIRA_BASE_URL || '',
+    jiraEmail: p.JIRA_EMAIL || '',
+    jiraApiToken: p.JIRA_API_TOKEN || '',
+    jiraProject: p.JIRA_PROJECT || '',
+    jiraLabel: p.JIRA_LABEL || folderName,
+    jiraPendingStatus: p.JIRA_PENDING_STATUS || 'To Do',
+    jiraInReviewStatus: p.JIRA_IN_REVIEW_STATUS || 'In Review',
+    assigneeTag: p.ASSIGNEE_TAG || '',
+    gitRemote: p.GIT_REMOTE || 'origin',
+    githubBaseBranch: p.GITHUB_BASE_BRANCH || 'main',
+    githubRepo: p.GITHUB_REPO || '',
+    agents: p.AGENTS || '',
+    devNotesMode: p.DEV_NOTES_MODE || 'smart',
+    triggerWord: p.AIDEV_TRIGGER_WORD || 'aidev-continue',
+    thinkingTag: p.THINKING_TAG || '',
+  };
+}
+
+describe('existing env round-trip (edit flow)', () => {
+  it('dotenv.parse recovers all ClickUp field values from rendered output', () => {
+    const out = renderEnv(baseAnswers);
+    const p = dotenv.parse(out);
+    assert.equal(p.PROVIDER, 'clickup');
+    assert.equal(p.CLICKUP_API_KEY, 'pk_abc123');
+    assert.equal(p.CLICKUP_TEAM_ID, 'team_456');
+    assert.equal(p.CLICKUP_TAG, 'myproject');
+    assert.equal(p.CLICKUP_PENDING_STATUS, 'pending');
+    assert.equal(p.CLICKUP_IN_REVIEW_STATUS, 'review');
+    assert.equal(p.GIT_REMOTE, 'origin');
+    assert.equal(p.GITHUB_BASE_BRANCH, 'main');
+    assert.equal(p.GITHUB_REPO, 'owner/repo');
+    assert.equal(p.AGENTS, 'claude,cursor');
+    assert.equal(p.DEV_NOTES_MODE, 'smart');
+    assert.equal(p.AIDEV_TRIGGER_WORD, 'aidev-continue');
+  });
+
+  it('re-rendering ClickUp answers with parsed values produces identical output', () => {
+    const first = renderEnv(baseAnswers);
+    const second = renderEnv(answersFromParsed(dotenv.parse(first)));
+    assert.equal(second, first);
+  });
+
+  it('re-rendering Jira answers with parsed values produces identical output', () => {
+    const jiraAnswers: Answers = {
+      ...baseAnswers,
+      provider: 'jira',
+      clickupApiKey: '',
+      clickupTeamId: '',
+      clickupTag: '',
+      clickupPendingStatus: '',
+      clickupInReviewStatus: '',
+      jiraBaseUrl: 'https://acme.atlassian.net',
+      jiraEmail: 'dev@acme.com',
+      jiraApiToken: 'tok_secret',
+      jiraProject: 'PROJ',
+      jiraLabel: 'aidev',
+      jiraPendingStatus: 'To Do',
+      jiraInReviewStatus: 'In Review',
+    };
+    const first = renderEnv(jiraAnswers);
+    const second = renderEnv(answersFromParsed(dotenv.parse(first)));
+    assert.equal(second, first);
+  });
+
+  it('quoted values (spaces) survive parse → re-render', () => {
+    const answers: Answers = {
+      ...baseAnswers,
+      clickupPendingStatus: 'needs info',
+      clickupInReviewStatus: 'in review',
+    };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    // dotenv strips quotes — parsed values should be plain strings
+    assert.equal(parsed.CLICKUP_PENDING_STATUS, 'needs info');
+    assert.equal(parsed.CLICKUP_IN_REVIEW_STATUS, 'in review');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+
+  it('AIDEV_ENV_EXTEND survives parse → re-render', () => {
+    const answers: Answers = { ...baseAnswers, aidevEnvExtend: '/home/user/.aidev.global' };
+    const first = renderEnv(answers);
+    const second = renderEnv(answersFromParsed(dotenv.parse(first)));
+    assert.equal(second, first);
+  });
+
+  it('assigneeTag survives parse → re-render', () => {
+    const answers: Answers = { ...baseAnswers, assigneeTag: 'alice <alice@example.com>' };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.ASSIGNEE_TAG, 'alice <alice@example.com>');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+
+  it('changing one field during edit leaves all others unchanged', () => {
+    const first = renderEnv(baseAnswers);
+    const parsed = dotenv.parse(first);
+    // Simulate user typing a new value only for CLICKUP_TAG
+    const editedAnswers = answersFromParsed(parsed);
+    editedAnswers.clickupTag = 'new-tag';
+    const second = renderEnv(editedAnswers);
+
+    const p2 = dotenv.parse(second);
+    assert.equal(p2.CLICKUP_TAG, 'new-tag');
+    // Everything else unchanged
+    assert.equal(p2.CLICKUP_API_KEY, parsed.CLICKUP_API_KEY);
+    assert.equal(p2.CLICKUP_TEAM_ID, parsed.CLICKUP_TEAM_ID);
+    assert.equal(p2.AGENTS, parsed.AGENTS);
+    assert.equal(p2.GIT_REMOTE, parsed.GIT_REMOTE);
+    assert.equal(p2.GITHUB_BASE_BRANCH, parsed.GITHUB_BASE_BRANCH);
+  });
+
+  it('THINKING_TAG survives parse → re-render when set', () => {
+    const answers: Answers = { ...baseAnswers, thinkingTag: 'think' };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.THINKING_TAG, 'think');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+
+  it('empty optional fields are absent from parsed output (no stale keys)', () => {
+    const out = renderEnv(baseAnswers); // assigneeTag='', thinkingTag='', aidevEnvExtend=''
+    const p = dotenv.parse(out);
+    assert.ok(!('ASSIGNEE_TAG' in p), 'ASSIGNEE_TAG should be absent when empty');
+    assert.ok(!('AIDEV_ENV_EXTEND' in p), 'AIDEV_ENV_EXTEND should be absent when empty');
+    assert.ok(!('THINKING_TAG' in p), 'THINKING_TAG should be absent when empty');
   });
 });
 
