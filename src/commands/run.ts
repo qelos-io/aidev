@@ -6,6 +6,7 @@ import { AIRunner } from '../ai';
 import { logger, logRunStart } from '../logger';
 import { isScreenAvailable } from '../platform';
 import * as git from '../git';
+import { isGhAuthenticated, isGitHubRemote, createPullRequest } from '../github';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
 const SLEEPING_MARKER = 'machine appears to be asleep';
@@ -223,7 +224,7 @@ async function notifySleeping(task: Task, provider: TaskProvider): Promise<void>
   }
 }
 
-async function checkNeedsClarification(
+export async function checkNeedsClarification(
   task: Task,
   config: Config,
   provider: TaskProvider,
@@ -234,8 +235,8 @@ async function checkNeedsClarification(
   }
 
   // smart mode: ask AI if the task is clear
-  const runner = runners.find((r) => r.isAvailable());
-  if (!runner) {
+  const availableRunners = runners.filter((r) => r.isAvailable());
+  if (availableRunners.length === 0) {
     logger.warn('No AI runner available — skipping clarification check');
     return null;
   }
@@ -252,23 +253,30 @@ Respond with valid JSON only:
   "question": "question to ask if not clear, or null"
 }`;
 
-  const result = await runner.run(clarificationPrompt);
-  if (!result.success) {
-    logger.warn('Clarification check failed — proceeding without clarification');
-    return null;
-  }
-
-  try {
-    const jsonMatch = result.output.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]) as { clear: boolean; question?: string | null };
-    if (!parsed.clear && parsed.question) {
-      return parsed.question;
+  for (const runner of availableRunners) {
+    const result = await runner.run(clarificationPrompt);
+    if (!result.success) {
+      logger.warn(`${runner.name} clarification check failed — trying next runner`);
+      continue;
     }
-  } catch {
-    logger.debug('Could not parse clarification response — proceeding');
+
+    try {
+      const jsonMatch = result.output.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        logger.debug(`${runner.name} clarification response had no JSON — trying next runner`);
+        continue;
+      }
+      const parsed = JSON.parse(jsonMatch[0]) as { clear: boolean; question?: string | null };
+      if (!parsed.clear && parsed.question) {
+        return parsed.question;
+      }
+      return null;
+    } catch {
+      logger.debug(`${runner.name} clarification response could not be parsed — trying next runner`);
+    }
   }
 
+  logger.warn('Clarification check failed for all runners — proceeding without clarification');
   return null;
 }
 
@@ -370,9 +378,9 @@ async function implementTask(
     return;
   }
 
-  // Post completion comment
+  // Try creating a PR via gh CLI, fall back to compare URL
   try {
-    const prUrl = buildPRUrl(config, branchName);
+    const prUrl = tryCreatePR(config, branchName, task);
     const comment = buildCompletionComment(branchName, prUrl, config);
     await provider.postComment(task.id, comment);
     await provider.updateStatus(task.id, config.clickupInReviewStatus);
@@ -678,7 +686,7 @@ async function implementThinkingTask(
   }
 
   try {
-    const prUrl = buildPRUrl(config, branchName);
+    const prUrl = tryCreatePR(config, branchName, task);
     const comment = buildCompletionComment(branchName, prUrl, config);
     await provider.postComment(task.id, comment);
     await provider.updateStatus(task.id, config.clickupInReviewStatus);
@@ -687,6 +695,24 @@ async function implementThinkingTask(
   }
 
   logger.success(`Thinking task implemented: branch ${branchName} pushed`);
+}
+
+/**
+ * Attempts to create a PR via `gh` CLI. Falls back to a compare URL if gh is
+ * unavailable or PR creation fails.
+ */
+export function tryCreatePR(config: Config, branch: string, task: Task): string {
+  if (isGitHubRemote(config.gitRemote) && isGhAuthenticated()) {
+    const result = createPullRequest(
+      config.githubBaseBranch,
+      branch,
+      task.name,
+      `Implements: ${task.url}\n\nAutomated PR by aidev.`,
+    );
+    if (result.success) return result.url;
+    logger.warn('Falling back to compare URL');
+  }
+  return buildPRUrl(config, branch);
 }
 
 export function buildPRUrl(config: Config, branch: string): string {

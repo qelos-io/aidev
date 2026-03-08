@@ -30,7 +30,20 @@ export function remoteBranchExists(remote: string, branch: string): boolean {
   return result.status === 0 && result.stdout.trim().length > 0;
 }
 
+export function stashChanges(): boolean {
+  if (!hasChanges()) return true;
+  logger.debug('git stash push -u -m aidev-autostash');
+  const result = git(['stash', 'push', '-u', '-m', 'aidev-autostash']);
+  if (result.status !== 0) {
+    logger.warn(`git stash failed: ${result.stderr}`);
+    return false;
+  }
+  return true;
+}
+
 export function fetchAndCheckout(remote: string, baseBranch: string): boolean {
+  stashChanges();
+
   logger.debug(`git fetch ${remote}`);
   const fetch = git(['fetch', remote]);
   if (fetch.status !== 0) {
@@ -67,6 +80,8 @@ export function fetchAndCheckout(remote: string, baseBranch: string): boolean {
 }
 
 export function fetchAndCheckoutBranch(remote: string, branch: string): boolean {
+  stashChanges();
+
   logger.debug(`git fetch ${remote}`);
   const fetchResult = git(['fetch', remote]);
   if (fetchResult.status !== 0) {

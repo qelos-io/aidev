@@ -6,6 +6,7 @@ import { logger } from '../logger';
 import { detectRemote } from '../git';
 import { validateAgentPermissions } from '../permissions';
 import { scheduleSetCommand } from './schedule';
+import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
 import chalk from 'chalk';
 
 const VALID_AGENTS = ['claude', 'cursor', 'windsurf'] as const;
@@ -239,6 +240,36 @@ export function renderEnv(a: Answers): string {
   return lines.filter((l) => l !== null).join('\n');
 }
 
+export function printGhSuggestion(remote: string): void {
+  if (!isGitHubRemote(remote)) return;
+
+  if (!isGhInstalled()) {
+    console.log(chalk.bold('  GitHub CLI (gh)'));
+    console.log(chalk.dim('  ─────────────────────────────────────────────────'));
+    console.log(`  This repo is on GitHub. Install the ${chalk.cyan('gh')} CLI to`);
+    console.log(`  automatically create Pull Requests after pushing branches.`);
+    console.log(`    ${chalk.cyan('https://cli.github.com/')}`);
+    console.log(`  After installing, run: ${chalk.cyan('gh auth login')}`);
+    console.log();
+    return;
+  }
+
+  if (!isGhAuthenticated()) {
+    console.log(chalk.bold('  GitHub CLI (gh)'));
+    console.log(chalk.dim('  ─────────────────────────────────────────────────'));
+    console.log(`  ${chalk.cyan('gh')} is installed but not authenticated.`);
+    console.log(`  Run ${chalk.cyan('gh auth login')} to enable automatic PR creation.`);
+    console.log();
+    return;
+  }
+
+  console.log(chalk.bold('  GitHub CLI (gh)'));
+  console.log(chalk.dim('  ─────────────────────────────────────────────────'));
+  console.log(`  ${chalk.green('✓')} ${chalk.cyan('gh')} is installed and authenticated.`);
+  console.log(`  PRs will be created automatically after pushing branches.`);
+  console.log();
+}
+
 export async function initCommand(): Promise<void> {
   const dest = path.join(process.cwd(), '.env.aidev');
 
@@ -416,6 +447,8 @@ export async function initCommand(): Promise<void> {
       console.log(`    2. Click ${chalk.cyan('+')} and add ${chalk.cyan('/usr/sbin/cron')}`);
       console.log();
     }
+
+    printGhSuggestion(gitRemote);
 
     section('Schedule');
     await scheduleSetCommand();

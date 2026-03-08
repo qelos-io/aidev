@@ -1,9 +1,27 @@
 import chalk from 'chalk';
+import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
+import { detectRemote } from '../git';
 
 const b = chalk.bold;
 const c = chalk.cyan;
 const d = chalk.dim;
 const g = chalk.green;
+
+function ghStatusLine(): string {
+  const remote = detectRemote() || 'origin';
+  if (!isGitHubRemote(remote)) return '';
+
+  if (!isGhInstalled()) {
+    return `\n${b('GITHUB CLI')}\n` +
+      `  ${chalk.yellow('!')} Install ${c('gh')} to auto-create PRs: ${c('https://cli.github.com/')}\n`;
+  }
+  if (!isGhAuthenticated()) {
+    return `\n${b('GITHUB CLI')}\n` +
+      `  ${chalk.yellow('!')} ${c('gh')} found but not authenticated — run ${c('gh auth login')}\n`;
+  }
+  return `\n${b('GITHUB CLI')}\n` +
+    `  ${g('✓')} ${c('gh')} authenticated — PRs will be created automatically after push\n`;
+}
 
 export function helpCommand(): void {
   console.log(`
@@ -43,7 +61,7 @@ ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
   ${d('GIT_REMOTE')}           Remote name ${d('(auto-detected if unset)')}
   ${d('GITHUB_BASE_BRANCH')}   Base branch ${d('(default: main)')}
   ${d('GITHUB_REPO')}          ${d('owner/repo')} for PR links
-
+${ghStatusLine()}
   Run ${c('aidev init')} to configure interactively.
 `);
 }

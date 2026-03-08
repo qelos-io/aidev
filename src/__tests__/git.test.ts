@@ -12,6 +12,8 @@ import {
   commit,
   push,
   addAll,
+  hasChanges,
+  stashChanges,
   fetchAndCheckout,
 } from '../git';
 
@@ -260,6 +262,81 @@ describe('push validation (integration)', () => {
       encoding: 'utf8',
     });
     assert.ok(log.stdout.includes('v2'));
+  });
+});
+
+describe('stashChanges (integration)', () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
+    initRepo(tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns true and does nothing when working tree is clean', () => {
+    assert.equal(hasChanges(), false);
+    assert.equal(stashChanges(), true);
+    assert.equal(hasChanges(), false);
+  });
+
+  it('stashes uncommitted changes so working tree is clean afterward', () => {
+    fs.writeFileSync(path.join(tmpDir, 'dirty.txt'), 'uncommitted');
+    assert.equal(hasChanges(), true);
+    assert.equal(stashChanges(), true);
+    assert.equal(hasChanges(), false);
+  });
+
+  it('stashes untracked files (using -u flag)', () => {
+    fs.writeFileSync(path.join(tmpDir, 'untracked.txt'), 'new file');
+    assert.equal(hasChanges(), true);
+    assert.equal(stashChanges(), true);
+    assert.equal(hasChanges(), false);
+  });
+});
+
+describe('fetchAndCheckout with dirty working tree (integration)', () => {
+  let tmpDir: string;
+  let bareDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
+    bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-bare-'));
+    gitCmd(['init', '--bare', '-b', 'main'], bareDir);
+    initRepo(tmpDir);
+    gitCmd(['remote', 'add', 'origin', bareDir], tmpDir);
+    gitCmd(['push', 'origin', 'main'], tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(bareDir, { recursive: true, force: true });
+  });
+
+  it('succeeds even when there are uncommitted changes (stashes them)', () => {
+    gitCmd(['checkout', '-b', 'feature/dirty'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'leftover.txt'), 'from previous run');
+    assert.equal(hasChanges(), true);
+    assert.equal(fetchAndCheckout('origin', 'main'), true);
+    assert.equal(getCurrentBranch(), 'main');
+  });
+
+  it('succeeds even when there are untracked files (stashes them)', () => {
+    fs.writeFileSync(path.join(tmpDir, 'untracked.txt'), 'untracked');
+    assert.equal(hasChanges(), true);
+    assert.equal(fetchAndCheckout('origin', 'main'), true);
+    assert.equal(getCurrentBranch(), 'main');
   });
 });
 

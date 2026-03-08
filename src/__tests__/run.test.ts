@@ -1,8 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildImplementPrompt, hasHumanReply, hasTriggerWord, DEFAULT_TRIGGER_WORD } from '../commands/run';
+import { buildPRUrl, buildCompletionComment, buildImplementPrompt, hasHumanReply, hasTriggerWord, DEFAULT_TRIGGER_WORD, checkNeedsClarification } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
+import type { AIRunner, AIRunResult } from '../ai/base';
 
 const baseConfig = {
   githubRepo: 'owner/repo',
@@ -172,5 +173,83 @@ describe('hasTriggerWord', () => {
     ];
     // last comment has no trigger word
     assert.equal(hasTriggerWord(comments, 'aidev-continue'), false);
+  });
+});
+
+// ─── checkNeedsClarification ──────────────────────────────────────────────────
+
+function makeRunner(name: string, success: boolean, output: string): AIRunner {
+  return {
+    name,
+    isAvailable: () => true,
+    run: async (_prompt: string): Promise<AIRunResult> => ({ success, output, error: success ? '' : 'error' }),
+  };
+}
+
+const clarificationTask: Task = {
+  id: 'abc123',
+  name: 'Add dark mode',
+  description: 'Support a dark color scheme.',
+  status: 'open',
+  url: 'https://app.clickup.com/t/abc123',
+  tags: ['myproject'],
+};
+
+const clarificationConfig = {
+  devNotesMode: 'smart',
+  clickupPendingStatus: 'pending',
+} as unknown as Config;
+
+const mockProvider = {
+  fetchTasks: async () => [],
+  getComments: async () => [],
+  postComment: async () => {},
+  updateStatus: async () => {},
+};
+
+describe('checkNeedsClarification', () => {
+  it('returns a question when runner says task is not clear', async () => {
+    const runner = makeRunner('claude', true, JSON.stringify({ clear: false, question: 'Which color scheme?' }));
+    const q = await checkNeedsClarification(clarificationTask, clarificationConfig, mockProvider, [runner]);
+    assert.equal(q, 'Which color scheme?');
+  });
+
+  it('returns null when runner says task is clear', async () => {
+    const runner = makeRunner('claude', true, JSON.stringify({ clear: true, question: null }));
+    const q = await checkNeedsClarification(clarificationTask, clarificationConfig, mockProvider, [runner]);
+    assert.equal(q, null);
+  });
+
+  it('falls back to next runner when first runner fails', async () => {
+    const failing = makeRunner('cursor', false, '');
+    const working = makeRunner('claude', true, JSON.stringify({ clear: false, question: 'Any preferences?' }));
+    const q = await checkNeedsClarification(clarificationTask, clarificationConfig, mockProvider, [failing, working]);
+    assert.equal(q, 'Any preferences?');
+  });
+
+  it('falls back to next runner when first runner returns unparseable JSON', async () => {
+    const bad = makeRunner('cursor', true, 'not json at all');
+    const good = makeRunner('claude', true, JSON.stringify({ clear: true, question: null }));
+    const q = await checkNeedsClarification(clarificationTask, clarificationConfig, mockProvider, [bad, good]);
+    assert.equal(q, null);
+  });
+
+  it('returns null when all runners fail', async () => {
+    const a = makeRunner('cursor', false, '');
+    const b = makeRunner('windsurf', false, '');
+    const q = await checkNeedsClarification(clarificationTask, clarificationConfig, mockProvider, [a, b]);
+    assert.equal(q, null);
+  });
+
+  it('returns null when no runners are available', async () => {
+    const unavailable = { name: 'cursor', isAvailable: () => false, run: async () => ({ success: false, output: '', error: '' }) };
+    const q = await checkNeedsClarification(clarificationTask, clarificationConfig, mockProvider, [unavailable]);
+    assert.equal(q, null);
+  });
+
+  it('returns the always-ask clarification prompt when devNotesMode is "always"', async () => {
+    const config = { ...clarificationConfig, devNotesMode: 'always' } as unknown as Config;
+    const q = await checkNeedsClarification(clarificationTask, config, mockProvider, []);
+    assert.ok(q !== null && q.includes('Add dark mode'));
   });
 });
