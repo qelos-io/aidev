@@ -617,6 +617,103 @@ async function scheduleRemoveWindows(id?: number): Promise<void> {
   }
 }
 
+// ─── schedule fix ─────────────────────────────────────────────────────────────
+
+/** Extracts the launchd schedule object from a plist XML string. */
+export function extractLaunchdSchedule(xml: string): LaunchdSchedule | null {
+  const intervalMatch = xml.match(/<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/);
+  if (intervalMatch) return { key: 'StartInterval', seconds: parseInt(intervalMatch[1], 10) };
+
+  const hourMatch = xml.match(/<key>Hour<\/key>\s*<integer>(\d+)<\/integer>/);
+  const minMatch = xml.match(/<key>Minute<\/key>\s*<integer>(\d+)<\/integer>/);
+  if (hourMatch && minMatch) {
+    return {
+      key: 'StartCalendarInterval',
+      hour: parseInt(hourMatch[1], 10),
+      minute: parseInt(minMatch[1], 10),
+    };
+  }
+  return null;
+}
+
+function scheduleFixDarwin(): void {
+  const entries = parseDarwinEntries();
+  if (entries.length === 0) {
+    logger.warn('No aidev schedules found');
+    return;
+  }
+
+  const aidevBin = getAidevBin();
+  const nodeBin = findBin('node') ?? 'node';
+  let fixed = 0;
+
+  for (const entry of entries) {
+    const xml = fs.readFileSync(entry.plistPath, 'utf8');
+    const schedule = extractLaunchdSchedule(xml);
+    if (!schedule) {
+      logger.warn(`${entry.cwd}: cannot parse schedule — skipping`);
+      continue;
+    }
+
+    const expected = buildLaunchAgentPlist(entry.label, nodeBin, aidevBin, entry.cwd, schedule);
+    if (expected === xml) {
+      logger.info(`${entry.cwd}: already up to date`);
+      continue;
+    }
+
+    spawnSync('launchctl', ['unload', '-w', entry.plistPath], { encoding: 'utf8' });
+    fs.writeFileSync(entry.plistPath, expected, 'utf8');
+    const loadResult = spawnSync('launchctl', ['load', '-w', entry.plistPath], { encoding: 'utf8' });
+    if (loadResult.status !== 0) {
+      logger.error(`Failed to reload ${entry.plistPath}:\n${loadResult.stderr}`);
+      continue;
+    }
+    logger.success(`Fixed: ${entry.cwd}`);
+    fixed++;
+  }
+
+  logger.info(`${fixed} fixed, ${entries.length - fixed} already up to date`);
+}
+
+function scheduleFixUnix(): void {
+  const crontab = getCrontab();
+  const entries = parseAidevEntries(crontab);
+  if (entries.length === 0) {
+    logger.warn('No aidev schedules found');
+    return;
+  }
+
+  const aidevBin = getAidevBin();
+  const nodeBin = findBin('node') ?? 'node';
+  let lines = crontab.split('\n');
+  let fixed = 0;
+
+  for (const entry of entries) {
+    const expected = buildUnixCronLine(entry.cron, entry.cwd, nodeBin, aidevBin);
+    if (entry.line === expected) {
+      logger.info(`${entry.cwd}: already up to date`);
+      continue;
+    }
+    lines = lines.map((l) => (l === entry.line ? expected : l));
+    logger.success(`Fixed: ${entry.cwd}`);
+    fixed++;
+  }
+
+  if (fixed > 0) {
+    const updated = lines.join('\n').replace(/\n+$/, '') + '\n';
+    if (!setCrontab(updated)) {
+      logger.error('Failed to update crontab');
+      process.exit(1);
+    }
+  }
+
+  logger.info(`${fixed} fixed, ${entries.length - fixed} already up to date`);
+}
+
+function scheduleFixWindows(): void {
+  logger.warn('schedule fix is not supported on Windows — re-run "aidev schedule set" for each project.');
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function scheduleSetCommand(cronExpr?: string): Promise<void> {
@@ -636,4 +733,10 @@ export async function scheduleRemoveCommand(id?: number): Promise<void> {
   if (isWindows) await scheduleRemoveWindows(id);
   else if (process.platform === 'darwin') await scheduleRemoveDarwin(id);
   else await scheduleRemoveUnix(id);
+}
+
+export function scheduleFixCommand(): void {
+  if (isWindows) scheduleFixWindows();
+  else if (process.platform === 'darwin') scheduleFixDarwin();
+  else scheduleFixUnix();
 }

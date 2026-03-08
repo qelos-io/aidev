@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { cronToSchtasksArgs, windowsTaskName, buildUnixCronLine, cronToLaunchdSchedule, buildLaunchAgentPlist } from '../commands/schedule';
+import { cronToSchtasksArgs, windowsTaskName, buildUnixCronLine, cronToLaunchdSchedule, buildLaunchAgentPlist, extractLaunchdSchedule } from '../commands/schedule';
 import type { LaunchdSchedule } from '../commands/schedule';
 
 describe('cronToSchtasksArgs', () => {
@@ -232,5 +232,75 @@ describe('buildLaunchAgentPlist', () => {
     const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule);
     assert.ok(plist.includes('<key>RunAtLoad</key>'));
     assert.ok(plist.includes('<false/>'));
+  });
+});
+
+// ─── extractLaunchdSchedule ───────────────────────────────────────────────────
+
+describe('extractLaunchdSchedule', () => {
+  const label = 'com.aidev.run.abc123';
+  const nodeBin = '/usr/local/bin/node';
+  const aidevBin = '/usr/local/bin/aidev';
+  const cwd = '/Users/dev/myproject';
+
+  it('extracts StartInterval from a generated plist', () => {
+    const schedule: LaunchdSchedule = { key: 'StartInterval', seconds: 900 };
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule);
+    assert.deepEqual(extractLaunchdSchedule(plist), schedule);
+  });
+
+  it('extracts StartCalendarInterval from a generated plist', () => {
+    const schedule: LaunchdSchedule = { key: 'StartCalendarInterval', hour: 8, minute: 0 };
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule);
+    assert.deepEqual(extractLaunchdSchedule(plist), schedule);
+  });
+
+  it('round-trips: extract then rebuild produces identical plist', () => {
+    const schedule: LaunchdSchedule = { key: 'StartInterval', seconds: 1800 };
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule);
+    const extracted = extractLaunchdSchedule(plist)!;
+    const rebuilt = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, extracted);
+    assert.equal(rebuilt, plist);
+  });
+
+  it('round-trips calendar schedule: extract then rebuild produces identical plist', () => {
+    const schedule: LaunchdSchedule = { key: 'StartCalendarInterval', hour: 8, minute: 0 };
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule);
+    const extracted = extractLaunchdSchedule(plist)!;
+    const rebuilt = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, extracted);
+    assert.equal(rebuilt, plist);
+  });
+
+  it('returns null for plist with no schedule keys', () => {
+    assert.equal(extractLaunchdSchedule('<plist><dict></dict></plist>'), null);
+  });
+});
+
+// ─── schedule fix: Unix cron round-trip ───────────────────────────────────────
+
+describe('buildUnixCronLine idempotency (schedule fix basis)', () => {
+  const cwd = '/home/user/myproject';
+  const node = '/usr/local/bin/node';
+  const aidev = '/usr/local/bin/aidev';
+
+  it('rebuilding with same args produces identical line (already up to date)', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
+    const rebuilt = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
+    assert.equal(line, rebuilt);
+  });
+
+  it('rebuilding with different node path produces a different line (needs fix)', () => {
+    const original = buildUnixCronLine('*/15 * * * *', cwd, '/old/bin/node', aidev);
+    const updated = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
+    assert.notEqual(original, updated);
+    assert.ok(updated.includes(node));
+    assert.ok(!updated.includes('/old/bin/node'));
+  });
+
+  it('rebuilding with different aidev path produces a different line (needs fix)', () => {
+    const original = buildUnixCronLine('*/15 * * * *', cwd, node, '/old/bin/aidev');
+    const updated = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
+    assert.notEqual(original, updated);
+    assert.ok(updated.includes(aidev));
   });
 });

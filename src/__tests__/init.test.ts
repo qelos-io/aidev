@@ -57,6 +57,7 @@ const baseAnswers: Answers = {
   devNotesMode: 'smart',
   triggerWord: 'aidev-continue',
   thinkingTag: '',
+  aidevEnvExtend: '',
 };
 
 describe('renderEnv', () => {
@@ -92,6 +93,25 @@ describe('renderEnv', () => {
   it('omits GITHUB_REPO when empty', () => {
     const out = renderEnv({ ...baseAnswers, githubRepo: '' });
     assert.ok(!out.includes('GITHUB_REPO'));
+  });
+
+  it('omits AIDEV_ENV_EXTEND when empty', () => {
+    const out = renderEnv({ ...baseAnswers, aidevEnvExtend: '' });
+    assert.ok(!out.includes('AIDEV_ENV_EXTEND'));
+  });
+
+  it('includes AIDEV_ENV_EXTEND at the top when set', () => {
+    const out = renderEnv({ ...baseAnswers, aidevEnvExtend: '/home/user/.aidev.global' });
+    assert.ok(out.includes('AIDEV_ENV_EXTEND=/home/user/.aidev.global'));
+    // must appear before provider config
+    const extIdx = out.indexOf('AIDEV_ENV_EXTEND');
+    const provIdx = out.indexOf('PROVIDER=');
+    assert.ok(extIdx < provIdx, 'AIDEV_ENV_EXTEND should appear before PROVIDER');
+  });
+
+  it('includes a descriptive comment before AIDEV_ENV_EXTEND when set', () => {
+    const out = renderEnv({ ...baseAnswers, aidevEnvExtend: '/home/user/.aidev.global' });
+    assert.ok(out.includes('# Global env base'));
   });
 });
 

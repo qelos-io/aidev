@@ -69,6 +69,7 @@ export interface Answers {
   devNotesMode: string;
   triggerWord: string;
   thinkingTag: string;
+  aidevEnvExtend: string;
 }
 
 function dim(s: string) {
@@ -217,6 +218,11 @@ export function renderEnv(a: Answers): string {
         ];
 
   const lines = [
+    a.aidevEnvExtend
+      ? `# Global env base — values here are overridden by entries below`
+      : null,
+    line('AIDEV_ENV_EXTEND', a.aidevEnvExtend),
+    a.aidevEnvExtend ? `` : null,
     ...providerLines,
     ``,
     line('ASSIGNEE_TAG', a.assigneeTag),
@@ -291,6 +297,20 @@ export async function initCommand(): Promise<void> {
   const rl = readline.createInterface({ input, output });
 
   try {
+    // ── Global env extend ─────────────────────────────────────
+    section('Global env file (optional)');
+    console.log(
+      chalk.dim(
+        `  Set AIDEV_ENV_EXTEND to share common config (API keys, agents, etc.) across\n` +
+        `  multiple projects. Each project's .env.aidev overrides values from the global file.`
+      )
+    );
+    const aidevEnvExtend = await ask(
+      rl,
+      `Path to global env file ${hint('e.g. ~/.aidev.global — leave blank to skip')}`,
+      process.env.AIDEV_ENV_EXTEND || ''
+    );
+
     // ── Provider ─────────────────────────────────────────────
     section('Task provider');
     const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira'], 'clickup') as 'clickup' | 'jira';
@@ -410,6 +430,7 @@ export async function initCommand(): Promise<void> {
 
     const answers: Answers = {
       provider,
+      aidevEnvExtend,
       clickupApiKey,
       clickupTeamId,
       clickupTag,
