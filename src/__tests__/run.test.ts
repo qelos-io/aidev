@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildImplementPrompt, hasHumanReply, hasTriggerWord, DEFAULT_TRIGGER_WORD, checkNeedsClarification } from '../commands/run';
+import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildImplementPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -251,5 +251,62 @@ describe('checkNeedsClarification', () => {
     const config = { ...clarificationConfig, devNotesMode: 'always' } as unknown as Config;
     const q = await checkNeedsClarification(clarificationTask, config, mockProvider, []);
     assert.ok(q !== null && q.includes('Add dark mode'));
+  });
+});
+
+// ─── hasAidevComment ──────────────────────────────────────────────────────────
+
+describe('hasAidevComment', () => {
+  it('returns false on empty comments', () => {
+    assert.equal(hasAidevComment([]), false);
+  });
+
+  it('returns true when a comment contains [aidev]', () => {
+    const comments = [
+      makeComment('[aidev] Starting implementation'),
+      makeComment('Some human reply'),
+    ];
+    assert.equal(hasAidevComment(comments), true);
+  });
+
+  it('returns false when no comment contains [aidev]', () => {
+    const comments = [
+      makeComment('Please fix the tests'),
+      makeComment('I agree, this needs work'),
+    ];
+    assert.equal(hasAidevComment(comments), false);
+  });
+
+  it('returns true when only the last comment is from aidev', () => {
+    const comments = [
+      makeComment('Human wrote this'),
+      makeComment('[aidev] Non-code task complete!'),
+    ];
+    assert.equal(hasAidevComment(comments), true);
+  });
+});
+
+// ─── buildNonCodeCompletionComment ────────────────────────────────────────────
+
+describe('buildNonCodeCompletionComment', () => {
+  it('includes the in-review status', () => {
+    const comment = buildNonCodeCompletionComment(baseConfig);
+    assert.ok(comment.includes('review'));
+  });
+
+  it('starts with the [aidev] prefix', () => {
+    const comment = buildNonCodeCompletionComment(baseConfig);
+    assert.ok(comment.startsWith('[aidev]'));
+  });
+
+  it('mentions non-code task', () => {
+    const comment = buildNonCodeCompletionComment(baseConfig);
+    assert.ok(comment.includes('Non-code task complete'));
+  });
+
+  it('does not include branch or PR info', () => {
+    const comment = buildNonCodeCompletionComment(baseConfig);
+    assert.ok(!comment.includes('Branch:'));
+    assert.ok(!comment.includes('PR'));
   });
 });

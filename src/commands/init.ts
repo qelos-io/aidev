@@ -61,6 +61,10 @@ export interface Answers {
   jiraLabel: string;
   jiraPendingStatus: string;
   jiraInReviewStatus: string;
+  // Non-code tasks
+  nonCodeTag: string;
+  nonCodeClickupTeamId: string;
+  nonCodeJiraProject: string;
   // Shared
   assigneeTag: string;
   gitRemote: string;
@@ -244,6 +248,11 @@ export function renderEnv(a: Answers): string {
     `# THINKING_TAG: tasks with this tag are analyzed and broken into sub-tasks before execution`,
     line('THINKING_TAG', a.thinkingTag),
     ``,
+    `# NON_CODE_TAG: tasks with this tag run without git branching (no checkout/commit/push)`,
+    line('NON_CODE_TAG', a.nonCodeTag),
+    line('NON_CODE_CLICKUP_TEAM_ID', a.nonCodeClickupTeamId),
+    line('NON_CODE_JIRA_PROJECT', a.nonCodeJiraProject),
+    ``,
   ];
   return lines.filter((l) => l !== null).join('\n');
 }
@@ -417,6 +426,39 @@ export async function initCommand(): Promise<void> {
       existing.THINKING_TAG || ''
     );
 
+    // ── Non-code tasks ──────────────────────────────────────
+    section('Non-code tasks');
+    console.log(
+      chalk.dim(
+        `  Tasks with the non-code tag are executed without git branching — no checkout,\n` +
+        `  commit, or push. Useful for research, docs, or tasks that don't produce PRs.`
+      )
+    );
+    const nonCodeTag = await ask(
+      rl,
+      `Non-code tag ${hint('optional — leave blank to disable')}`,
+      existing.NON_CODE_TAG || ''
+    );
+
+    let nonCodeClickupTeamId = '';
+    let nonCodeJiraProject = '';
+
+    if (nonCodeTag) {
+      if (provider === 'clickup') {
+        nonCodeClickupTeamId = await ask(
+          rl,
+          `Non-code ClickUp team ID ${hint('leave blank to use same team')}`,
+          existing.NON_CODE_CLICKUP_TEAM_ID || ''
+        );
+      } else {
+        nonCodeJiraProject = await ask(
+          rl,
+          `Non-code Jira project ${hint('leave blank to use same project')}`,
+          existing.NON_CODE_JIRA_PROJECT || ''
+        );
+      }
+    }
+
     // ── Assignee ─────────────────────────────────────────────
     section('Assignee');
     const effectiveApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
@@ -447,6 +489,9 @@ export async function initCommand(): Promise<void> {
       jiraLabel,
       jiraPendingStatus,
       jiraInReviewStatus,
+      nonCodeTag,
+      nonCodeClickupTeamId,
+      nonCodeJiraProject,
       assigneeTag,
       gitRemote,
       githubBaseBranch,

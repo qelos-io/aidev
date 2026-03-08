@@ -79,7 +79,8 @@ export async function runCommand(
   filter: RunFilter,
   config: Config,
   provider: TaskProvider,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  nonCodeProvider?: TaskProvider
 ): Promise<void> {
   const cwd = process.cwd();
   if (!acquireLock(cwd)) {
@@ -107,6 +108,18 @@ export async function runCommand(
       const result = await processTask(task, filter, config, provider, runners, screenAvailable);
       if (result === 'processed') processed++;
       else skipped++;
+    }
+
+    if (nonCodeProvider) {
+      logger.info(`Fetching non-code tasks (filter: ${filter})...`);
+      const nonCodeTasks = await nonCodeProvider.fetchTasks();
+      logger.info(`Found ${nonCodeTasks.length} non-code task(s)`);
+
+      for (const task of nonCodeTasks) {
+        const result = await processNonCodeTask(task, filter, config, nonCodeProvider, runners, screenAvailable);
+        if (result === 'processed') processed++;
+        else skipped++;
+      }
     }
 
     logger.success(`Done. Processed: ${processed}, Skipped: ${skipped}`);
@@ -759,4 +772,159 @@ export function buildCompletionComment(branch: string, prUrl: string, config: Co
 
   lines.push(``, `Status set to: ${config.clickupInReviewStatus}`);
   return lines.join('\n');
+}
+
+export function buildNonCodeCompletionComment(config: Config): string {
+  return [
+    `[aidev] Non-code task complete!`,
+    ``,
+    `Status set to: ${config.clickupInReviewStatus}`,
+  ].join('\n');
+}
+
+export function hasAidevComment(comments: Comment[]): boolean {
+  return comments.some((c) => c.text.includes('[aidev]'));
+}
+
+async function processNonCodeTask(
+  task: Task,
+  filter: RunFilter,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[],
+  screenAvailable: boolean
+): Promise<'processed' | 'skipped'> {
+  const isPending = task.status.toLowerCase() === config.clickupPendingStatus.toLowerCase();
+
+  logger.task(`[${task.id}] "${task.name}" [non-code] (status: ${task.status})`);
+
+  if (SKIP_STATUSES.has(task.status.toLowerCase())) {
+    logger.info(`[${task.id}] "${task.name}" skipped — terminal status: ${task.status}`);
+    return 'skipped';
+  }
+
+  if (filter === 'open' && isPending) {
+    logger.info(`[${task.id}] "${task.name}" skipped — filter=open but task is pending`);
+    return 'skipped';
+  }
+  if (filter === 'pending' && !isPending) {
+    logger.info(`[${task.id}] "${task.name}" skipped — filter=pending but task is not pending`);
+    return 'skipped';
+  }
+
+  const comments = await provider.getComments(task.id);
+  const wasProcessed = hasAidevComment(comments);
+
+  if (isPending || wasProcessed) {
+    const trigger = hasTriggerWord(comments, config.triggerWord);
+
+    if (isPending) {
+      const reply = hasHumanReply(comments);
+      if (!reply && !trigger) {
+        logger.info(`[${task.id}] "${task.name}" skipped — pending with no human reply or trigger word ("${config.triggerWord}")`);
+        return 'skipped';
+      }
+      logger.info(
+        trigger
+          ? `Trigger word "${config.triggerWord}" found — re-processing non-code task`
+          : 'Pending non-code task has a human reply — proceeding'
+      );
+    } else {
+      if (!trigger) {
+        logger.info(`[${task.id}] "${task.name}" skipped — already processed, no trigger word`);
+        return 'skipped';
+      }
+      logger.info(`Trigger word "${config.triggerWord}" found — re-processing non-code task`);
+    }
+
+    if (!screenAvailable) {
+      await notifySleeping(task, provider);
+      return 'skipped';
+    }
+  } else {
+    if (!screenAvailable) {
+      await notifySleeping(task, provider);
+      return 'skipped';
+    }
+
+    const clarification = await checkNeedsClarification(task, config, provider, runners);
+    if (clarification) {
+      await provider.postComment(task.id, `[aidev] ${clarification}`);
+      await provider.updateStatus(task.id, config.clickupPendingStatus);
+      logger.info(`Posted clarification question, set status to ${config.clickupPendingStatus}`);
+      return 'skipped';
+    }
+  }
+
+  await implementNonCodeTask(task, config, provider, runners);
+  return 'processed';
+}
+
+async function implementNonCodeTask(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[]
+): Promise<void> {
+  logger.info(`Implementing non-code task: ${task.name}`);
+
+  try {
+    await provider.updateStatus(task.id, 'in progress');
+    await provider.postComment(task.id, `[aidev] Starting non-code task execution`);
+  } catch (err) {
+    logger.warn(`Could not update task status: ${err}`);
+  }
+
+  let context = '';
+  try {
+    const comments = await provider.getComments(task.id);
+    if (comments.length > 0) {
+      context = '\n\nConversation context:\n' + comments.map((c) => `${c.author}: ${c.text}`).join('\n');
+    }
+  } catch {
+    // ignore
+  }
+
+  const implementPrompt = buildImplementPrompt(task, context);
+
+  let implemented = false;
+  let previousNotes = '';
+
+  for (const runner of runners) {
+    if (!runner.isAvailable()) {
+      logger.debug(`${runner.name} not available, skipping`);
+      continue;
+    }
+
+    logger.info(`Running ${runner.name}...`);
+    const result = await runner.run(implementPrompt, previousNotes || undefined);
+
+    if (result.success) {
+      implemented = true;
+      break;
+    }
+
+    logger.warn(`${runner.name} failed — trying next runner`);
+    previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
+  }
+
+  if (!implemented) {
+    logger.error('All AI runners failed');
+    const diagnostics = collectAndLogDiagnostics();
+    await provider.postComment(
+      task.id,
+      `[aidev] All AI runners failed. Manual intervention needed.\n\n${diagnostics}`
+    );
+    return;
+  }
+
+  try {
+    const comment = buildNonCodeCompletionComment(config);
+    await provider.postComment(task.id, comment);
+    await provider.updateStatus(task.id, config.clickupInReviewStatus);
+  } catch (err) {
+    logger.warn(`Failed to update task: ${err instanceof Error ? err.message : err}`);
+  }
+
+  logger.success(`Non-code task complete: ${task.name}`);
 }

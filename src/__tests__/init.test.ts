@@ -50,6 +50,9 @@ const baseAnswers: Answers = {
   jiraLabel: '',
   jiraPendingStatus: '',
   jiraInReviewStatus: '',
+  nonCodeTag: '',
+  nonCodeClickupTeamId: '',
+  nonCodeJiraProject: '',
   assigneeTag: '',
   gitRemote: 'origin',
   githubBaseBranch: 'main',
@@ -143,6 +146,9 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     jiraLabel: p.JIRA_LABEL || folderName,
     jiraPendingStatus: p.JIRA_PENDING_STATUS || 'To Do',
     jiraInReviewStatus: p.JIRA_IN_REVIEW_STATUS || 'In Review',
+    nonCodeTag: p.NON_CODE_TAG || '',
+    nonCodeClickupTeamId: p.NON_CODE_CLICKUP_TEAM_ID || '',
+    nonCodeJiraProject: p.NON_CODE_JIRA_PROJECT || '',
     assigneeTag: p.ASSIGNEE_TAG || '',
     gitRemote: p.GIT_REMOTE || 'origin',
     githubBaseBranch: p.GITHUB_BASE_BRANCH || 'main',
@@ -259,11 +265,75 @@ describe('existing env round-trip (edit flow)', () => {
   });
 
   it('empty optional fields are absent from parsed output (no stale keys)', () => {
-    const out = renderEnv(baseAnswers); // assigneeTag='', thinkingTag='', aidevEnvExtend=''
+    const out = renderEnv(baseAnswers); // assigneeTag='', thinkingTag='', aidevEnvExtend='', nonCodeTag=''
     const p = dotenv.parse(out);
     assert.ok(!('ASSIGNEE_TAG' in p), 'ASSIGNEE_TAG should be absent when empty');
     assert.ok(!('AIDEV_ENV_EXTEND' in p), 'AIDEV_ENV_EXTEND should be absent when empty');
     assert.ok(!('THINKING_TAG' in p), 'THINKING_TAG should be absent when empty');
+    assert.ok(!('NON_CODE_TAG' in p), 'NON_CODE_TAG should be absent when empty');
+    assert.ok(!('NON_CODE_CLICKUP_TEAM_ID' in p), 'NON_CODE_CLICKUP_TEAM_ID should be absent when empty');
+    assert.ok(!('NON_CODE_JIRA_PROJECT' in p), 'NON_CODE_JIRA_PROJECT should be absent when empty');
+  });
+});
+
+// ─── non-code tag fields ──────────────────────────────────────────────────────
+
+describe('renderEnv non-code fields', () => {
+  it('includes NON_CODE_TAG when set', () => {
+    const out = renderEnv({ ...baseAnswers, nonCodeTag: 'non-code' });
+    assert.ok(out.includes('NON_CODE_TAG=non-code'));
+  });
+
+  it('omits NON_CODE_TAG when empty', () => {
+    const out = renderEnv(baseAnswers);
+    assert.ok(!out.includes('NON_CODE_TAG='));
+  });
+
+  it('includes descriptive comment for NON_CODE_TAG', () => {
+    const out = renderEnv({ ...baseAnswers, nonCodeTag: 'non-code' });
+    assert.ok(out.includes('# NON_CODE_TAG'));
+  });
+
+  it('includes NON_CODE_CLICKUP_TEAM_ID when set', () => {
+    const out = renderEnv({ ...baseAnswers, nonCodeTag: 'non-code', nonCodeClickupTeamId: '999' });
+    assert.ok(out.includes('NON_CODE_CLICKUP_TEAM_ID=999'));
+  });
+
+  it('omits NON_CODE_CLICKUP_TEAM_ID when empty', () => {
+    const out = renderEnv({ ...baseAnswers, nonCodeTag: 'non-code' });
+    assert.ok(!out.includes('NON_CODE_CLICKUP_TEAM_ID'));
+  });
+
+  it('includes NON_CODE_JIRA_PROJECT when set', () => {
+    const out = renderEnv({ ...baseAnswers, nonCodeTag: 'non-code', nonCodeJiraProject: 'OPS' });
+    assert.ok(out.includes('NON_CODE_JIRA_PROJECT=OPS'));
+  });
+
+  it('NON_CODE_TAG survives parse → re-render', () => {
+    const answers: Answers = { ...baseAnswers, nonCodeTag: 'non-code' };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.NON_CODE_TAG, 'non-code');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+
+  it('NON_CODE_CLICKUP_TEAM_ID survives parse → re-render', () => {
+    const answers: Answers = { ...baseAnswers, nonCodeTag: 'ops', nonCodeClickupTeamId: '777' };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.NON_CODE_CLICKUP_TEAM_ID, '777');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+
+  it('NON_CODE_JIRA_PROJECT survives parse → re-render', () => {
+    const answers: Answers = { ...baseAnswers, nonCodeTag: 'ops', nonCodeJiraProject: 'DEVOPS' };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.NON_CODE_JIRA_PROJECT, 'DEVOPS');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
   });
 });
 

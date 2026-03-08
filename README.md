@@ -164,6 +164,8 @@ CLICKUP_TAG=my-project
 | `CLICKUP_IN_REVIEW_STATUS` | `review` | Status set after implementation |
 | `ASSIGNEE_TAG` | — | Only process tasks assigned to this user (optional) |
 | `THINKING_TAG` | — | Tasks with this tag are analyzed and broken into sub-tasks before execution (optional) |
+| `NON_CODE_TAG` | — | Tasks with this tag run without git branching (optional) |
+| `NON_CODE_CLICKUP_TEAM_ID` | same as `CLICKUP_TEAM_ID` | Different workspace for non-code tasks (optional) |
 
 > **Tip:** `CLICKUP_API_KEY` and `CLICKUP_TEAM_ID` are intentionally omitted from `.env.aidev` if you leave them blank during `aidev init` — they will be read from your shell environment instead.
 
@@ -237,6 +239,33 @@ AIDEV_TRIGGER_WORD=please-retry
 The trigger word match is case-insensitive, so `aidev-continue`, `AIDEV-CONTINUE`, and `Aidev-Continue` all work.
 
 For pending tasks, a regular human reply (any comment without `[aidev]`) also triggers re-processing — the trigger word is an additional explicit mechanism.
+
+---
+
+## Non-code tasks
+
+Tasks tagged with `NON_CODE_TAG` are executed **without git branching** — no checkout, commit, push, or PR creation. The AI agent runs the task directly in the current working directory.
+
+This is useful for:
+- Research or investigation tasks
+- Documentation updates that don't go through PR review
+- Running scripts or commands
+- Any task where you want the AI to act without creating a branch
+
+```bash
+# In .env.aidev
+NON_CODE_TAG=non-code
+
+# Optionally use a different ClickUp team for non-code tasks
+NON_CODE_CLICKUP_TEAM_ID=987654
+
+# Or a different Jira project
+NON_CODE_JIRA_PROJECT=OPS
+```
+
+Non-code tasks follow the same lifecycle as regular tasks (clarification → implementation → review), except the implementation step skips all git operations. After completion, the task status is moved to your configured "in review" status.
+
+If `NON_CODE_TAG` is not configured, non-code task processing is disabled entirely.
 
 ---
 
