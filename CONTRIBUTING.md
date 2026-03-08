@@ -13,7 +13,7 @@ Thank you for your interest in contributing!
 ## Development Setup
 
 ```bash
-git clone https://github.com/your-org/aidev
+git clone https://github.com/qelos-io/aidev
 cd aidev
 npm install
 npm run dev -- init        # uses tsx, no build needed
