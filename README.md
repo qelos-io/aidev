@@ -142,6 +142,7 @@ CLICKUP_TAG=my-project
 | `CLICKUP_PENDING_STATUS` | `pending` | Status name for "waiting for reply" |
 | `CLICKUP_IN_REVIEW_STATUS` | `review` | Status set after implementation |
 | `ASSIGNEE_TAG` | — | Only process tasks assigned to this user (optional) |
+| `THINKING_TAG` | — | Tasks with this tag are analyzed and broken into sub-tasks before execution (optional) |
 
 > **Tip:** `CLICKUP_API_KEY` and `CLICKUP_TEAM_ID` are intentionally omitted from `.env.aidev` if you leave them blank during `aidev init` — they will be read from your shell environment instead.
 
