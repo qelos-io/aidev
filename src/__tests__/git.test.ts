@@ -213,7 +213,7 @@ describe('push validation (integration)', () => {
     originalCwd = process.cwd();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
     bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-bare-'));
-    gitCmd(['init', '--bare'], bareDir);
+    gitCmd(['init', '--bare', '-b', 'main'], bareDir);
     initRepo(tmpDir);
     gitCmd(['remote', 'add', 'origin', bareDir], tmpDir);
     gitCmd(['push', 'origin', 'main'], tmpDir);
@@ -272,7 +272,7 @@ describe('fetchAndCheckout sync verification (integration)', () => {
     originalCwd = process.cwd();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
     bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-bare-'));
-    gitCmd(['init', '--bare'], bareDir);
+    gitCmd(['init', '--bare', '-b', 'main'], bareDir);
     initRepo(tmpDir);
     gitCmd(['remote', 'add', 'origin', bareDir], tmpDir);
     gitCmd(['push', 'origin', 'main'], tmpDir);
