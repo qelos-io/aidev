@@ -6,9 +6,10 @@ import { scheduleSetCommand, scheduleGetCommand, scheduleRemoveCommand, schedule
 import { helpCommand } from './commands/help';
 import { stopCommand } from './commands/stop';
 import { loadConfig } from './config';
-import { createProvider } from './providers';
+import { createProvider, TaskProvider } from './providers';
 import { createRunners } from './ai';
 import { logger } from './logger';
+import { Config } from './types';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { version } = require('../package.json') as { version: string };
@@ -52,7 +53,20 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
     const config = loadConfig(env);
     const provider = createProvider(config);
     const runners = createRunners(config);
-    await runCommand(resolvedFilter, config, provider, runners);
+
+    let nonCodeProvider: TaskProvider | undefined;
+    if (config.nonCodeTag) {
+      const nonCodeConfig: Config = {
+        ...config,
+        clickupTag: config.nonCodeTag,
+        clickupTeamId: config.nonCodeClickupTeamId || config.clickupTeamId,
+        jiraLabel: config.nonCodeTag,
+        jiraProject: config.nonCodeJiraProject || config.jiraProject,
+      };
+      nonCodeProvider = createProvider(nonCodeConfig);
+    }
+
+    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider);
   } catch (err) {
     logger.error(String(err));
     process.exit(1);

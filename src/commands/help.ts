@@ -44,6 +44,15 @@ ${b('TRIGGER WORD')}
   containing the trigger word ${d('(default: aidev-continue)')} to re-trigger processing.
   The existing branch will be reused. Set ${c('AIDEV_TRIGGER_WORD')} to customise.
 
+${b('NON-CODE TASKS')}
+  Tasks tagged with the ${c('NON_CODE_TAG')} are executed without git branching —
+  no checkout, commit, push, or PR creation. The AI agent runs the task directly
+  in the current working directory. Useful for research, documentation, or tasks
+  that don't produce code changes requiring review.
+  Optionally use a different ClickUp team (${c('NON_CODE_CLICKUP_TEAM_ID')}) or
+  Jira project (${c('NON_CODE_JIRA_PROJECT')}) for non-code tasks.
+  If ${c('NON_CODE_TAG')} is not set, non-code tasks are disabled.
+
 ${b('EXAMPLES')}
   ${d('$')} ${g('aidev init')}
   ${d('$')} ${g('aidev run')}
@@ -58,6 +67,7 @@ ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
   ${d('AGENTS')}               Agent order: ${c('claude,cursor')} ${d('| cursor,claude | claude | cursor')}
   ${d('DEV_NOTES_MODE')}       ${c('smart')} ${d('(default) | always')}
   ${d('AIDEV_TRIGGER_WORD')}   Trigger word to re-process a skipped task ${d('(default: aidev-continue)')}
+  ${d('NON_CODE_TAG')}         Tag for non-code tasks ${d('(no git branching)')}
   ${d('GIT_REMOTE')}           Remote name ${d('(auto-detected if unset)')}
   ${d('GITHUB_BASE_BRANCH')}   Base branch ${d('(default: main)')}
   ${d('GITHUB_REPO')}          ${d('owner/repo')} for PR links

@@ -152,6 +152,7 @@ export function loadConfig(customEnvPath?: string): Config {
 
   const triggerWord = process.env.AIDEV_TRIGGER_WORD || 'aidev-continue';
   const thinkingTag = process.env.THINKING_TAG || '';
+  const nonCodeTag = process.env.NON_CODE_TAG || '';
 
   return {
     provider,
@@ -160,6 +161,9 @@ export function loadConfig(customEnvPath?: string): Config {
     clickupTag: process.env.CLICKUP_TAG || '',
     clickupPendingStatus: process.env.CLICKUP_PENDING_STATUS || 'pending',
     clickupInReviewStatus: process.env.CLICKUP_IN_REVIEW_STATUS || 'review',
+    nonCodeTag,
+    nonCodeClickupTeamId: process.env.NON_CODE_CLICKUP_TEAM_ID || '',
+    nonCodeJiraProject: process.env.NON_CODE_JIRA_PROJECT || '',
     jiraBaseUrl: process.env.JIRA_BASE_URL || '',
     jiraEmail: process.env.JIRA_EMAIL || '',
     jiraApiToken: process.env.JIRA_API_TOKEN || '',

@@ -33,6 +33,10 @@ export interface Config {
   jiraLabel: string;
   jiraPendingStatus: string;
   jiraInReviewStatus: string;
+  // Non-code tasks
+  nonCodeTag: string;
+  nonCodeClickupTeamId: string;
+  nonCodeJiraProject: string;
   // Shared
   assigneeTag: string;
   gitRemote: string;
