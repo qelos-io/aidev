@@ -8,6 +8,7 @@ import { isScreenAvailable } from '../platform';
 import * as git from '../git';
 import { isGhAuthenticated, isGitHubRemote, createPullRequest } from '../github';
 import { collectAndLogDiagnostics } from '../diagnostics';
+import { acquireLock, releaseLock, readLock } from '../lockfile';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
 const SLEEPING_MARKER = 'machine appears to be asleep';
@@ -80,27 +81,38 @@ export async function runCommand(
   provider: TaskProvider,
   runners: AIRunner[]
 ): Promise<void> {
+  const cwd = process.cwd();
+  if (!acquireLock(cwd)) {
+    const pid = readLock(cwd);
+    logger.warn(`aidev is already running in this directory (PID ${pid}). Use "aidev stop" to terminate it.`);
+    process.exit(1);
+  }
+
   logRunStart();
 
-  const screenAvailable = isScreenAvailable();
-  if (!screenAvailable) {
-    logger.warn('Screen is locked or display is asleep — AI agents cannot operate');
+  try {
+    const screenAvailable = isScreenAvailable();
+    if (!screenAvailable) {
+      logger.warn('Screen is locked or display is asleep — AI agents cannot operate');
+    }
+
+    logger.info(`Fetching tasks (filter: ${filter})...`);
+    const tasks = await provider.fetchTasks();
+    logger.info(`Found ${tasks.length} tagged task(s)`);
+
+    let processed = 0;
+    let skipped = 0;
+
+    for (const task of tasks) {
+      const result = await processTask(task, filter, config, provider, runners, screenAvailable);
+      if (result === 'processed') processed++;
+      else skipped++;
+    }
+
+    logger.success(`Done. Processed: ${processed}, Skipped: ${skipped}`);
+  } finally {
+    releaseLock(cwd);
   }
-
-  logger.info(`Fetching tasks (filter: ${filter})...`);
-  const tasks = await provider.fetchTasks();
-  logger.info(`Found ${tasks.length} tagged task(s)`);
-
-  let processed = 0;
-  let skipped = 0;
-
-  for (const task of tasks) {
-    const result = await processTask(task, filter, config, provider, runners, screenAvailable);
-    if (result === 'processed') processed++;
-    else skipped++;
-  }
-
-  logger.success(`Done. Processed: ${processed}, Skipped: ${skipped}`);
 }
 
 async function processTask(

@@ -4,6 +4,7 @@ import { initCommand } from './commands/init';
 import { runCommand, RunFilter } from './commands/run';
 import { scheduleSetCommand, scheduleGetCommand, scheduleRemoveCommand, scheduleFixCommand } from './commands/schedule';
 import { helpCommand } from './commands/help';
+import { stopCommand } from './commands/stop';
 import { loadConfig } from './config';
 import { createProvider } from './providers';
 import { createRunners } from './ai';
@@ -63,6 +64,13 @@ program
   .description('Process tasks: all (default), open, or pending')
   .action(async (filter?: string) => {
     await runWithFilter(filter);
+  });
+
+program
+  .command('stop')
+  .description('Stop any running aidev process in the current directory')
+  .action(() => {
+    stopCommand();
   });
 
 const scheduleCmd = program
