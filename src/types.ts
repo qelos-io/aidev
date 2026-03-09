@@ -7,6 +7,34 @@ export interface Task {
   tags: string[];
 }
 
+export interface LocalTask {
+  id: string;
+  title: string;
+  description: string;
+  type: 'code' | 'non-code';
+  priority?: number;
+  assignee?: string;
+  dueDate?: string;
+  tags?: string[];
+  listId?: string;
+  cron?: string;
+  lastPushedAt?: number;
+}
+
+export interface CreateTaskParams {
+  title: string;
+  description: string;
+  tags: string[];
+  priority?: number;
+  dueDate?: number;
+  listId?: string;
+}
+
+export interface CreateTaskResult {
+  id: string;
+  url: string;
+}
+
 export interface Comment {
   id: string;
   text: string;
@@ -38,6 +66,7 @@ export interface Config {
   nonCodeClickupTeamId: string;
   nonCodeJiraProject: string;
   // Shared
+  clickupListId: string;
   assigneeTag: string;
   gitRemote: string;
   githubBaseBranch: string;

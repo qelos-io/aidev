@@ -1,4 +1,4 @@
-import { Task, Comment, Config } from '../types';
+import { Task, Comment, Config, CreateTaskParams, CreateTaskResult } from '../types';
 import { TaskProvider } from './base';
 import { logger } from '../logger';
 
@@ -7,12 +7,14 @@ export class ClickUpProvider implements TaskProvider {
   private teamId: string;
   private tag: string;
   private assigneeTag: string;
+  private listId: string;
 
   constructor(config: Config) {
     this.apiKey = config.clickupApiKey;
     this.teamId = config.clickupTeamId;
     this.tag = config.clickupTag;
     this.assigneeTag = config.assigneeTag;
+    this.listId = config.clickupListId;
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -148,5 +150,37 @@ export class ClickUpProvider implements TaskProvider {
       method: 'PUT',
       body: JSON.stringify({ status }),
     });
+  }
+
+  async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
+    const listId = params.listId || this.listId;
+    if (!listId) {
+      throw new Error(
+        'Cannot create task: no ClickUp list ID configured. Set CLICKUP_LIST_ID in .env.aidev or specify listId on the task.',
+      );
+    }
+
+    const body: Record<string, unknown> = {
+      name: params.title,
+      description: params.description,
+      tags: params.tags,
+    };
+    if (params.priority) body.priority = params.priority;
+    if (params.dueDate) {
+      body.due_date = params.dueDate;
+      body.due_date_time = true;
+    }
+
+    interface CreateResponse {
+      id: string;
+      url: string;
+    }
+
+    const result = await this.request<CreateResponse>(`/list/${listId}/task`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+
+    return { id: result.id, url: result.url };
   }
 }

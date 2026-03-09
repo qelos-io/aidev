@@ -205,6 +205,7 @@ const mockProvider = {
   getComments: async () => [],
   postComment: async () => {},
   updateStatus: async () => {},
+  createTask: async () => ({ id: '', url: '' }),
 };
 
 describe('checkNeedsClarification', () => {

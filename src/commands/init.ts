@@ -19,6 +19,7 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.log',    /^\*\.log/m],
   ['*.aidev.instructions.md', /^\*\.aidev\.instructions\.md/m],
   ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
+  ['aidev.tasks.json',        /^aidev\.tasks\.json/m],
 ];
 
 export function ensureGitignore(dir = process.cwd()): void {

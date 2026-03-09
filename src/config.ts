@@ -171,6 +171,7 @@ export function loadConfig(customEnvPath?: string): Config {
     jiraLabel: process.env.JIRA_LABEL || '',
     jiraPendingStatus: process.env.JIRA_PENDING_STATUS || 'To Do',
     jiraInReviewStatus: process.env.JIRA_IN_REVIEW_STATUS || 'In Review',
+    clickupListId: process.env.CLICKUP_LIST_ID || '',
     assigneeTag: process.env.ASSIGNEE_TAG || '',
     gitRemote: process.env.GIT_REMOTE || detectRemote() || 'origin',
     githubBaseBranch: process.env.GITHUB_BASE_BRANCH || 'main',
