@@ -306,6 +306,134 @@ Respond with valid JSON only:
   return null;
 }
 
+export function buildConflictResolutionPrompt(task: Task, conflictFiles: string[], context: string): string {
+  return `You are resolving merge conflicts in a software development task branch.
+
+The task branch has fallen behind the base branch and has merge conflicts that need to be resolved.
+
+## Task context (DO NOT break this — the task must still work after conflict resolution)
+
+Task: ${task.name}
+
+Description:
+${task.description || '(no description provided)'}
+${context}
+
+## Merge conflicts
+
+The following files have merge conflicts with conflict markers (<<<<<<< HEAD, =======, >>>>>>> ...):
+${conflictFiles.map((f) => `- ${f}`).join('\n')}
+
+## Instructions
+
+1. Open each conflicting file and resolve the conflict markers
+2. Keep BOTH the task's changes AND the base branch updates where possible
+3. If the base branch changed something the task also changed, prefer the task's intent but make sure it works with the new base branch code
+4. Remove all conflict markers (<<<<<<< HEAD, =======, >>>>>>> ...)
+5. Make sure the code compiles and is consistent after resolution
+6. Do NOT make any changes beyond what is needed to resolve the conflicts`;
+}
+
+async function resolveConflictsWithAI(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[],
+  context: string,
+  branchName: string
+): Promise<boolean> {
+  const check = git.checkConflictsWithBase(config.gitRemote, config.githubBaseBranch);
+
+  if (check.behindCommits === 0) {
+    logger.debug('Branch is up to date with base — no merge needed');
+    return true;
+  }
+
+  if (check.clean) {
+    logger.info(`Branch is ${check.behindCommits} commit(s) behind base — merging (no conflicts)`);
+    if (!git.mergeBaseBranch(config.gitRemote, config.githubBaseBranch)) {
+      logger.warn('Clean merge unexpectedly failed — continuing without merge');
+      return true;
+    }
+
+    if (!git.push(config.gitRemote, branchName)) {
+      logger.warn('Failed to push merge commit — continuing anyway');
+    }
+
+    return true;
+  }
+
+  logger.warn(
+    `Branch has conflicts with ${config.githubBaseBranch} in ${check.conflictFiles.length} file(s): ` +
+    check.conflictFiles.join(', ')
+  );
+
+  try {
+    await provider.postComment(
+      task.id,
+      `[aidev] Branch \`${branchName}\` has merge conflicts with \`${config.githubBaseBranch}\` ` +
+      `in ${check.conflictFiles.length} file(s). Attempting automatic resolution...`
+    );
+  } catch { /* ignore */ }
+
+  if (!git.mergeBaseBranch(config.gitRemote, config.githubBaseBranch)) {
+    const prompt = buildConflictResolutionPrompt(task, check.conflictFiles, context);
+
+    let resolved = false;
+    let previousNotes = '';
+
+    for (const runner of runners) {
+      if (!runner.isAvailable()) continue;
+
+      logger.info(`Running ${runner.name} to resolve merge conflicts...`);
+      const result = await runner.run(prompt, previousNotes || undefined);
+
+      if (result.success && !git.hasChanges()) {
+        logger.warn(`${runner.name} made no changes to resolve conflicts — trying next runner`);
+        previousNotes = `Previous runner (${runner.name}) made no file changes. The conflict markers still need to be resolved.`;
+        continue;
+      }
+
+      if (result.success) {
+        resolved = true;
+        break;
+      }
+
+      logger.warn(`${runner.name} failed to resolve conflicts — trying next runner`);
+      previousNotes = `Previous runner (${runner.name}) failed:\n${result.output}\nErrors:\n${result.error}`;
+    }
+
+    if (!resolved) {
+      logger.error('All AI runners failed to resolve merge conflicts');
+      git.abortMerge();
+      try {
+        await provider.postComment(
+          task.id,
+          '[aidev] Failed to automatically resolve merge conflicts. Manual intervention needed to rebase/merge the branch.'
+        );
+      } catch { /* ignore */ }
+      return false;
+    }
+
+    if (!git.commitMerge(`Merge ${config.githubBaseBranch} into ${branchName} — resolve conflicts`)) {
+      logger.error('Failed to commit merge resolution');
+      git.abortMerge();
+      return false;
+    }
+
+    if (!git.push(config.gitRemote, branchName)) {
+      logger.warn('Failed to push conflict resolution — continuing anyway');
+    }
+
+    logger.success('Merge conflicts resolved successfully');
+    try {
+      await provider.postComment(task.id, '[aidev] Merge conflicts resolved automatically.');
+    } catch { /* ignore */ }
+  }
+
+  return true;
+}
+
 async function implementTask(
   task: Task,
   branchName: string,
@@ -344,7 +472,6 @@ async function implementTask(
     }
   }
 
-  // Get conversation context for pending tasks
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
@@ -353,6 +480,14 @@ async function implementTask(
     }
   } catch {
     // ignore
+  }
+
+  if (branchExists) {
+    const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, branchName);
+    if (!conflictsOk) {
+      logger.error('Cannot proceed — merge conflicts could not be resolved');
+      return;
+    }
   }
 
   const implementPrompt = buildImplementPrompt(task, context);
@@ -623,6 +758,14 @@ async function implementThinkingTask(
       context = '\n\nConversation context:\n' + comments.map((c) => `${c.author}: ${c.text}`).join('\n');
     }
   } catch { /* ignore */ }
+
+  if (branchExists) {
+    const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, branchName);
+    if (!conflictsOk) {
+      logger.error('Cannot proceed — merge conflicts could not be resolved');
+      return;
+    }
+  }
 
   // Check for an existing plan (resume scenario)
   let plan = readTaskPlan(task.id);

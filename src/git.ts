@@ -195,6 +195,86 @@ export function detectRemote(): string | null {
   return first || null;
 }
 
+export interface ConflictCheckResult {
+  clean: boolean;
+  conflictFiles: string[];
+  behindCommits: number;
+}
+
+/**
+ * Checks whether the current branch can merge cleanly with the remote base
+ * branch. Performs a trial merge and aborts it regardless of the outcome.
+ */
+export function checkConflictsWithBase(remote: string, baseBranch: string): ConflictCheckResult {
+  const logResult = git(['rev-list', '--count', `HEAD..${remote}/${baseBranch}`]);
+  const behindCommits = logResult.status === 0 ? parseInt(logResult.stdout.trim(), 10) || 0 : 0;
+
+  if (behindCommits === 0) {
+    return { clean: true, conflictFiles: [], behindCommits: 0 };
+  }
+
+  const merge = git(['merge', '--no-commit', '--no-ff', `${remote}/${baseBranch}`]);
+
+  if (merge.status === 0) {
+    git(['merge', '--abort']);
+    return { clean: true, conflictFiles: [], behindCommits };
+  }
+
+  const diffResult = git(['diff', '--name-only', '--diff-filter=U']);
+  const files = diffResult.stdout.trim().split('\n').filter(Boolean);
+
+  git(['merge', '--abort']);
+  return { clean: false, conflictFiles: files, behindCommits };
+}
+
+/**
+ * Starts a real merge of the remote base branch into the current branch.
+ * Returns true if the merge completed without conflicts.
+ */
+export function mergeBaseBranch(remote: string, baseBranch: string): boolean {
+  const result = git(['merge', `${remote}/${baseBranch}`, '--no-edit']);
+  return result.status === 0;
+}
+
+export function abortMerge(): void {
+  git(['merge', '--abort']);
+}
+
+/**
+ * Returns the content of files with conflict markers for AI resolution context.
+ */
+export function getConflictDetails(): string {
+  const diffResult = git(['diff', '--name-only', '--diff-filter=U']);
+  const files = diffResult.stdout.trim().split('\n').filter(Boolean);
+
+  const details: string[] = [];
+  for (const file of files) {
+    const content = git(['show', `:2:${file}`]);
+    const theirs = git(['show', `:3:${file}`]);
+    details.push(
+      `### ${file}\n\n` +
+      `**Our version (task branch):**\n\`\`\`\n${content.stdout.slice(0, 3000)}\n\`\`\`\n\n` +
+      `**Their version (base branch):**\n\`\`\`\n${theirs.stdout.slice(0, 3000)}\n\`\`\``
+    );
+  }
+  return details.join('\n\n');
+}
+
+/** Completes a merge after conflicts have been manually resolved. */
+export function commitMerge(message: string): boolean {
+  const add = git(['add', '-A']);
+  if (add.status !== 0) {
+    logger.error(`git add failed during merge resolution: ${add.stderr}`);
+    return false;
+  }
+  const result = git(['commit', '-m', message]);
+  if (result.status !== 0) {
+    logger.error(`git merge commit failed: ${result.stderr}`);
+    return false;
+  }
+  return true;
+}
+
 export function slugify(text: string): string {
   return text
     .toLowerCase()
