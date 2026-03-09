@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification } from '../commands/run';
+import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -346,5 +346,53 @@ describe('buildNonCodePrompt', () => {
   it('includes conversation context when provided', () => {
     const prompt = buildNonCodePrompt(task, '\n\nConversation context:\nAlice: Please clarify');
     assert.ok(prompt.includes('Alice: Please clarify'));
+  });
+});
+
+// ─── buildConflictResolutionPrompt ───────────────────────────────────────────
+
+describe('buildConflictResolutionPrompt', () => {
+  const task: Task = {
+    id: 'abc123',
+    name: 'Add user settings page',
+    description: 'Create a settings page where users can update their profile.',
+    status: 'pending',
+    url: 'https://app.clickup.com/t/abc123',
+    tags: ['myproject'],
+  };
+
+  it('includes the task name and description so the agent understands the task', () => {
+    const prompt = buildConflictResolutionPrompt(task, ['src/app.ts'], '');
+    assert.ok(prompt.includes('Add user settings page'));
+    assert.ok(prompt.includes('Create a settings page'));
+  });
+
+  it('lists all conflicting files', () => {
+    const files = ['src/app.ts', 'src/config.ts', 'package.json'];
+    const prompt = buildConflictResolutionPrompt(task, files, '');
+    for (const f of files) {
+      assert.ok(prompt.includes(f));
+    }
+  });
+
+  it('includes conversation context when provided', () => {
+    const prompt = buildConflictResolutionPrompt(task, ['src/app.ts'], '\n\nConversation context:\nAlice: Use tabs not spaces');
+    assert.ok(prompt.includes('Alice: Use tabs not spaces'));
+  });
+
+  it('instructs to preserve the task intent', () => {
+    const prompt = buildConflictResolutionPrompt(task, ['src/app.ts'], '');
+    assert.ok(prompt.includes("task's intent") || prompt.includes("task's changes"));
+  });
+
+  it('instructs to remove conflict markers', () => {
+    const prompt = buildConflictResolutionPrompt(task, ['src/app.ts'], '');
+    assert.ok(prompt.includes('<<<<<<'));
+    assert.ok(prompt.includes('>>>>>>>'));
+  });
+
+  it('handles missing description gracefully', () => {
+    const prompt = buildConflictResolutionPrompt({ ...task, description: '' }, ['a.ts'], '');
+    assert.ok(prompt.includes('no description provided'));
   });
 });

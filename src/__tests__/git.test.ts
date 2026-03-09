@@ -15,6 +15,10 @@ import {
   hasChanges,
   stashChanges,
   fetchAndCheckout,
+  checkConflictsWithBase,
+  mergeBaseBranch,
+  abortMerge,
+  commitMerge,
 } from '../git';
 
 // ─── slugify ──────────────────────────────────────────────────────────────────
@@ -407,5 +411,226 @@ describe('fetchAndCheckout sync verification (integration)', () => {
 
     // pull will create a merge commit, making local ahead of origin/main
     assert.equal(fetchAndCheckout('origin', 'main'), false);
+  });
+});
+
+// ─── checkConflictsWithBase (integration) ─────────────────────────────────────
+
+describe('checkConflictsWithBase (integration)', () => {
+  let tmpDir: string;
+  let bareDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
+    bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-bare-'));
+    gitCmd(['init', '--bare', '-b', 'main'], bareDir);
+    initRepo(tmpDir);
+    gitCmd(['remote', 'add', 'origin', bareDir], tmpDir);
+    gitCmd(['push', 'origin', 'main'], tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(bareDir, { recursive: true, force: true });
+  });
+
+  it('reports clean when branch is up to date with base', () => {
+    gitCmd(['checkout', '-b', 'feature/test'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'feature.txt'), 'new file');
+    gitCmd(['add', '.'], tmpDir);
+    gitCmd(['commit', '-m', 'feature commit'], tmpDir);
+    gitCmd(['fetch', 'origin'], tmpDir);
+
+    const result = checkConflictsWithBase('origin', 'main');
+    assert.equal(result.clean, true);
+    assert.equal(result.behindCommits, 0);
+    assert.deepEqual(result.conflictFiles, []);
+  });
+
+  it('reports clean when base has new non-conflicting commits', () => {
+    gitCmd(['checkout', '-b', 'feature/test'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'feature.txt'), 'new file');
+    gitCmd(['add', '.'], tmpDir);
+    gitCmd(['commit', '-m', 'feature commit'], tmpDir);
+
+    // Add a non-conflicting commit to main via bare repo
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-clone-'));
+    try {
+      gitCmd(['clone', bareDir, cloneDir], cloneDir);
+      gitCmd(['config', 'user.email', 'other@test.com'], cloneDir);
+      gitCmd(['config', 'user.name', 'Other'], cloneDir);
+      fs.writeFileSync(path.join(cloneDir, 'other.txt'), 'no conflict');
+      gitCmd(['add', '.'], cloneDir);
+      gitCmd(['commit', '-m', 'main commit'], cloneDir);
+      gitCmd(['push', 'origin', 'main'], cloneDir);
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+
+    gitCmd(['fetch', 'origin'], tmpDir);
+    const result = checkConflictsWithBase('origin', 'main');
+    assert.equal(result.clean, true);
+    assert.ok(result.behindCommits > 0);
+    assert.deepEqual(result.conflictFiles, []);
+  });
+
+  it('detects conflicts when base and branch modify the same file', () => {
+    gitCmd(['checkout', '-b', 'feature/test'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# feature change\n');
+    gitCmd(['add', '.'], tmpDir);
+    gitCmd(['commit', '-m', 'feature commit'], tmpDir);
+
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-clone-'));
+    try {
+      gitCmd(['clone', bareDir, cloneDir], cloneDir);
+      gitCmd(['config', 'user.email', 'other@test.com'], cloneDir);
+      gitCmd(['config', 'user.name', 'Other'], cloneDir);
+      fs.writeFileSync(path.join(cloneDir, 'README.md'), '# main change\n');
+      gitCmd(['add', '.'], cloneDir);
+      gitCmd(['commit', '-m', 'main commit'], cloneDir);
+      gitCmd(['push', 'origin', 'main'], cloneDir);
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+
+    gitCmd(['fetch', 'origin'], tmpDir);
+    const result = checkConflictsWithBase('origin', 'main');
+    assert.equal(result.clean, false);
+    assert.ok(result.conflictFiles.includes('README.md'));
+  });
+
+  it('leaves working tree clean after conflict detection (aborts trial merge)', () => {
+    gitCmd(['checkout', '-b', 'feature/test'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# feature\n');
+    gitCmd(['add', '.'], tmpDir);
+    gitCmd(['commit', '-m', 'feature'], tmpDir);
+
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-clone-'));
+    try {
+      gitCmd(['clone', bareDir, cloneDir], cloneDir);
+      gitCmd(['config', 'user.email', 'other@test.com'], cloneDir);
+      gitCmd(['config', 'user.name', 'Other'], cloneDir);
+      fs.writeFileSync(path.join(cloneDir, 'README.md'), '# main\n');
+      gitCmd(['add', '.'], cloneDir);
+      gitCmd(['commit', '-m', 'main'], cloneDir);
+      gitCmd(['push', 'origin', 'main'], cloneDir);
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+
+    gitCmd(['fetch', 'origin'], tmpDir);
+    checkConflictsWithBase('origin', 'main');
+
+    // Should be back on feature branch with no merge in progress
+    assert.equal(getCurrentBranch(), 'feature/test');
+    assert.equal(hasChanges(), false);
+  });
+});
+
+// ─── mergeBaseBranch + commitMerge (integration) ─────────────────────────────
+
+describe('mergeBaseBranch and commitMerge (integration)', () => {
+  let tmpDir: string;
+  let bareDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
+    bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-bare-'));
+    gitCmd(['init', '--bare', '-b', 'main'], bareDir);
+    initRepo(tmpDir);
+    gitCmd(['remote', 'add', 'origin', bareDir], tmpDir);
+    gitCmd(['push', 'origin', 'main'], tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(bareDir, { recursive: true, force: true });
+  });
+
+  it('merges cleanly when there are no conflicts', () => {
+    gitCmd(['checkout', '-b', 'feature/test'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'feature.txt'), 'new file');
+    gitCmd(['add', '.'], tmpDir);
+    gitCmd(['commit', '-m', 'feature commit'], tmpDir);
+
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-clone-'));
+    try {
+      gitCmd(['clone', bareDir, cloneDir], cloneDir);
+      gitCmd(['config', 'user.email', 'other@test.com'], cloneDir);
+      gitCmd(['config', 'user.name', 'Other'], cloneDir);
+      fs.writeFileSync(path.join(cloneDir, 'other.txt'), 'no conflict');
+      gitCmd(['add', '.'], cloneDir);
+      gitCmd(['commit', '-m', 'main commit'], cloneDir);
+      gitCmd(['push', 'origin', 'main'], cloneDir);
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+
+    gitCmd(['fetch', 'origin'], tmpDir);
+    assert.equal(mergeBaseBranch('origin', 'main'), true);
+    assert.ok(fs.existsSync(path.join(tmpDir, 'other.txt')));
+  });
+
+  it('returns false when there are conflicts, and abortMerge restores state', () => {
+    gitCmd(['checkout', '-b', 'feature/test'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# feature\n');
+    gitCmd(['add', '.'], tmpDir);
+    gitCmd(['commit', '-m', 'feature'], tmpDir);
+
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-clone-'));
+    try {
+      gitCmd(['clone', bareDir, cloneDir], cloneDir);
+      gitCmd(['config', 'user.email', 'other@test.com'], cloneDir);
+      gitCmd(['config', 'user.name', 'Other'], cloneDir);
+      fs.writeFileSync(path.join(cloneDir, 'README.md'), '# main\n');
+      gitCmd(['add', '.'], cloneDir);
+      gitCmd(['commit', '-m', 'main'], cloneDir);
+      gitCmd(['push', 'origin', 'main'], cloneDir);
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+
+    gitCmd(['fetch', 'origin'], tmpDir);
+    assert.equal(mergeBaseBranch('origin', 'main'), false);
+
+    abortMerge();
+    assert.equal(getCurrentBranch(), 'feature/test');
+    assert.equal(hasChanges(), false);
+  });
+
+  it('commitMerge completes a conflicted merge after manual resolution', () => {
+    gitCmd(['checkout', '-b', 'feature/test'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# feature\n');
+    gitCmd(['add', '.'], tmpDir);
+    gitCmd(['commit', '-m', 'feature'], tmpDir);
+
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-clone-'));
+    try {
+      gitCmd(['clone', bareDir, cloneDir], cloneDir);
+      gitCmd(['config', 'user.email', 'other@test.com'], cloneDir);
+      gitCmd(['config', 'user.name', 'Other'], cloneDir);
+      fs.writeFileSync(path.join(cloneDir, 'README.md'), '# main\n');
+      gitCmd(['add', '.'], cloneDir);
+      gitCmd(['commit', '-m', 'main'], cloneDir);
+      gitCmd(['push', 'origin', 'main'], cloneDir);
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+
+    gitCmd(['fetch', 'origin'], tmpDir);
+    mergeBaseBranch('origin', 'main');
+
+    // Manually resolve the conflict
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# merged\n');
+    assert.equal(commitMerge('Merge main into feature'), true);
+    assert.equal(hasChanges(), false);
   });
 });
