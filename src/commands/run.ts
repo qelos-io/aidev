@@ -6,7 +6,11 @@ import { AIRunner } from '../ai';
 import { logger, logRunStart } from '../logger';
 import { isScreenAvailable } from '../platform';
 import * as git from '../git';
-import { isGhAuthenticated, isGitHubRemote, createPullRequest } from '../github';
+import {
+  isGhAuthenticated, isGitHubRemote, createPullRequest,
+  getPrNumberForBranch, fetchUnresolvedReviewThreads, resolveReviewThread,
+  ReviewThread,
+} from '../github';
 import { collectAndLogDiagnostics } from '../diagnostics';
 import { acquireLock, releaseLock, readLock } from '../lockfile';
 
@@ -306,6 +310,54 @@ Respond with valid JSON only:
   return null;
 }
 
+function fetchPrReviewComments(config: Config, branchName: string): ReviewThread[] {
+  if (!isGitHubRemote(config.gitRemote) || !isGhAuthenticated()) return [];
+  if (!config.githubRepo) return [];
+
+  const prNumber = getPrNumberForBranch(branchName);
+  if (!prNumber) {
+    logger.debug('No PR found for branch — skipping review comment check');
+    return [];
+  }
+
+  const parts = config.githubRepo.split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return [];
+
+  return fetchUnresolvedReviewThreads(parts[0], parts[1], prNumber);
+}
+
+function formatReviewComments(threads: ReviewThread[]): string {
+  if (threads.length === 0) return '';
+
+  let section = '\n\n## Unresolved GitHub Code Review Comments\n\n';
+  section += 'The following code review comments on the pull request must be addressed:\n';
+
+  for (const thread of threads) {
+    const location = thread.line
+      ? `\`${thread.path}\` (line ${thread.line})`
+      : `\`${thread.path}\``;
+    section += `\n### ${location}\n`;
+    for (const comment of thread.comments) {
+      section += `> **${comment.author}**: ${comment.body}\n`;
+    }
+  }
+
+  section += '\nPlease fix ALL the issues mentioned in the review comments above.\n';
+  return section;
+}
+
+function resolveHandledThreads(threads: ReviewThread[]): void {
+  let resolved = 0;
+  for (const thread of threads) {
+    if (resolveReviewThread(thread.id)) {
+      resolved++;
+    }
+  }
+  if (resolved > 0) {
+    logger.info(`Resolved ${resolved}/${threads.length} review thread(s) on GitHub`);
+  }
+}
+
 async function implementTask(
   task: Task,
   branchName: string,
@@ -353,6 +405,15 @@ async function implementTask(
     }
   } catch {
     // ignore
+  }
+
+  // Fetch unresolved PR review comments for existing branches
+  const reviewThreads = branchExists
+    ? fetchPrReviewComments(config, branchName)
+    : [];
+  if (reviewThreads.length > 0) {
+    logger.info(`Found ${reviewThreads.length} unresolved review comment(s) to address`);
+    context += formatReviewComments(reviewThreads);
   }
 
   const implementPrompt = buildImplementPrompt(task, context);
@@ -406,6 +467,10 @@ async function implementTask(
   if (!git.push(config.gitRemote, branchName)) {
     logger.error('Failed to push branch');
     return;
+  }
+
+  if (reviewThreads.length > 0) {
+    resolveHandledThreads(reviewThreads);
   }
 
   // Try creating a PR via gh CLI, fall back to compare URL
@@ -521,7 +586,8 @@ async function executeSubTask(
   task: Task,
   plan: ThinkingTaskPlan,
   config: Config,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  reviewContext?: string
 ): Promise<boolean> {
   const instructionsPath = taskInstructionsPath(task.id);
   const instructions = fs.existsSync(instructionsPath)
@@ -540,7 +606,7 @@ ${task.description ? `\nTask description:\n${task.description}` : ''}
 
 ## Full implementation instructions
 ${instructions}
-
+${reviewContext || ''}
 ## Progress
 ${completedSteps || '(no steps completed yet)'}
 
@@ -624,6 +690,18 @@ async function implementThinkingTask(
     }
   } catch { /* ignore */ }
 
+  // Fetch unresolved PR review comments for existing branches
+  const reviewThreads = branchExists
+    ? fetchPrReviewComments(config, branchName)
+    : [];
+  const reviewContext = reviewThreads.length > 0
+    ? formatReviewComments(reviewThreads)
+    : undefined;
+  if (reviewThreads.length > 0) {
+    logger.info(`Found ${reviewThreads.length} unresolved review comment(s) to address`);
+    context += reviewContext;
+  }
+
   // Check for an existing plan (resume scenario)
   let plan = readTaskPlan(task.id);
   if (plan) {
@@ -662,7 +740,7 @@ async function implementThinkingTask(
     writeTaskPlan(plan);
 
     logger.info(`  Starting step ${subtask.id}: ${subtask.title}`);
-    const success = await executeSubTask(subtask, task, plan, config, runners);
+    const success = await executeSubTask(subtask, task, plan, config, runners, reviewContext);
 
     if (!success) {
       subtask.status = 'failed';
@@ -721,6 +799,10 @@ async function implementThinkingTask(
       );
     } catch { /* ignore */ }
     return;
+  }
+
+  if (reviewThreads.length > 0) {
+    resolveHandledThreads(reviewThreads);
   }
 
   try {
