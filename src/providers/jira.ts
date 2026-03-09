@@ -1,4 +1,4 @@
-import { Task, Comment, Config } from '../types';
+import { Task, Comment, Config, CreateTaskParams, CreateTaskResult } from '../types';
 import { TaskProvider } from './base';
 import { logger } from '../logger';
 
@@ -160,5 +160,43 @@ export class JiraProvider implements TaskProvider {
       method: 'POST',
       body: JSON.stringify({ transition: { id: transition.id } }),
     });
+  }
+
+  async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
+    const project = params.listId || this.project;
+
+    const fields: Record<string, unknown> = {
+      project: { key: project },
+      summary: params.title,
+      description: {
+        type: 'doc',
+        version: 1,
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: params.description || ' ' }] },
+        ],
+      },
+      issuetype: { name: 'Task' },
+      labels: params.tags,
+    };
+
+    if (params.priority) {
+      const names: Record<number, string> = { 1: 'Highest', 2: 'High', 3: 'Medium', 4: 'Low' };
+      fields.priority = { name: names[params.priority] || 'Medium' };
+    }
+    if (params.dueDate) {
+      fields.duedate = new Date(params.dueDate).toISOString().split('T')[0];
+    }
+
+    interface CreateResponse {
+      id: string;
+      key: string;
+    }
+
+    const result = await this.request<CreateResponse>('/issue', {
+      method: 'POST',
+      body: JSON.stringify({ fields }),
+    });
+
+    return { id: result.key, url: `${this.baseUrl}/browse/${result.key}` };
   }
 }
