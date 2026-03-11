@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as dotenv from 'dotenv';
-import { envVal, renderEnv, ensureGitignore, Answers } from '../commands/init';
+import { envVal, renderEnv, ensureGitignore, getWindowsCursorInitMessage, Answers } from '../commands/init';
 
 // ─── envVal ──────────────────────────────────────────────────────────────────
 
@@ -116,6 +116,41 @@ describe('renderEnv', () => {
   it('includes a descriptive comment before AIDEV_ENV_EXTEND when set', () => {
     const out = renderEnv({ ...baseAnswers, aidevEnvExtend: '/home/user/.aidev.global' });
     assert.ok(out.includes('# Global env base'));
+  });
+});
+
+// ─── getWindowsCursorInitMessage ──────────────────────────────────────────────
+
+describe('getWindowsCursorInitMessage', () => {
+  const winNoAgent = { isWindows: true, commandExists: (_: string) => false };
+  const winWithAgent = { isWindows: true, commandExists: (c: string) => c === 'agent' };
+  const notWin = { isWindows: false, commandExists: (_: string) => false };
+
+  it('returns null when not Windows', () => {
+    assert.equal(getWindowsCursorInitMessage('cursor,claude', notWin), null);
+  });
+
+  it('returns null when cursor not in agents list', () => {
+    assert.equal(getWindowsCursorInitMessage('claude,windsurf', winNoAgent), null);
+  });
+
+  it('returns null when Windows and agent exists', () => {
+    assert.equal(getWindowsCursorInitMessage('cursor,claude', winWithAgent), null);
+  });
+
+  it('returns message when Windows, cursor in list, and agent missing', () => {
+    const msg = getWindowsCursorInitMessage('cursor,claude', winNoAgent);
+    assert.ok(msg !== null);
+    assert.ok(msg!.includes('Windows: Cursor Agent CLI'));
+    assert.ok(msg!.includes('cursor.com/install?win32=true'));
+    assert.ok(msg!.includes('iex'));
+    assert.ok(msg!.includes('agent --version'));
+  });
+
+  it('handles agents string with spaces', () => {
+    const msg = getWindowsCursorInitMessage('claude , cursor , windsurf', winNoAgent);
+    assert.ok(msg !== null);
+    assert.ok(msg!.includes('cursor.com/install'));
   });
 });
 

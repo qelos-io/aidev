@@ -2,6 +2,12 @@ import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
 import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
 
+/**
+ * Cursor Agent CLI runner. Uses the `agent` binary on all platforms.
+ * On Windows, the Cursor IDE is `cursor.exe` and does not support headless agent
+ * mode; the separate Agent CLI must be installed (e.g. irm 'https://cursor.com/install?win32=true' | iex)
+ * so that `agent` is in PATH.
+ */
 export class CursorRunner implements AIRunner {
   readonly name = 'cursor';
 
@@ -16,8 +22,6 @@ export class CursorRunner implements AIRunner {
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
     const cwd = process.cwd();
-    // Prompt goes via stdin to avoid cmd.exe quoting issues on Windows with
-    // long prompts that contain special characters.
     const result = spawnCommand(
       'agent',
       ['--print', '--force', '--trust', '--workspace', cwd],

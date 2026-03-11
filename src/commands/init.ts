@@ -8,6 +8,7 @@ import { detectRemote } from '../git';
 import { validateAgentPermissions } from '../permissions';
 import { scheduleSetCommand } from './schedule';
 import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
+import { commandExists, isWindows } from '../platform';
 import chalk from 'chalk';
 
 const VALID_AGENTS = ['claude', 'cursor', 'windsurf'] as const;
@@ -21,6 +22,33 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
   ['aidev.tasks.json',        /^aidev\.tasks\.json/m],
 ];
+
+/**
+ * Returns the Windows Cursor Agent CLI init message when on Windows, cursor is
+ * in the agent list, and the agent CLI is not installed. Otherwise null.
+ * Exported for tests; platform can be passed to avoid real platform checks.
+ */
+export function getWindowsCursorInitMessage(
+  agents: string,
+  platform?: { isWindows: boolean; commandExists: (cmd: string) => boolean }
+): string | null {
+  const win = platform?.isWindows ?? isWindows;
+  const exists = platform?.commandExists ?? commandExists;
+  if (!win) return null;
+  const list = agents.split(',').map((a) => a.trim());
+  if (!list.includes('cursor') || exists('agent')) return null;
+  return (
+    chalk.bold('  Windows: Cursor Agent CLI') +
+    '\n' +
+    chalk.dim('  ─────────────────────────────────────────────────') +
+    '\n' +
+    `  Cursor runner requires the ${chalk.cyan('agent')} CLI. Install in PowerShell:` +
+    '\n' +
+    chalk.cyan("    irm 'https://cursor.com/install?win32=true' | iex") +
+    '\n' +
+    `  Then run ${chalk.cyan('agent --version')} to confirm.`
+  );
+}
 
 export function ensureGitignore(dir = process.cwd()): void {
   const gitignorePath = path.join(dir, '.gitignore');
@@ -516,6 +544,13 @@ export async function initCommand(): Promise<void> {
       console.log(`  For ${chalk.cyan('aidev schedule')} to work, cron needs Full Disk Access:`);
       console.log(`    1. Open ${chalk.cyan('System Settings → Privacy & Security → Full Disk Access')}`);
       console.log(`    2. Click ${chalk.cyan('+')} and add ${chalk.cyan('/usr/sbin/cron')}`);
+      console.log();
+    }
+
+    const windowsCursorMsg = getWindowsCursorInitMessage(agents);
+    if (windowsCursorMsg) {
+      console.log();
+      console.log(windowsCursorMsg);
       console.log();
     }
 

@@ -1,0 +1,24 @@
+---
+description: Test conventions and commands for aidev
+globs: ["src/__tests__/**/*.ts", "**/*.test.ts"]
+alwaysApply: false
+---
+
+# aidev Tests
+
+## Runner and layout
+
+- Node.js built-in test runner: `node --require tsx/cjs --test 'src/__tests__/**/*.test.ts'`
+- Run with: `npm test`
+- Tests live in `src/__tests__/`. One test file per module when possible (e.g. `config.test.ts`, `run.test.ts`).
+
+## Conventions
+
+- Use `describe` / `it` and `assert` from Node's `node:assert`.
+- For env-dependent tests (e.g. `loadConfig` with real env), use temp dirs or override `process.env` and restore after; config tests that need POSIX use conditional skip for Windows.
+- Mock external calls (fetch, spawnSync) where appropriate so tests don't hit real APIs or CLIs.
+- No `any`; explicit types. Follow project rule: `node:` prefix for built-ins.
+
+## After changing code
+
+Run `npm test` before committing. Fix any new failures in the touched area.

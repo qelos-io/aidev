@@ -1,11 +1,13 @@
 import chalk from 'chalk';
 import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
 import { detectRemote } from '../git';
+import { commandExists, isWindows } from '../platform';
 
 const b = chalk.bold;
 const c = chalk.cyan;
 const d = chalk.dim;
 const g = chalk.green;
+const y = chalk.yellow;
 
 function ghStatusLine(): string {
   const remote = detectRemote() || 'origin';
@@ -21,6 +23,22 @@ function ghStatusLine(): string {
   }
   return `\n${b('GITHUB CLI')}\n` +
     `  ${g('✓')} ${c('gh')} authenticated — PRs will be created automatically after push\n`;
+}
+
+/**
+ * Returns the Windows Cursor Agent CLI line for help output.
+ * Exported for tests; call with no args to use real platform.
+ */
+export function windowsCursorAgentLine(opts?: { isWindows: boolean; agentExists: boolean }): string {
+  const win = opts?.isWindows ?? isWindows;
+  const exists = opts?.agentExists ?? commandExists('agent');
+  if (!win) return '';
+  if (exists) {
+    return `\n${b('CURSOR (WINDOWS)')}\n` +
+      `  ${g('✓')} ${c('agent')} CLI found — Cursor runner is available\n`;
+  }
+  return `\n${b('CURSOR (WINDOWS)')}\n` +
+    `  ${y('!')} Cursor runner needs the Agent CLI. Install: ${c("irm 'https://cursor.com/install?win32=true' | iex")}\n`;
 }
 
 export function helpCommand(): void {
@@ -71,7 +89,7 @@ ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
   ${d('GIT_REMOTE')}           Remote name ${d('(auto-detected if unset)')}
   ${d('GITHUB_BASE_BRANCH')}   Base branch ${d('(default: main)')}
   ${d('GITHUB_REPO')}          ${d('owner/repo')} for PR links
-${ghStatusLine()}
+${ghStatusLine()}${windowsCursorAgentLine()}
   Run ${c('aidev init')} to configure interactively.
 `);
 }

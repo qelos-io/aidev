@@ -1,0 +1,29 @@
+---
+description: TaskProvider contract and how to add a new provider
+globs: ["src/providers/**/*.ts"]
+alwaysApply: false
+---
+
+# aidev Providers
+
+## TaskProvider contract
+
+Implement all methods from `src/providers/base.ts`:
+
+- `fetchTasks(): Promise<Task[]>` — skip closed/done/cancelled/complete; map to `Task` (id, name, description, status, url, tags)
+- `postComment(taskId, text): Promise<void>`
+- `getComments(taskId): Promise<Comment[]>`
+- `updateStatus(taskId, status): Promise<void>`
+- `createTask(params: CreateTaskParams): Promise<CreateTaskResult>`
+
+Use native `fetch` only. No shell interpolation; use `spawnSync(bin, [...args])` if calling CLI tools.
+
+## Adding a provider
+
+1. Create `src/providers/<name>.ts` implementing `TaskProvider`.
+2. In `src/providers/index.ts`: import the class and add a `case '<name>': return new XxxProvider(config);` in `createProvider()`.
+3. In `src/types.ts`: add provider-specific fields to `Config` if needed.
+4. In `src/config.ts`: in `loadConfig()`, add required env vars for the provider to the `required` check when `provider === '<name>'`; map env to config fields.
+5. Document in `.env.aidev.example` and README.md.
+
+For unimplemented providers, throw: `throw new Error('X provider is not yet implemented. Contributions welcome!');`

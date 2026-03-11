@@ -197,8 +197,18 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 | Agent | Requires |
 |---|---|
 | `claude` | [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated |
-| `cursor` | [Cursor](https://cursor.sh) installed with Agent mode |
+| `cursor` | Cursor **Agent CLI** (`agent`) in PATH — see [Windows](#windows-cursor-agent-cli) below |
 | `windsurf` | [Windsurf](https://windsurf.com) installed with CLI available in PATH |
+
+### Windows: Cursor Agent CLI
+
+On Windows, the Cursor IDE (`cursor.exe`) is separate from the headless Agent CLI. The runner uses the `agent` binary. Install it in PowerShell:
+
+```powershell
+irm 'https://cursor.com/install?win32=true' | iex
+```
+
+Then ensure `agent` is on your PATH and run `agent --version` to confirm. Without this, the Cursor runner will report as unavailable.
 
 **Configure agent order in `.env.aidev`:**
 

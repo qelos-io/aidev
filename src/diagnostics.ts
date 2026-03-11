@@ -18,7 +18,7 @@ const TOOLS_TO_CHECK: Array<{ name: string; versionArgs: string[] }> = [
   { name: 'git', versionArgs: ['--version'] },
   { name: 'gh', versionArgs: ['--version'] },
   { name: 'node', versionArgs: ['--version'] },
-  { name: 'cursor', versionArgs: ['--version'] },
+  { name: 'agent', versionArgs: ['--version'] }, // Cursor Agent CLI; required for cursor runner (install: irm 'https://cursor.com/install?win32=true' | iex on Windows)
   { name: 'claude', versionArgs: ['--version'] },
   { name: 'windsurf', versionArgs: ['--version'] },
 ];

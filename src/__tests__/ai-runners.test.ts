@@ -97,6 +97,13 @@ describe('ClaudeRunner – failed tasks', () => {
 
 // ─── CursorRunner ─────────────────────────────────────────────────────────────
 
+describe('CursorRunner', () => {
+  it('isAvailable returns boolean (depends on agent CLI in PATH)', () => {
+    const runner = new CursorRunner();
+    assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
 describe('CursorRunner – failed tasks', () => {
   beforeEach(() => mock.restoreAll());
   afterEach(() => mock.restoreAll());
