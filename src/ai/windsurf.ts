@@ -1,7 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv } from '../platform';
+import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
 
 export class WindsurfRunner implements AIRunner {
   readonly name = 'windsurf';
@@ -17,7 +16,7 @@ export class WindsurfRunner implements AIRunner {
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
     const cwd = process.cwd();
-    const result = spawnSync(
+    const result = spawnCommand(
       'windsurf',
       ['--agent', '--print', '--trust', '--workspace', cwd, fullPrompt],
       {

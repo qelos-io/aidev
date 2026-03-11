@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { sourceShellProfile, mergeNullDelimited, applyEnvFiles, resolveEnvPath } from '../config';
+import { sourceShellProfile, mergeNullDelimited, applyEnvFiles, resolveEnvPath, loadConfig } from '../config';
 
 // ─── mergeNullDelimited ────────────────────────────────────────────────────────
 
@@ -310,5 +310,77 @@ describe('resolveEnvPath', () => {
   it('resolves ../ relative paths correctly', () => {
     const result = resolveEnvPath('../shared/aidev.global', '/projects/myapp');
     assert.equal(result, '/projects/shared/aidev.global');
+  });
+});
+
+// ─── loadConfig tag defaults ──────────────────────────────────────────────────
+
+describe('loadConfig tag defaults', () => {
+  const envKeys = [
+    'CLICKUP_API_KEY', 'CLICKUP_TEAM_ID', 'CLICKUP_TAG',
+    'NON_CODE_TAG', 'JIRA_LABEL', 'PROVIDER',
+  ];
+  const saved: Record<string, string | undefined> = {};
+  let tmpDir: string;
+  let origCwd: string;
+
+  beforeEach(() => {
+    for (const k of envKeys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-tagdefault-'));
+    origCwd = process.cwd();
+    process.chdir(tmpDir);
+    // Minimal .env.aidev with only required ClickUp fields
+    fs.writeFileSync(
+      path.join(tmpDir, '.env.aidev'),
+      'CLICKUP_API_KEY=pk_test\nCLICKUP_TEAM_ID=12345\n',
+    );
+  });
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    for (const k of envKeys) {
+      if (saved[k] !== undefined) process.env[k] = saved[k];
+      else delete process.env[k];
+    }
+  });
+
+  it('defaults clickupTag to the folder name when CLICKUP_TAG is unset', () => {
+    const config = loadConfig();
+    const folderName = path.basename(tmpDir);
+    assert.equal(config.clickupTag, folderName);
+  });
+
+  it('defaults nonCodeTag to folder-name + "-other" when NON_CODE_TAG is unset', () => {
+    const config = loadConfig();
+    const folderName = path.basename(tmpDir);
+    assert.equal(config.nonCodeTag, `${folderName}-other`);
+  });
+
+  it('defaults jiraLabel to the folder name when JIRA_LABEL is unset', () => {
+    const config = loadConfig();
+    const folderName = path.basename(tmpDir);
+    assert.equal(config.jiraLabel, folderName);
+  });
+
+  it('respects explicit CLICKUP_TAG when set', () => {
+    process.env.CLICKUP_TAG = 'custom-tag';
+    const config = loadConfig();
+    assert.equal(config.clickupTag, 'custom-tag');
+    delete process.env.CLICKUP_TAG;
+  });
+
+  it('respects explicit NON_CODE_TAG when set', () => {
+    process.env.NON_CODE_TAG = 'my-noncode';
+    const config = loadConfig();
+    assert.equal(config.nonCodeTag, 'my-noncode');
+    delete process.env.NON_CODE_TAG;
+  });
+
+  it('does not require CLICKUP_TAG in env', () => {
+    assert.doesNotThrow(() => loadConfig());
   });
 });

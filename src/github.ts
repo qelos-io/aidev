@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { commandExists } from './platform';
+import { commandExists, spawnCommand } from './platform';
 import { logger } from './logger';
 
 function gh(args: string[]): { stdout: string; stderr: string; status: number } {
-  const result = spawnSync('gh', args, {
+  const result = spawnCommand('gh', args, {
     encoding: 'utf8',
     timeout: 30_000,
   });

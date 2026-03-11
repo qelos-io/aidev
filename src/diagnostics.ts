@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { logger } from './logger';
+import { spawnCommand } from './platform';
 
 interface ToolInfo {
   name: string;
@@ -24,7 +25,7 @@ const TOOLS_TO_CHECK: Array<{ name: string; versionArgs: string[] }> = [
 
 function getToolVersion(name: string, versionArgs: string[]): ToolInfo {
   try {
-    const result = spawnSync(name, versionArgs, {
+    const result = spawnCommand(name, versionArgs, {
       encoding: 'utf8',
       timeout: 10000,
     });

@@ -437,8 +437,8 @@ export async function initCommand(): Promise<void> {
     );
     const nonCodeTag = await ask(
       rl,
-      `Non-code tag ${hint('optional — leave blank to disable')}`,
-      existing.NON_CODE_TAG || ''
+      `Non-code tag ${hint('leave blank to use default: ' + folderName + '-other')}`,
+      existing.NON_CODE_TAG || `${folderName}-other`
     );
 
     let nonCodeClickupTeamId = '';

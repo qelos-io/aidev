@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:child_process';
 
 export const isWindows = process.platform === 'win32';
 
@@ -26,11 +27,50 @@ export function findBin(name: string): string | null {
       }
     }
   }
+
+  if (isWindows) {
+    try {
+      const result = spawnSync('where.exe', [name], {
+        encoding: 'utf8',
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      if (result.status === 0 && result.stdout) {
+        const firstLine = result.stdout.trim().split(/\r?\n/)[0]?.trim();
+        if (firstLine) return firstLine;
+      }
+    } catch { /* ignore */ }
+  }
+
   return null;
 }
 
 export function commandExists(name: string): boolean {
   return findBin(name) !== null;
+}
+
+/**
+ * Cross-platform `spawnSync` wrapper.
+ * On Windows, .cmd/.bat shims (common for npm-installed CLIs like cursor,
+ * claude, windsurf) cannot be spawned directly — Node.js only resolves .exe
+ * and .com via CreateProcessW.  This helper detects .cmd/.bat and routes
+ * them through the system shell so they execute correctly.
+ */
+export function spawnCommand(
+  command: string,
+  args: string[],
+  options: SpawnSyncOptionsWithStringEncoding
+): SpawnSyncReturns<string> {
+  if (!isWindows) {
+    return spawnSync(command, args, options);
+  }
+
+  const resolved = findBin(command);
+  if (resolved && /\.(cmd|bat)$/i.test(resolved)) {
+    return spawnSync(resolved, args, { ...options, shell: true });
+  }
+
+  return spawnSync(resolved ?? command, args, options);
 }
 
 let _shellEnvCache: NodeJS.ProcessEnv | undefined;

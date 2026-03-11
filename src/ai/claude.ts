@@ -1,7 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv } from '../platform';
+import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
 
 export class ClaudeRunner implements AIRunner {
   readonly name = 'claude';
@@ -16,7 +15,7 @@ export class ClaudeRunner implements AIRunner {
     logger.info('Running Claude CLI...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-    const result = spawnSync('claude', ['-p', fullPrompt, '--dangerously-skip-permissions'], {
+    const result = spawnCommand('claude', ['-p', fullPrompt, '--dangerously-skip-permissions'], {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       cwd: process.cwd(),
