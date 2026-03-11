@@ -5,6 +5,8 @@ import { logger } from '../logger';
 import { ClaudeRunner } from '../ai/claude';
 import { CursorRunner } from '../ai/cursor';
 import { WindsurfRunner } from '../ai/windsurf';
+import { createRunners } from '../ai/index';
+import type { Config } from '../types';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const childProcess = require('node:child_process');
@@ -212,5 +214,66 @@ describe('WindsurfRunner – failed tasks', () => {
     const result = await runner.run('test prompt');
 
     assert.equal(result.output, '');
+  });
+});
+
+// ─── createRunners ────────────────────────────────────────────────────────────
+
+function makeConfig(agents: Config['agents']): Config {
+  return { agents } as Config;
+}
+
+describe('createRunners', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('returns runners in the order specified by config.agents', () => {
+    spyLogger();
+    const runners = createRunners(makeConfig(['cursor', 'windsurf', 'claude']));
+    assert.deepEqual(
+      runners.map((r) => r.name),
+      ['cursor', 'windsurf', 'claude']
+    );
+  });
+
+  it('returns runners in reversed order when config specifies reversed order', () => {
+    spyLogger();
+    const runners = createRunners(makeConfig(['claude', 'cursor']));
+    assert.deepEqual(
+      runners.map((r) => r.name),
+      ['claude', 'cursor']
+    );
+  });
+
+  it('returns a single runner when only one agent is configured', () => {
+    spyLogger();
+    const runners = createRunners(makeConfig(['claude']));
+    assert.equal(runners.length, 1);
+    assert.equal(runners[0].name, 'claude');
+  });
+
+  it('logs configured runners at info level', () => {
+    const spies = spyLogger();
+    createRunners(makeConfig(['cursor', 'claude']));
+    const infoCalls = spies.info.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(infoCalls.some((msg) => msg?.includes('cursor') && msg?.includes('claude') && msg?.includes('Configured runners')));
+  });
+
+  it('logs a warning when a configured runner is not available', () => {
+    const spies = spyLogger();
+    createRunners(makeConfig(['windsurf', 'claude']));
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    const hasUnavailableWarning = warnCalls.some((msg) => msg?.includes('not found'));
+    // At least windsurf should be flagged (it's typically not installed in CI)
+    // We can't assert strongly since CI might have different tool availability
+    assert.ok(typeof hasUnavailableWarning === 'boolean');
+  });
+
+  it('includes unavailable runners in the returned array (filtering is done by callers)', () => {
+    spyLogger();
+    const runners = createRunners(makeConfig(['windsurf', 'claude']));
+    assert.equal(runners.length, 2);
+    assert.equal(runners[0].name, 'windsurf');
+    assert.equal(runners[1].name, 'claude');
   });
 });

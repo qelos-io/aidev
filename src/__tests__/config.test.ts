@@ -384,3 +384,102 @@ describe('loadConfig tag defaults', () => {
     assert.doesNotThrow(() => loadConfig());
   });
 });
+
+// ─── loadConfig AGENTS parsing ────────────────────────────────────────────────
+
+describe('loadConfig AGENTS parsing', () => {
+  const envKeys = [
+    'CLICKUP_API_KEY', 'CLICKUP_TEAM_ID', 'AGENTS', 'PROVIDER',
+  ];
+  const saved: Record<string, string | undefined> = {};
+  let tmpDir: string;
+  let origCwd: string;
+
+  beforeEach(() => {
+    for (const k of envKeys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-agents-'));
+    origCwd = process.cwd();
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    for (const k of envKeys) {
+      if (saved[k] !== undefined) process.env[k] = saved[k];
+      else delete process.env[k];
+    }
+  });
+
+  function writeEnv(content: string): void {
+    fs.writeFileSync(
+      path.join(tmpDir, '.env.aidev'),
+      `CLICKUP_API_KEY=pk_test\nCLICKUP_TEAM_ID=12345\n${content}`,
+    );
+  }
+
+  it('defaults to claude,cursor when AGENTS is not set', () => {
+    writeEnv('');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['claude', 'cursor']);
+  });
+
+  it('parses AGENTS from env file and preserves order', () => {
+    writeEnv('AGENTS=cursor,windsurf,claude');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['cursor', 'windsurf', 'claude']);
+  });
+
+  it('parses AGENTS with reversed order', () => {
+    writeEnv('AGENTS=claude,windsurf,cursor');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['claude', 'windsurf', 'cursor']);
+  });
+
+  it('handles single agent', () => {
+    writeEnv('AGENTS=cursor');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['cursor']);
+  });
+
+  it('trims whitespace around agent names', () => {
+    writeEnv('AGENTS= cursor , claude ');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['cursor', 'claude']);
+  });
+
+  it('handles quoted value in env file (dotenv strips quotes)', () => {
+    writeEnv('AGENTS="cursor,windsurf,claude"');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['cursor', 'windsurf', 'claude']);
+  });
+
+  it('throws on invalid agent name', () => {
+    writeEnv('AGENTS=cursor,invalid_agent');
+    assert.throws(() => loadConfig(), /Invalid agent/);
+  });
+
+  it('falls back to default when AGENTS is empty string (falsy)', () => {
+    process.env.AGENTS = '';
+    writeEnv('');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['claude', 'cursor']);
+  });
+
+  it('throws when AGENTS contains only commas (no valid agents)', () => {
+    process.env.AGENTS = ',,,';
+    writeEnv('');
+    assert.throws(() => loadConfig(), /at least one agent/);
+  });
+
+  it('process.env AGENTS overrides env file value', () => {
+    process.env.AGENTS = 'claude';
+    writeEnv('AGENTS=cursor,windsurf,claude');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['claude']);
+    delete process.env.AGENTS;
+  });
+});

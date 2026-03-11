@@ -50,11 +50,27 @@ export function commandExists(name: string): boolean {
 }
 
 /**
+ * Detects whether a resolved binary path is a Windows .cmd/.bat shim and
+ * returns adjusted spawn arguments that route through cmd.exe.
+ * Returns null when no adjustment is needed.
+ */
+export function resolveWindowsCmd(
+  resolvedPath: string | null,
+  args: string[]
+): { bin: string; args: string[] } | null {
+  if (!resolvedPath || !/\.(cmd|bat)$/i.test(resolvedPath)) return null;
+  const comspec = process.env.ComSpec || 'cmd.exe';
+  return { bin: comspec, args: ['/c', resolvedPath, ...args] };
+}
+
+/**
  * Cross-platform `spawnSync` wrapper.
  * On Windows, .cmd/.bat shims (common for npm-installed CLIs like cursor,
  * claude, windsurf) cannot be spawned directly — Node.js only resolves .exe
  * and .com via CreateProcessW.  This helper detects .cmd/.bat and routes
- * them through the system shell so they execute correctly.
+ * them through cmd.exe /c so they execute correctly without shell: true
+ * (which triggers DEP0190 and mishandles arguments containing spaces or
+ * shell metacharacters).
  */
 export function spawnCommand(
   command: string,
@@ -66,8 +82,9 @@ export function spawnCommand(
   }
 
   const resolved = findBin(command);
-  if (resolved && /\.(cmd|bat)$/i.test(resolved)) {
-    return spawnSync(resolved, args, { ...options, shell: true });
+  const winCmd = resolveWindowsCmd(resolved, args);
+  if (winCmd) {
+    return spawnSync(winCmd.bin, winCmd.args, options);
   }
 
   return spawnSync(resolved ?? command, args, options);
