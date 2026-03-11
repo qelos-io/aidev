@@ -51,7 +51,7 @@ ${b('NON-CODE TASKS')}
   that don't produce code changes requiring review.
   Optionally use a different ClickUp team (${c('NON_CODE_CLICKUP_TEAM_ID')}) or
   Jira project (${c('NON_CODE_JIRA_PROJECT')}) for non-code tasks.
-  If ${c('NON_CODE_TAG')} is not set, non-code tasks are disabled.
+  If ${c('NON_CODE_TAG')} is not set, it defaults to ${d('<folder-name>-other')}.
 
 ${b('EXAMPLES')}
   ${d('$')} ${g('aidev init')}
@@ -63,11 +63,11 @@ ${b('EXAMPLES')}
 ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
   ${d('CLICKUP_API_KEY')}      ClickUp personal API token
   ${d('CLICKUP_TEAM_ID')}      Workspace / team ID
-  ${d('CLICKUP_TAG')}          Tag used to filter tasks
+  ${d('CLICKUP_TAG')}          Tag used to filter tasks ${d('(default: folder name)')}
   ${d('AGENTS')}               Agent order: ${c('claude,cursor')} ${d('| cursor,claude | claude | cursor')}
   ${d('DEV_NOTES_MODE')}       ${c('smart')} ${d('(default) | always')}
   ${d('AIDEV_TRIGGER_WORD')}   Trigger word to re-process a skipped task ${d('(default: aidev-continue)')}
-  ${d('NON_CODE_TAG')}         Tag for non-code tasks ${d('(no git branching)')}
+  ${d('NON_CODE_TAG')}         Tag for non-code tasks ${d('(default: <folder-name>-other)')}
   ${d('GIT_REMOTE')}           Remote name ${d('(auto-detected if unset)')}
   ${d('GITHUB_BASE_BRANCH')}   Base branch ${d('(default: main)')}
   ${d('GITHUB_REPO')}          ${d('owner/repo')} for PR links
