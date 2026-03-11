@@ -16,14 +16,17 @@ export class WindsurfRunner implements AIRunner {
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
     const cwd = process.cwd();
+    // Prompt goes via stdin — positional args are treated as file paths by the
+    // windsurf editor CLI and would create garbage files on disk.
     const result = spawnCommand(
       'windsurf',
-      ['--agent', '--print', '--trust', '--workspace', cwd, fullPrompt],
+      ['--agent', '--print', '--trust', '--workspace', cwd],
       {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
         cwd,
         env: getUserShellEnv(),
+        input: fullPrompt,
       }
     );
 

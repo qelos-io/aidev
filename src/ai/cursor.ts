@@ -16,14 +16,17 @@ export class CursorRunner implements AIRunner {
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
     const cwd = process.cwd();
+    // Prompt goes via stdin to avoid cmd.exe quoting issues on Windows with
+    // long prompts that contain special characters.
     const result = spawnCommand(
       'agent',
-      ['--print', '--force', '--trust', '--workspace', cwd, fullPrompt],
+      ['--print', '--force', '--trust', '--workspace', cwd],
       {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
         cwd,
         env: getUserShellEnv(),
+        input: fullPrompt,
       }
     );
 
