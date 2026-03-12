@@ -124,9 +124,11 @@ export function loadConfig(customEnvPath?: string): Config {
   const folderName = path.basename(process.cwd());
 
   const required =
-    provider === 'jira'
-      ? ['JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_PROJECT']
-      : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
+    provider === 'local'
+      ? []
+      : provider === 'jira'
+        ? ['JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_PROJECT']
+        : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
   for (const key of required) {
     if (!process.env[key]) {
       throw new Error(`Missing required config: ${key}. Run 'aidev init' to create .env.aidev`);

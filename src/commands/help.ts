@@ -62,6 +62,16 @@ ${b('TRIGGER WORD')}
   containing the trigger word ${d('(default: aidev-continue)')} to re-trigger processing.
   The existing branch will be reused. Set ${c('AIDEV_TRIGGER_WORD')} to customise.
 
+${b('LOCAL PROVIDER')}
+  Set ${c('PROVIDER=local')} in ${d('.env.aidev')} to use file-based task management.
+  Tasks live in ${d('.aidev/tasks/')} under status folders: ${c('open')}, ${c('pending')},
+  ${c('progress')}, ${c('review')}, ${c('done')}.
+
+  Each task is a markdown file with YAML frontmatter (title, priority, tags, etc.)
+  and a description body. Comments are stored in a ${d('.session.md')} companion file.
+  To add a comment, append a ${d('## your-name')} section to the session file.
+  Run ${c('aidev init')} with provider ${c('local')} to create the folder structure.
+
 ${b('NON-CODE TASKS')}
   Tasks tagged with the ${c('NON_CODE_TAG')} are executed without git branching —
   no checkout, commit, push, or PR creation. The AI agent runs the task directly
@@ -79,6 +89,7 @@ ${b('EXAMPLES')}
   ${d('$')} ${g('aidev schedule get')}
 
 ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
+  ${d('PROVIDER')}             ${c('clickup')} ${d('(default) | jira | local')}
   ${d('CLICKUP_API_KEY')}      ClickUp personal API token
   ${d('CLICKUP_TEAM_ID')}      Workspace / team ID
   ${d('CLICKUP_TAG')}          Tag used to filter tasks ${d('(default: folder name)')}

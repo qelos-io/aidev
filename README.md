@@ -4,12 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg?style=flat-square)](https://nodejs.org)
 
-**aidev** turns your ClickUp tasks into merged code — automatically.
+**aidev** turns your tasks into merged code — automatically.
 
-It polls your task manager, checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
+It polls your task manager (ClickUp, Jira, or local markdown files), checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
 
 ```
-ClickUp task  →  AI implements  →  git push  →  "in review"
+Task (ClickUp / Jira / local)  →  AI implements  →  git push  →  "in review"
 ```
 
 ---
@@ -356,10 +356,69 @@ ANSI colour codes are stripped so the file stays readable in any editor or `tail
 |---|---|
 | ClickUp | ✅ Implemented |
 | Jira | ✅ Implemented |
+| Local | ✅ Implemented |
 | Notion | 🔜 Stub — contributions welcome |
 | Trello | 🔜 Stub — contributions welcome |
 
 The `TaskProvider` interface makes it straightforward to add new providers. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+### Local provider
+
+Set `PROVIDER=local` in `.env.aidev` to manage tasks entirely via local markdown files — no external API needed.
+
+```bash
+aidev init   # choose "local" when prompted for provider
+```
+
+Tasks live in `.aidev/tasks/` under status folders:
+
+```
+.aidev/tasks/
+  open/          # new tasks ready for implementation
+  pending/       # waiting for human reply
+  progress/      # currently being implemented
+  review/        # implementation complete, awaiting review
+  done/          # finished
+```
+
+**Task file format** (e.g. `.aidev/tasks/open/a1b2c3d4-fix-login-bug.md`):
+
+```markdown
+---
+title: Fix login page bug
+priority: 2
+assignee: david
+estimated: 2h
+tags: frontend, auth
+created: 2026-03-12T10:00:00.000Z
+---
+
+The login form should redirect users to the dashboard after successful authentication.
+```
+
+The filename must start with a short ID (hex characters) followed by a dash and a slug. The YAML frontmatter carries task metadata; everything after `---` is the task description.
+
+**Session file** (comments) — `.aidev/tasks/open/a1b2c3d4-fix-login-bug.session.md`:
+
+```markdown
+<!-- aidev session log — append your comments below using "## your-name" as header -->
+
+---
+
+## aidev — 2026-03-12T10:05:00.000Z
+
+[aidev] Starting implementation on branch `a1b2c3d4/fix-login-bug`
+
+---
+
+## david — 2026-03-12T10:10:00.000Z
+
+Please use the new auth API endpoint for this.
+```
+
+To add a comment, append a `---` separator followed by a `## your-name` header and your message. aidev parses these entries automatically and uses them as conversation context, just like ClickUp/Jira comments.
+
+The `.aidev/` folder is automatically added to `.gitignore` during `aidev init`.
 
 ---
 

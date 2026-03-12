@@ -119,6 +119,29 @@ describe('renderEnv', () => {
   });
 });
 
+// ─── renderEnv local provider ─────────────────────────────────────────────────
+
+describe('renderEnv local provider', () => {
+  it('writes PROVIDER=local with comment about .aidev/tasks', () => {
+    const out = renderEnv({ ...baseAnswers, provider: 'local' });
+    assert.ok(out.includes('PROVIDER=local'));
+    assert.ok(out.includes('.aidev/tasks'));
+  });
+
+  it('does not include ClickUp or Jira keys for local provider', () => {
+    const out = renderEnv({ ...baseAnswers, provider: 'local' });
+    assert.ok(!out.includes('CLICKUP_API_KEY'));
+    assert.ok(!out.includes('JIRA_BASE_URL'));
+  });
+
+  it('still includes shared config (AGENTS, GIT_REMOTE, etc.)', () => {
+    const out = renderEnv({ ...baseAnswers, provider: 'local' });
+    assert.ok(out.includes('AGENTS=claude,cursor'));
+    assert.ok(out.includes('GIT_REMOTE=origin'));
+    assert.ok(out.includes('GITHUB_BASE_BRANCH=main'));
+  });
+});
+
 // ─── getWindowsCursorInitMessage ──────────────────────────────────────────────
 
 describe('getWindowsCursorInitMessage', () => {
