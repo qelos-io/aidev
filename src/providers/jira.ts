@@ -71,7 +71,7 @@ export class JiraProvider implements TaskProvider {
     const jql = `project = "${this.project}" AND labels = "${this.label}" AND statusCategory != Done ORDER BY created DESC`;
     const fields = 'summary,description,status,labels';
     const data = await this.request<SearchResponse>(
-      `/search?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=50`
+      `/search/jql?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=50`
     );
 
     return data.issues.map((issue) => ({
