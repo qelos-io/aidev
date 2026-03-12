@@ -70,6 +70,7 @@ ${b('LOCAL PROVIDER')}
   Each task is a markdown file with YAML frontmatter (title, priority, tags, etc.)
   and a description body. Comments are stored in a ${d('.session.md')} companion file.
   To add a comment, append a ${d('## your-name')} section to the session file.
+  Add ${c('type: non-code')} to frontmatter for tasks that skip git branching.
   Run ${c('aidev init')} with provider ${c('local')} to create the folder structure.
 
 ${b('NON-CODE TASKS')}

@@ -155,16 +155,20 @@ function shortId(): string {
 
 // ─── LocalProvider ─────────────────────────────────────────────────────────────
 
+export type TaskMode = 'code' | 'non-code';
+
 export class LocalProvider implements TaskProvider {
   private baseDir: string;
+  private mode: TaskMode;
 
-  constructor(baseDir = process.cwd()) {
+  constructor(baseDir = process.cwd(), mode: TaskMode = 'code') {
     this.baseDir = baseDir;
+    this.mode = mode;
     ensureTaskFolders(this.baseDir);
   }
 
   async fetchTasks(): Promise<Task[]> {
-    logger.debug('Fetching tasks from local .aidev/tasks folders');
+    logger.debug(`Fetching ${this.mode} tasks from local .aidev/tasks folders`);
 
     const tasks: Task[] = [];
     for (const folder of TASK_FOLDERS) {
@@ -178,6 +182,10 @@ export class LocalProvider implements TaskProvider {
       for (const file of files) {
         const content = fs.readFileSync(path.join(dir, file), 'utf8');
         const { meta, body } = parseFrontmatter(content);
+
+        const taskType: TaskMode = meta.type === 'non-code' ? 'non-code' : 'code';
+        if (taskType !== this.mode) continue;
+
         const idMatch = file.match(/^([a-f0-9]+)-/);
         const id = idMatch ? idMatch[1] : file.replace(/\.md$/, '');
 
@@ -271,6 +279,7 @@ export class LocalProvider implements TaskProvider {
     const meta: Record<string, string> = {
       title: params.title,
     };
+    if (this.mode === 'non-code') meta.type = 'non-code';
     if (params.priority) meta.priority = String(params.priority);
     if (params.tags.length > 0) meta.tags = params.tags.join(', ');
     if (params.dueDate) meta.due_date = new Date(params.dueDate).toISOString().split('T')[0];

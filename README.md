@@ -398,6 +398,24 @@ The login form should redirect users to the dashboard after successful authentic
 
 The filename must start with a short ID (hex characters) followed by a dash and a slug. The YAML frontmatter carries task metadata; everything after `---` is the task description.
 
+#### Code vs non-code tasks
+
+By default, local tasks are treated as **code tasks** — aidev creates a git branch, runs the AI agent, commits, pushes, and opens a PR.
+
+To mark a task as **non-code** (research, docs, investigation — no git branching), add `type: non-code` to the frontmatter:
+
+```markdown
+---
+title: Compare OAuth2 providers
+type: non-code
+tags: research
+---
+
+Evaluate Auth0, Clerk, and Supabase Auth. Write a recommendation.
+```
+
+Non-code tasks follow the same lifecycle but skip all git operations. The AI response is posted as a session comment instead of a PR.
+
 **Session file** (comments) — `.aidev/tasks/open/a1b2c3d4-fix-login-bug.session.md`:
 
 ```markdown

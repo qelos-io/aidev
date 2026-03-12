@@ -502,6 +502,128 @@ describe('LocalProvider.createTask', () => {
   });
 });
 
+// ─── Code / non-code mode filtering ──────────────────────────────────────────
+
+const nonCodeTask = `---
+title: Research auth providers
+type: non-code
+priority: 1
+tags: research
+created: 2026-03-12T10:00:00.000Z
+---
+
+Compare OAuth2 providers and write a recommendation.
+`;
+
+describe('LocalProvider mode filtering', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-local-mode-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('code-mode provider returns only code tasks (no type or type=code)', async () => {
+    writeTask(tmpDir, 'open', 'aaaa0001-code-task.md', sampleTask);
+    writeTask(tmpDir, 'open', 'aaaa0002-noncode-task.md', nonCodeTask);
+
+    const provider = new LocalProvider(tmpDir, 'code');
+    const tasks = await provider.fetchTasks();
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].id, 'aaaa0001');
+  });
+
+  it('non-code-mode provider returns only non-code tasks', async () => {
+    writeTask(tmpDir, 'open', 'aaaa0001-code-task.md', sampleTask);
+    writeTask(tmpDir, 'open', 'aaaa0002-noncode-task.md', nonCodeTask);
+
+    const provider = new LocalProvider(tmpDir, 'non-code');
+    const tasks = await provider.fetchTasks();
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].id, 'aaaa0002');
+    assert.equal(tasks[0].name, 'Research auth providers');
+  });
+
+  it('default mode is code — tasks without type field are included', async () => {
+    writeTask(tmpDir, 'open', 'aaaa0001-task.md', '---\ntitle: Default task\n---\nBody.\n');
+    const provider = new LocalProvider(tmpDir);
+    const tasks = await provider.fetchTasks();
+    assert.equal(tasks.length, 1);
+  });
+
+  it('non-code mode excludes tasks without type field', async () => {
+    writeTask(tmpDir, 'open', 'aaaa0001-task.md', '---\ntitle: Default task\n---\nBody.\n');
+    const provider = new LocalProvider(tmpDir, 'non-code');
+    const tasks = await provider.fetchTasks();
+    assert.equal(tasks.length, 0);
+  });
+
+  it('createTask in non-code mode sets type: non-code in frontmatter', async () => {
+    const provider = new LocalProvider(tmpDir, 'non-code');
+    const result = await provider.createTask({
+      title: 'Research task',
+      description: 'Do some research.',
+      tags: ['research'],
+    });
+
+    const content = fs.readFileSync(result.url, 'utf8');
+    const { meta } = parseFrontmatter(content);
+    assert.equal(meta.type, 'non-code');
+  });
+
+  it('createTask in code mode does not set type field', async () => {
+    const provider = new LocalProvider(tmpDir, 'code');
+    const result = await provider.createTask({
+      title: 'Code task',
+      description: 'Fix something.',
+      tags: [],
+    });
+
+    const content = fs.readFileSync(result.url, 'utf8');
+    const { meta } = parseFrontmatter(content);
+    assert.ok(!('type' in meta), 'code tasks should not have a type field');
+  });
+
+  it('non-code task created by non-code provider is discoverable by non-code provider only', async () => {
+    const codeProvider = new LocalProvider(tmpDir, 'code');
+    const nonCodeProvider = new LocalProvider(tmpDir, 'non-code');
+
+    await nonCodeProvider.createTask({
+      title: 'Research task',
+      description: 'Research only.',
+      tags: [],
+    });
+
+    const codeTasks = await codeProvider.fetchTasks();
+    const nonCodeTasks = await nonCodeProvider.fetchTasks();
+
+    assert.equal(codeTasks.length, 0);
+    assert.equal(nonCodeTasks.length, 1);
+    assert.equal(nonCodeTasks[0].name, 'Research task');
+  });
+
+  it('mode filtering works across all status folders', async () => {
+    writeTask(tmpDir, 'open', 'aaaa0001-code.md', '---\ntitle: Code open\n---\n');
+    writeTask(tmpDir, 'open', 'aaaa0002-noncode.md', '---\ntitle: NC open\ntype: non-code\n---\n');
+    writeTask(tmpDir, 'pending', 'aaaa0003-code.md', '---\ntitle: Code pending\n---\n');
+    writeTask(tmpDir, 'progress', 'aaaa0004-noncode.md', '---\ntitle: NC progress\ntype: non-code\n---\n');
+
+    const codeProvider = new LocalProvider(tmpDir, 'code');
+    const nonCodeProvider = new LocalProvider(tmpDir, 'non-code');
+
+    const codeTasks = await codeProvider.fetchTasks();
+    const nonCodeTasks = await nonCodeProvider.fetchTasks();
+
+    assert.equal(codeTasks.length, 2);
+    assert.equal(nonCodeTasks.length, 2);
+    assert.ok(codeTasks.every((t) => !t.name.startsWith('NC')));
+    assert.ok(nonCodeTasks.every((t) => t.name.startsWith('NC')));
+  });
+});
+
 // ─── Full lifecycle ──────────────────────────────────────────────────────────
 
 describe('LocalProvider full lifecycle', () => {
