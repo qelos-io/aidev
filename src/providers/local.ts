@@ -72,9 +72,11 @@ export function renderFrontmatter(meta: Record<string, string>, body: string): s
 export function parseSession(content: string): Comment[] {
   if (!content.trim()) return [];
 
+  // Normalize CRLF to LF so regexes work on Windows-edited files
+  const normalized = content.replace(/\r\n/g, '\n');
+
   const comments: Comment[] = [];
-  // Split on horizontal rules that separate entries (handles --- at start of content)
-  const blocks = content.split(/(?:^|\n)---\n/);
+  const blocks = normalized.split(/(?:^|\n)---\n/);
 
   for (const block of blocks) {
     const trimmed = block.trim();

@@ -190,6 +190,32 @@ describe('parseSession', () => {
     assert.equal(comments[0].author, 'alice');
     assert.equal(comments[1].author, 'bob');
   });
+
+  it('parses CRLF line endings correctly', () => {
+    const content = '---\r\n\r\n## aidev — 2026-03-12T10:05:00.000Z\r\n\r\nStarting implementation\r\n\r\n---\r\n\r\n## david — 2026-03-12T10:10:00.000Z\r\n\r\nPlease use the new API.\r\n';
+    const comments = parseSession(content);
+    assert.equal(comments.length, 2);
+    assert.equal(comments[0].author, 'aidev');
+    assert.ok(comments[0].text.includes('Starting implementation'));
+    assert.equal(comments[1].author, 'david');
+    assert.ok(comments[1].text.includes('new API'));
+  });
+
+  it('parses mixed LF and CRLF line endings', () => {
+    const content = '---\r\n\r\n## bot — 2026-01-15T08:30:00.000Z\r\n\nMixed line endings\n';
+    const comments = parseSession(content);
+    assert.equal(comments.length, 1);
+    assert.equal(comments[0].author, 'bot');
+    assert.equal(comments[0].text, 'Mixed line endings');
+  });
+
+  it('parses CRLF entry without timestamp', () => {
+    const content = '---\r\n\r\n## david\r\n\r\nSome comment.\r\n';
+    const comments = parseSession(content);
+    assert.equal(comments.length, 1);
+    assert.equal(comments[0].author, 'david');
+    assert.equal(comments[0].text, 'Some comment.');
+  });
 });
 
 // ─── renderSessionEntry ─────────────────────────────────────────────────────
@@ -271,6 +297,56 @@ describe('LocalProvider.fetchTasks', () => {
     const provider = new LocalProvider(tmpDir);
     const tasks = await provider.fetchTasks();
     assert.equal(tasks[0].name, 'a1b2c3d4-some-task');
+  });
+
+  it('treats task without type field as code task', async () => {
+    writeTask(tmpDir, 'open', 'aaaa0001-no-type.md', '---\ntitle: No type field\npriority: 1\n---\n\nTask body.\n');
+
+    const codeProvider = new LocalProvider(tmpDir, 'code');
+    const codeTasks = await codeProvider.fetchTasks();
+    assert.equal(codeTasks.length, 1);
+    assert.equal(codeTasks[0].name, 'No type field');
+
+    const nonCodeProvider = new LocalProvider(tmpDir, 'non-code');
+    const nonCodeTasks = await nonCodeProvider.fetchTasks();
+    assert.equal(nonCodeTasks.length, 0);
+  });
+
+  it('treats task with no frontmatter at all as code task', async () => {
+    writeTask(tmpDir, 'open', 'aaaa0002-bare.md', 'Just a plain description, no frontmatter.');
+
+    const codeProvider = new LocalProvider(tmpDir, 'code');
+    const codeTasks = await codeProvider.fetchTasks();
+    assert.equal(codeTasks.length, 1);
+    assert.equal(codeTasks[0].description, 'Just a plain description, no frontmatter.');
+
+    const nonCodeProvider = new LocalProvider(tmpDir, 'non-code');
+    const nonCodeTasks = await nonCodeProvider.fetchTasks();
+    assert.equal(nonCodeTasks.length, 0);
+  });
+
+  it('treats task with empty type value as code task', async () => {
+    writeTask(tmpDir, 'open', 'aaaa0003-empty-type.md', '---\ntitle: Empty type\ntype:\n---\n\nBody.\n');
+
+    const codeProvider = new LocalProvider(tmpDir, 'code');
+    const codeTasks = await codeProvider.fetchTasks();
+    assert.equal(codeTasks.length, 1);
+
+    const nonCodeProvider = new LocalProvider(tmpDir, 'non-code');
+    const nonCodeTasks = await nonCodeProvider.fetchTasks();
+    assert.equal(nonCodeTasks.length, 0);
+  });
+
+  it('treats task with type: code explicitly as code task', async () => {
+    writeTask(tmpDir, 'open', 'aaaa0004-explicit-code.md', '---\ntitle: Explicit code\ntype: code\n---\n\nCode task.\n');
+
+    const codeProvider = new LocalProvider(tmpDir, 'code');
+    const codeTasks = await codeProvider.fetchTasks();
+    assert.equal(codeTasks.length, 1);
+
+    const nonCodeProvider = new LocalProvider(tmpDir, 'non-code');
+    const nonCodeTasks = await nonCodeProvider.fetchTasks();
+    assert.equal(nonCodeTasks.length, 0);
   });
 });
 
