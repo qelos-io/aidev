@@ -21,6 +21,7 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.aidev.instructions.md', /^\*\.aidev\.instructions\.md/m],
   ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
   ['aidev.tasks.json',        /^aidev\.tasks\.json/m],
+  ['.aidev/',  /^\.aidev\//m],
 ];
 
 /**
@@ -75,7 +76,7 @@ interface ClickUpMember {
 }
 
 export interface Answers {
-  provider: 'clickup' | 'jira';
+  provider: 'clickup' | 'jira' | 'local';
   // ClickUp
   clickupApiKey: string;
   clickupTeamId: string;
@@ -232,25 +233,30 @@ function line(key: string, val: string): string | null {
 
 export function renderEnv(a: Answers): string {
   const providerLines =
-    a.provider === 'jira'
+    a.provider === 'local'
       ? [
-          `PROVIDER=jira`,
-          line('JIRA_BASE_URL', a.jiraBaseUrl),
-          line('JIRA_EMAIL', a.jiraEmail),
-          line('JIRA_API_TOKEN', a.jiraApiToken),
-          line('JIRA_PROJECT', a.jiraProject),
-          line('JIRA_LABEL', a.jiraLabel),
-          `JIRA_PENDING_STATUS=${envVal(a.jiraPendingStatus)}`,
-          `JIRA_IN_REVIEW_STATUS=${envVal(a.jiraInReviewStatus)}`,
+          `PROVIDER=local`,
+          `# Tasks are stored locally in .aidev/tasks/ folders`,
         ]
-      : [
-          `PROVIDER=clickup`,
-          line('CLICKUP_API_KEY', a.clickupApiKey),
-          line('CLICKUP_TEAM_ID', a.clickupTeamId),
-          line('CLICKUP_TAG', a.clickupTag),
-          `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
-          `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
-        ];
+      : a.provider === 'jira'
+        ? [
+            `PROVIDER=jira`,
+            line('JIRA_BASE_URL', a.jiraBaseUrl),
+            line('JIRA_EMAIL', a.jiraEmail),
+            line('JIRA_API_TOKEN', a.jiraApiToken),
+            line('JIRA_PROJECT', a.jiraProject),
+            line('JIRA_LABEL', a.jiraLabel),
+            `JIRA_PENDING_STATUS=${envVal(a.jiraPendingStatus)}`,
+            `JIRA_IN_REVIEW_STATUS=${envVal(a.jiraInReviewStatus)}`,
+          ]
+        : [
+            `PROVIDER=clickup`,
+            line('CLICKUP_API_KEY', a.clickupApiKey),
+            line('CLICKUP_TEAM_ID', a.clickupTeamId),
+            line('CLICKUP_TAG', a.clickupTag),
+            `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
+            `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+          ];
 
   const lines = [
     a.aidevEnvExtend
@@ -355,7 +361,7 @@ export async function initCommand(): Promise<void> {
 
     // ── Provider ─────────────────────────────────────────────
     section('Task provider');
-    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira'], existing.PROVIDER || 'clickup') as 'clickup' | 'jira';
+    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira', 'local'], existing.PROVIDER || 'clickup') as 'clickup' | 'jira' | 'local';
 
     // Provider-specific config
     const globalEnvHint = hint('leave blank to use global env var');
@@ -375,7 +381,14 @@ export async function initCommand(): Promise<void> {
     let jiraPendingStatus = 'To Do';
     let jiraInReviewStatus = 'In Review';
 
-    if (provider === 'jira') {
+    if (provider === 'local') {
+      // ── Local ──────────────────────────────────────────────
+      section('Local task folders');
+      const { ensureTaskFolders } = await import('../providers/local');
+      ensureTaskFolders();
+      console.log(chalk.dim('  Created .aidev/tasks/ with status folders: open, pending, progress, review, done'));
+      console.log(chalk.dim('  Add markdown task files to .aidev/tasks/open/ to get started.'));
+    } else if (provider === 'jira') {
       // ── Jira ─────────────────────────────────────────────
       section('Jira');
       jiraBaseUrl = await ask(
@@ -472,7 +485,7 @@ export async function initCommand(): Promise<void> {
     let nonCodeClickupTeamId = '';
     let nonCodeJiraProject = '';
 
-    if (nonCodeTag) {
+    if (nonCodeTag && provider !== 'local') {
       if (provider === 'clickup') {
         nonCodeClickupTeamId = await ask(
           rl,
@@ -495,6 +508,12 @@ export async function initCommand(): Promise<void> {
 
     if (provider === 'clickup' && effectiveApiKey) {
       assigneeTag = await pickAssignee(rl, effectiveApiKey, existing.ASSIGNEE_TAG || '');
+    } else if (provider === 'local') {
+      assigneeTag = await ask(
+        rl,
+        `Assignee name ${hint('your name, used in session comments')}`,
+        existing.ASSIGNEE_TAG || ''
+      );
     } else {
       assigneeTag = await ask(
         rl,

@@ -60,7 +60,7 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
         jiraLabel: config.nonCodeTag,
         jiraProject: config.nonCodeJiraProject || config.jiraProject,
       };
-      nonCodeProvider = createProvider(nonCodeConfig);
+      nonCodeProvider = createProvider(nonCodeConfig, 'non-code');
     }
 
     // Always process local tasks (aidev.tasks.json)
