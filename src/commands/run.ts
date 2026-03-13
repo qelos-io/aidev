@@ -512,14 +512,9 @@ async function implementTask(
     }
     logger.info(`Continuing on existing branch: ${branchName}`);
   } else {
-    if (!git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch)) {
-      logger.error('Failed to prepare base branch');
+    if (!git.createBranchFromRemote(config.gitRemote, config.githubBaseBranch, branchName)) {
+      logger.error(`Failed to create branch ${branchName} from ${config.gitRemote}/${config.githubBaseBranch}`);
       await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
-      return;
-    }
-
-    if (!git.createBranch(branchName, config.githubBaseBranch)) {
-      logger.error(`Failed to create branch ${branchName}`);
       return;
     }
   }
@@ -805,14 +800,9 @@ async function implementThinkingTask(
     }
     logger.info(`Continuing on existing branch: ${branchName}`);
   } else {
-    if (!git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch)) {
-      logger.error('Failed to prepare base branch');
+    if (!git.createBranchFromRemote(config.gitRemote, config.githubBaseBranch, branchName)) {
+      logger.error(`Failed to create branch ${branchName} from ${config.gitRemote}/${config.githubBaseBranch}`);
       await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
-      return;
-    }
-
-    if (!git.createBranch(branchName, config.githubBaseBranch)) {
-      logger.error(`Failed to create branch ${branchName}`);
       return;
     }
   }

@@ -9,6 +9,7 @@ import {
   isProtectedBranch,
   getCurrentBranch,
   createBranch,
+  createBranchFromRemote,
   commit,
   push,
   addAll,
@@ -163,6 +164,90 @@ describe('createBranch with expectedBase (integration)', () => {
   it('works without expectedBase (backward compatible)', () => {
     assert.equal(createBranch('task123/fix-bug'), true);
     assert.equal(getCurrentBranch(), 'task123/fix-bug');
+  });
+});
+
+describe('createBranchFromRemote (integration)', () => {
+  let tmpDir: string;
+  let bareDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
+    bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-bare-'));
+    gitCmd(['init', '--bare', '-b', 'main'], bareDir);
+    initRepo(tmpDir);
+    gitCmd(['remote', 'add', 'origin', bareDir], tmpDir);
+    gitCmd(['push', 'origin', 'main'], tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(bareDir, { recursive: true, force: true });
+  });
+
+  it('creates a branch from origin/main at the latest remote commit', () => {
+    // Push a new commit to origin from a separate clone
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-clone-'));
+    try {
+      gitCmd(['clone', bareDir, cloneDir], cloneDir);
+      gitCmd(['config', 'user.email', 'other@test.com'], cloneDir);
+      gitCmd(['config', 'user.name', 'Other'], cloneDir);
+      fs.writeFileSync(path.join(cloneDir, 'new.txt'), 'remote commit');
+      gitCmd(['add', '.'], cloneDir);
+      gitCmd(['commit', '-m', 'remote commit'], cloneDir);
+      gitCmd(['push', 'origin', 'main'], cloneDir);
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+
+    assert.equal(createBranchFromRemote('origin', 'main', 'task123/fix-bug'), true);
+    assert.equal(getCurrentBranch(), 'task123/fix-bug');
+    // The new branch should contain the remote commit's file
+    assert.ok(fs.existsSync(path.join(tmpDir, 'new.txt')));
+  });
+
+  it('does not require the local base branch to be checked out', () => {
+    gitCmd(['checkout', '-b', 'some-other-branch'], tmpDir);
+    assert.equal(getCurrentBranch(), 'some-other-branch');
+    assert.equal(createBranchFromRemote('origin', 'main', 'task456/new-feature'), true);
+    assert.equal(getCurrentBranch(), 'task456/new-feature');
+  });
+
+  it('stashes dirty changes before creating the branch', () => {
+    fs.writeFileSync(path.join(tmpDir, 'dirty.txt'), 'uncommitted');
+    assert.equal(hasChanges(), true);
+    assert.equal(createBranchFromRemote('origin', 'main', 'task789/clean-start'), true);
+    assert.equal(getCurrentBranch(), 'task789/clean-start');
+  });
+
+  it('branches from the remote ref, not the local base branch', () => {
+    // Push a new commit to origin from a separate clone
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-clone-'));
+    try {
+      gitCmd(['clone', bareDir, cloneDir], cloneDir);
+      gitCmd(['config', 'user.email', 'other@test.com'], cloneDir);
+      gitCmd(['config', 'user.name', 'Other'], cloneDir);
+      fs.writeFileSync(path.join(cloneDir, 'remote-only.txt'), 'only on remote');
+      gitCmd(['add', '.'], cloneDir);
+      gitCmd(['commit', '-m', 'remote-only commit'], cloneDir);
+      gitCmd(['push', 'origin', 'main'], cloneDir);
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+
+    // Local main is behind origin/main — don't pull
+    assert.equal(createBranchFromRemote('origin', 'main', 'task999/from-remote'), true);
+    assert.equal(getCurrentBranch(), 'task999/from-remote');
+    // Branch should have the remote commit even though local main doesn't
+    assert.ok(fs.existsSync(path.join(tmpDir, 'remote-only.txt')));
+  });
+
+  it('fails when the remote base branch does not exist', () => {
+    assert.equal(createBranchFromRemote('origin', 'nonexistent', 'task000/bad'), false);
   });
 });
 
