@@ -59,6 +59,7 @@ export class JiraProvider implements TaskProvider {
         summary: string;
         description: unknown;
         status: { name: string };
+        priority: { id: string } | null;
         labels: string[];
         self: string;
       };
@@ -69,7 +70,7 @@ export class JiraProvider implements TaskProvider {
     }
 
     const jql = `project = "${this.project}" AND labels = "${this.label}" AND statusCategory != Done ORDER BY created DESC`;
-    const fields = 'summary,description,status,labels';
+    const fields = 'summary,description,status,priority,labels';
     const data = await this.request<SearchResponse>(
       `/search/jql?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=50`
     );
@@ -81,6 +82,7 @@ export class JiraProvider implements TaskProvider {
       status: issue.fields.status.name.toLowerCase(),
       url: `${this.baseUrl}/browse/${issue.key}`,
       tags: issue.fields.labels,
+      priority: issue.fields.priority ? parseInt(issue.fields.priority.id, 10) : undefined,
     }));
   }
 

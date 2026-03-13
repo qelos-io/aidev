@@ -5,6 +5,7 @@ export interface Task {
   status: string;
   url: string;
   tags: string[];
+  priority?: number;
 }
 
 export interface LocalTask {
