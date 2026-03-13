@@ -15,6 +15,7 @@ import { collectAndLogDiagnostics } from '../diagnostics';
 import { acquireLock, releaseLock, readLock } from '../lockfile';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
+const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
 const SLEEPING_MARKER = 'machine appears to be asleep';
 export const DEFAULT_TRIGGER_WORD = 'aidev-continue';
 
@@ -37,6 +38,12 @@ function isThinkingTask(task: Task, config: Config): boolean {
   if (!config.thinkingTag) return false;
   const tag = config.thinkingTag.toLowerCase();
   return task.tags.some((t) => t.toLowerCase() === tag);
+}
+
+export function sortTasksByPriority(tasks: Task[]): Task[] {
+  return [...tasks].sort(
+    (a, b) => (a.priority ?? NO_PRIORITY) - (b.priority ?? NO_PRIORITY)
+  );
 }
 
 function taskPlanPath(taskId: string): string {
@@ -102,7 +109,7 @@ export async function runCommand(
     }
 
     logger.info(`Fetching tasks (filter: ${filter})...`);
-    const tasks = await provider.fetchTasks();
+    const tasks = sortTasksByPriority(await provider.fetchTasks());
     logger.info(`Found ${tasks.length} tagged task(s)`);
 
     let processed = 0;
@@ -116,7 +123,7 @@ export async function runCommand(
 
     if (nonCodeProvider) {
       logger.info(`Fetching non-code tasks (filter: ${filter})...`);
-      const nonCodeTasks = await nonCodeProvider.fetchTasks();
+      const nonCodeTasks = sortTasksByPriority(await nonCodeProvider.fetchTasks());
       logger.info(`Found ${nonCodeTasks.length} non-code task(s)`);
 
       for (const task of nonCodeTasks) {

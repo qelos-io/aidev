@@ -198,6 +198,7 @@ export class LocalProvider implements TaskProvider {
           status: FOLDER_TO_STATUS[folder],
           url: path.join(dir, file),
           tags: meta.tags ? meta.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+          priority: meta.priority ? parseInt(meta.priority, 10) : undefined,
         });
       }
     }

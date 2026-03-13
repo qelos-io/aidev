@@ -69,6 +69,7 @@ export class ClickUpProvider implements TaskProvider {
       name: string;
       description?: string;
       status: { status: string };
+      priority: { id: string } | null;
       url: string;
       tags: Array<{ name: string }>;
     }
@@ -88,6 +89,7 @@ export class ClickUpProvider implements TaskProvider {
       status: t.status.status.toLowerCase(),
       url: t.url,
       tags: t.tags.map((tag) => tag.name),
+      priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
     }));
   }
 
