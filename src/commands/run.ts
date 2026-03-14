@@ -34,6 +34,30 @@ export interface ThinkingTaskPlan {
   subtasks: SubTask[];
 }
 
+export function getRunSkipReason(status: string, filter: RunFilter, pendingStatus: string): string | null {
+  const normalizedStatus = status.toLowerCase();
+  const normalizedPendingStatus = pendingStatus.toLowerCase();
+  const isPending = normalizedStatus === normalizedPendingStatus;
+
+  if (SKIP_STATUSES.has(normalizedStatus)) {
+    return `terminal status: ${status}`;
+  }
+
+  if (normalizedStatus !== 'open' && !isPending) {
+    return `status "${status}" is not open or pending`;
+  }
+
+  if (filter === 'open' && isPending) {
+    return 'filter=open but task is pending';
+  }
+
+  if (filter === 'pending' && !isPending) {
+    return 'filter=pending but task is not pending';
+  }
+
+  return null;
+}
+
 function isThinkingTask(task: Task, config: Config): boolean {
   if (!config.thinkingTag) return false;
   const tag = config.thinkingTag.toLowerCase();
@@ -148,25 +172,17 @@ async function processTask(
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
   const isPending = task.status.toLowerCase() === config.clickupPendingStatus.toLowerCase();
+  const skipReason = getRunSkipReason(task.status, filter, config.clickupPendingStatus);
 
   logger.task(`[${task.id}] "${task.name}" (status: ${task.status})`);
 
-  if (SKIP_STATUSES.has(task.status.toLowerCase())) {
-    logger.info(`[${task.id}] "${task.name}" skipped — terminal status: ${task.status}`);
+  if (skipReason) {
+    logger.info(`[${task.id}] "${task.name}" skipped — ${skipReason}`);
     return 'skipped';
   }
 
   const branchName = `${task.id}/${git.slugify(task.name)}`;
   const branchExists = git.remoteBranchExists(config.gitRemote, branchName);
-
-  if (filter === 'open' && isPending) {
-    logger.info(`[${task.id}] "${task.name}" skipped — filter=open but task is pending`);
-    return 'skipped';
-  }
-  if (filter === 'pending' && !isPending) {
-    logger.info(`[${task.id}] "${task.name}" skipped — filter=pending but task is not pending`);
-    return 'skipped';
-  }
 
   if (isPending || branchExists) {
     const comments = await provider.getComments(task.id);
@@ -1034,20 +1050,12 @@ async function processNonCodeTask(
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
   const isPending = task.status.toLowerCase() === config.clickupPendingStatus.toLowerCase();
+  const skipReason = getRunSkipReason(task.status, filter, config.clickupPendingStatus);
 
   logger.task(`[${task.id}] "${task.name}" [non-code] (status: ${task.status})`);
 
-  if (SKIP_STATUSES.has(task.status.toLowerCase())) {
-    logger.info(`[${task.id}] "${task.name}" skipped — terminal status: ${task.status}`);
-    return 'skipped';
-  }
-
-  if (filter === 'open' && isPending) {
-    logger.info(`[${task.id}] "${task.name}" skipped — filter=open but task is pending`);
-    return 'skipped';
-  }
-  if (filter === 'pending' && !isPending) {
-    logger.info(`[${task.id}] "${task.name}" skipped — filter=pending but task is not pending`);
+  if (skipReason) {
+    logger.info(`[${task.id}] "${task.name}" skipped — ${skipReason}`);
     return 'skipped';
   }
 
