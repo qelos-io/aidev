@@ -229,7 +229,12 @@ describe('WindsurfRunner – process cleanup', () => {
   afterEach(() => mock.restoreAll());
 
   it('kills Windsurf IDE after run when it was not already running', async () => {
-    const spawnMock = mockSpawnSync({ status: 0, stdout: '', stderr: '' });
+    const spawnMock = mock.method(childProcess, 'spawnSync', (command: string) => {
+      const base = { pid: 1, output: [], stderr: '', status: 0, signal: null, error: undefined };
+      if (command === 'pgrep') return { ...base, stdout: '', status: 1 };
+      if (command === 'tasklist') return { ...base, stdout: 'INFO: No tasks are running' };
+      return { ...base, stdout: '' };
+    });
     spyLogger();
 
     const runner = new WindsurfRunner();
