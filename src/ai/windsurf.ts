@@ -22,7 +22,7 @@ export class WindsurfRunner implements AIRunner {
     // by the windsurf CLI and would create files named with the prompt text.
     const result = spawnCommand(
       'windsurf',
-      ['--agent', '--print', '--trust', '--workspace', cwd],
+      ['--agent', '--print', '--trust', '--workspace', cwd, '-'],
       {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
