@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority } from '../commands/run';
+import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -396,6 +396,30 @@ describe('sortTasksByPriority', () => {
     const sorted = sortTasksByPriority([makeTask('a', 1)]);
     assert.equal(sorted.length, 1);
     assert.equal(sorted[0].id, 'a');
+  });
+});
+
+// ─── getRunSkipReason ─────────────────────────────────────────────────────────
+
+describe('getRunSkipReason', () => {
+  it('allows open tasks for the default all filter', () => {
+    assert.equal(getRunSkipReason('open', 'all', 'pending'), null);
+  });
+
+  it('allows configured pending tasks for the default all filter', () => {
+    assert.equal(getRunSkipReason('Pending Review', 'all', 'pending review'), null);
+  });
+
+  it('skips statuses that are neither open nor pending', () => {
+    assert.equal(getRunSkipReason('failed', 'all', 'pending'), 'status "failed" is not open or pending');
+  });
+
+  it('skips pending tasks for the open filter', () => {
+    assert.equal(getRunSkipReason('pending', 'open', 'pending'), 'filter=open but task is pending');
+  });
+
+  it('skips open tasks for the pending filter', () => {
+    assert.equal(getRunSkipReason('open', 'pending', 'pending'), 'filter=pending but task is not pending');
   });
 });
 
