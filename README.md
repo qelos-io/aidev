@@ -436,7 +436,7 @@ Please use the new auth API endpoint for this.
 
 To add a comment, append a `---` separator followed by a `## your-name` header and your message. aidev parses these entries automatically and uses them as conversation context, just like ClickUp/Jira comments.
 
-The `.aidev/` folder is automatically added to `.gitignore` during `aidev init`.
+Downloaded task attachments are stored in `.aidev/assets/<task-id>/`, and `aidev init` adds `.aidev/assets/` to `.gitignore` automatically.
 
 ---
 
