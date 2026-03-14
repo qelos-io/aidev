@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
@@ -21,16 +24,102 @@ const baseJiraConfig = {
   assigneeTag: '',
 } as unknown as Config;
 
-function mockFetch(body: unknown) {
-  mock.method(globalThis, 'fetch', async () => ({
+function jsonResponse(body: unknown) {
+  return {
     ok: true,
     status: 200,
+    statusText: 'OK',
     text: async () => JSON.stringify(body),
     json: async () => body,
-  }));
+    arrayBuffer: async () => Buffer.from(JSON.stringify(body)),
+  };
+}
+
+function binaryResponse(text: string) {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    text: async () => text,
+    json: async () => ({ text }),
+    arrayBuffer: async () => Buffer.from(text),
+  };
+}
+
+function mockFetch(body: unknown) {
+  mock.method(globalThis, 'fetch', async () => jsonResponse(body));
+}
+
+function withTempCwd(fn: (cwd: string) => Promise<void>): Promise<void> {
+  const previous = process.cwd();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-provider-test-'));
+  process.chdir(tmpDir);
+
+  return fn(tmpDir).finally(() => {
+    process.chdir(previous);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+}
+
+function mockJiraCommentsFetch(comments: unknown, attachments: unknown[] = []) {
+  mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('?fields=attachment')) {
+      return jsonResponse({ fields: { attachment: attachments } });
+    }
+    return jsonResponse({ comments });
+  });
 }
 
 // ─── ClickUpProvider.getComments ─────────────────────────────────────────────
+
+describe('ClickUpProvider.fetchTasks', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('downloads task attachments and appends local asset paths to the description', async () => {
+    await withTempCwd(async (cwd) => {
+      mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/team/team1/task')) {
+          return jsonResponse({
+            tasks: [
+              {
+                id: 'task1',
+                name: 'Task with file',
+                description: 'Handle the attached screenshot.',
+                status: { status: 'open' },
+                priority: { id: '1' },
+                url: 'https://app.clickup.com/t/task1',
+                tags: [{ name: 'aidev' }],
+              },
+            ],
+          });
+        }
+        if (url.endsWith('/task/task1')) {
+          return jsonResponse({
+            attachments: [
+              {
+                id: 'att1',
+                title: 'Screenshot 1.png',
+                url: 'https://files.example/screenshot.png',
+              },
+            ],
+          });
+        }
+        assert.equal(init?.headers instanceof Object ? (init.headers as Record<string, string>).Authorization : undefined, 'test-key');
+        return binaryResponse('image-bytes');
+      });
+
+      const provider = new ClickUpProvider(baseClickUpConfig);
+      const tasks = await provider.fetchTasks();
+
+      assert.equal(tasks.length, 1);
+      assert.match(tasks[0].description, /Local asset files/);
+      assert.match(tasks[0].description, /\.aidev\/assets\/task1\/att1-Screenshot-1\.png/);
+      assert.ok(fs.existsSync(path.join(cwd, '.aidev', 'assets', 'task1', 'att1-Screenshot-1.png')));
+    });
+  });
+});
 
 describe('ClickUpProvider.getComments', () => {
   afterEach(() => mock.restoreAll());
@@ -125,24 +214,20 @@ describe('JiraProvider.getComments', () => {
   }
 
   it('extracts plain text from ADF body', async () => {
-    mockFetch({
-      comments: [
-        { id: '1', body: adfComment('hello world'), author: { displayName: 'Alice', accountId: 'a1' }, created: '2024-01-01T10:00:00.000Z' },
-      ],
-    });
+    mockJiraCommentsFetch([
+      { id: '1', body: adfComment('hello world'), author: { displayName: 'Alice', accountId: 'a1' }, created: '2024-01-01T10:00:00.000Z' },
+    ]);
     const provider = new JiraProvider(baseJiraConfig);
     const comments = await provider.getComments('PROJ-1');
     assert.equal(comments[0].text, 'hello world');
   });
 
   it('sorts out-of-order API response into ascending date order', async () => {
-    mockFetch({
-      comments: [
-        { id: '3', body: adfComment('aidev-continue'), author: { displayName: 'Alice', accountId: 'a1' }, created: '2024-01-01T12:00:00.000Z' },
-        { id: '1', body: adfComment('[aidev] Starting'), author: { displayName: 'bot', accountId: 'b1' }, created: '2024-01-01T10:00:00.000Z' },
-        { id: '2', body: adfComment('User reply'), author: { displayName: 'Alice', accountId: 'a1' }, created: '2024-01-01T11:00:00.000Z' },
-      ],
-    });
+    mockJiraCommentsFetch([
+      { id: '3', body: adfComment('aidev-continue'), author: { displayName: 'Alice', accountId: 'a1' }, created: '2024-01-01T12:00:00.000Z' },
+      { id: '1', body: adfComment('[aidev] Starting'), author: { displayName: 'bot', accountId: 'b1' }, created: '2024-01-01T10:00:00.000Z' },
+      { id: '2', body: adfComment('User reply'), author: { displayName: 'Alice', accountId: 'a1' }, created: '2024-01-01T11:00:00.000Z' },
+    ]);
     const provider = new JiraProvider(baseJiraConfig);
     const comments = await provider.getComments('PROJ-1');
     assert.equal(comments[0].text, '[aidev] Starting');  // oldest first
@@ -150,15 +235,127 @@ describe('JiraProvider.getComments', () => {
   });
 
   it('trigger word is detected when newest comment contains it', async () => {
-    mockFetch({
-      comments: [
-        { id: '1', body: adfComment('[aidev] Clarification needed'), author: { displayName: 'bot', accountId: 'b1' }, created: '2024-01-01T10:00:00.000Z' },
-        { id: '2', body: adfComment('aidev-continue'), author: { displayName: 'Alice', accountId: 'a1' }, created: '2024-01-01T11:00:00.000Z' },
-      ],
-    });
+    mockJiraCommentsFetch([
+      { id: '1', body: adfComment('[aidev] Clarification needed'), author: { displayName: 'bot', accountId: 'b1' }, created: '2024-01-01T10:00:00.000Z' },
+      { id: '2', body: adfComment('aidev-continue'), author: { displayName: 'Alice', accountId: 'a1' }, created: '2024-01-01T11:00:00.000Z' },
+    ]);
     const provider = new JiraProvider(baseJiraConfig);
     const comments = await provider.getComments('PROJ-1');
     const last = comments[comments.length - 1];
     assert.ok(last.text.toLowerCase().includes('aidev-continue'));
+  });
+
+  it('appends local asset paths when a comment links a native Jira attachment', async () => {
+    await withTempCwd(async (cwd) => {
+      mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('?fields=attachment')) {
+          return jsonResponse({
+            fields: {
+              attachment: [
+                {
+                  id: '101',
+                  filename: 'trace.json',
+                  content: 'https://example.atlassian.net/rest/api/3/attachment/content/101',
+                },
+              ],
+            },
+          });
+        }
+        if (url.endsWith('/comment')) {
+          return jsonResponse({
+            comments: [
+              {
+                id: '1',
+                body: {
+                  type: 'doc',
+                  version: 1,
+                  content: [
+                    {
+                      type: 'paragraph',
+                      content: [
+                        { type: 'text', text: 'Please inspect ' },
+                        {
+                          type: 'text',
+                          text: 'the trace',
+                          marks: [
+                            {
+                              type: 'link',
+                              attrs: {
+                                href: 'https://example.atlassian.net/rest/api/3/attachment/content/101',
+                              },
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                author: { displayName: 'Alice', accountId: 'a1' },
+                created: '2024-01-01T10:00:00.000Z',
+              },
+            ],
+          });
+        }
+        return binaryResponse('{"trace":true}');
+      });
+
+      const provider = new JiraProvider(baseJiraConfig);
+      const comments = await provider.getComments('PROJ-1');
+
+      assert.match(comments[0].text, /Local asset files referenced by this comment/);
+      assert.match(comments[0].text, /\.aidev\/assets\/PROJ-1\/101-trace\.json/);
+      assert.ok(fs.existsSync(path.join(cwd, '.aidev', 'assets', 'PROJ-1', '101-trace.json')));
+    });
+  });
+});
+
+describe('JiraProvider.fetchTasks', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('downloads issue attachments and appends local asset paths to the description', async () => {
+    await withTempCwd(async (cwd) => {
+      mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('/search/jql')) {
+          return jsonResponse({
+            issues: [
+              {
+                id: '1001',
+                key: 'PROJ-1',
+                fields: {
+                  summary: 'Handle uploaded trace',
+                  description: {
+                    type: 'doc',
+                    version: 1,
+                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Review the trace file.' }] }],
+                  },
+                  status: { name: 'Open' },
+                  priority: { id: '2' },
+                  labels: ['aidev'],
+                  self: 'https://example.atlassian.net/rest/api/3/issue/1001',
+                  attachment: [
+                    {
+                      id: '101',
+                      filename: 'trace.json',
+                      content: 'https://example.atlassian.net/rest/api/3/attachment/content/101',
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+        }
+        return binaryResponse('{"trace":true}');
+      });
+
+      const provider = new JiraProvider(baseJiraConfig);
+      const tasks = await provider.fetchTasks();
+
+      assert.equal(tasks.length, 1);
+      assert.match(tasks[0].description, /Local asset files/);
+      assert.match(tasks[0].description, /\.aidev\/assets\/PROJ-1\/101-trace\.json/);
+      assert.ok(fs.existsSync(path.join(cwd, '.aidev', 'assets', 'PROJ-1', '101-trace.json')));
+    });
   });
 });

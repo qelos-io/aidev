@@ -7,3 +7,4 @@ aidev.log
 *.aidev.instructions.md
 *.aidev.task.json
 .aidev/
+.aidev/assets/
