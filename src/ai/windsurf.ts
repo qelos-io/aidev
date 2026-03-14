@@ -20,17 +20,39 @@ export class WindsurfRunner implements AIRunner {
     const cwd = process.cwd();
     // Prompt must go via stdin only — positional args are treated as file paths
     // by the windsurf CLI and would create files named with the prompt text.
-    const result = spawnCommand(
-      'windsurf',
-      ['--agent', '--print', '--trust', '--workspace', cwd, '-'],
-      {
+    const baseArgs = ['--agent', '--print', '--trust', '--workspace', cwd, '-'];
+    const attempts: string[][] = [
+      ['--model', 'auto', ...baseArgs],
+      ['--reasoning', 'auto', ...baseArgs],
+      baseArgs,
+    ];
+
+    let result = spawnCommand('windsurf', attempts[0], {
+      encoding: 'utf8',
+      timeout: 10 * 60 * 1000,
+      cwd,
+      env: getUserShellEnv(),
+      input: fullPrompt,
+    });
+
+    for (let i = 1; i < attempts.length; i++) {
+      if (result.status === 0) break;
+      const err = (result.stderr || '').toLowerCase();
+      const unknownFlag =
+        err.includes('unknown option') ||
+        err.includes('unrecognized option') ||
+        err.includes('unknown argument') ||
+        err.includes('unexpected argument') ||
+        err.includes('invalid option');
+      if (!unknownFlag) break;
+      result = spawnCommand('windsurf', attempts[i], {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
         cwd,
         env: getUserShellEnv(),
         input: fullPrompt,
-      }
-    );
+      });
+    }
 
     const success = result.status === 0;
     const output = result.stdout || '';
