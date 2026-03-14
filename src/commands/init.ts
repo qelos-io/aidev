@@ -21,7 +21,7 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.aidev.instructions.md', /^\*\.aidev\.instructions\.md/m],
   ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
   ['aidev.tasks.json',        /^aidev\.tasks\.json/m],
-  ['.aidev/',  /^\.aidev\//m],
+  ['.aidev/assets/',          /^\/?\.aidev\/assets\/?$/m],
 ];
 
 /**
@@ -56,17 +56,57 @@ export function ensureGitignore(dir = process.cwd()): void {
   const existing = fs.existsSync(gitignorePath)
     ? fs.readFileSync(gitignorePath, 'utf8')
     : '';
+  const normalized = normalizeGitignore(existing);
 
   const missing = GITIGNORE_RULES
-    .filter(([, regex]) => !regex.test(existing))
+    .filter(([, regex]) => !regex.test(normalized))
     .map(([pattern]) => pattern);
 
-  if (missing.length === 0) return;
+  if (normalized === existing && missing.length === 0) return;
 
-  const addition = (existing.endsWith('\n') || existing === '' ? '' : '\n')
-    + missing.join('\n') + '\n';
-  fs.appendFileSync(gitignorePath, addition, 'utf8');
-  if (dir === process.cwd()) logger.info(`.gitignore — added: ${missing.join(', ')}`);
+  const addition = missing.length === 0
+    ? ''
+    : (normalized.endsWith('\n') || normalized === '' ? '' : '\n') + missing.join('\n') + '\n';
+  fs.writeFileSync(gitignorePath, normalized + addition, 'utf8');
+
+  if (dir === process.cwd()) {
+    if (missing.length > 0) {
+      logger.info(`.gitignore — added: ${missing.join(', ')}`);
+    } else {
+      logger.info('.gitignore — updated legacy aidev ignore rules');
+    }
+  }
+}
+
+function normalizeGitignore(content: string): string {
+  if (!content) return content;
+
+  const normalizedLines: string[] = [];
+  let hasAssetsRule = false;
+
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed === '.aidev/' || trimmed === '/.aidev/') {
+      if (!hasAssetsRule) {
+        normalizedLines.push('.aidev/assets/');
+        hasAssetsRule = true;
+      }
+      continue;
+    }
+
+    if (trimmed === '.aidev/assets/' || trimmed === '/.aidev/assets/') {
+      if (!hasAssetsRule) {
+        normalizedLines.push('.aidev/assets/');
+        hasAssetsRule = true;
+      }
+      continue;
+    }
+
+    normalizedLines.push(line);
+  }
+
+  const normalized = normalizedLines.join('\n');
+  return content.endsWith('\n') && !normalized.endsWith('\n') ? `${normalized}\n` : normalized;
 }
 
 interface ClickUpMember {

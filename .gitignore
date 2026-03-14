@@ -6,4 +6,4 @@ aidev.log
 *.d.ts
 *.aidev.instructions.md
 *.aidev.task.json
-.aidev/
+.aidev/assets/
