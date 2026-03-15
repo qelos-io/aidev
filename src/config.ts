@@ -130,7 +130,9 @@ export function loadConfig(customEnvPath?: string): Config {
         ? ['JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_PROJECT']
         : provider === 'linear'
           ? ['LINEAR_API_KEY', 'LINEAR_TEAM_ID']
-          : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
+          : provider === 'monday'
+            ? ['MONDAY_API_TOKEN', 'MONDAY_BOARD_ID', 'MONDAY_STATUS_COLUMN_ID']
+            : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
   for (const key of required) {
     if (!process.env[key]) {
       throw new Error(`Missing required config: ${key}. Run 'aidev init' to create .env.aidev`);
@@ -183,6 +185,10 @@ export function loadConfig(customEnvPath?: string): Config {
     linearLabel: process.env.LINEAR_LABEL || folderName,
     linearPendingStatus: process.env.LINEAR_PENDING_STATUS || 'Backlog',
     linearInReviewStatus: process.env.LINEAR_IN_REVIEW_STATUS || 'In Review',
+    mondayApiToken: process.env.MONDAY_API_TOKEN || '',
+    mondayBoardId: process.env.MONDAY_BOARD_ID || '',
+    mondayStatusColumnId: process.env.MONDAY_STATUS_COLUMN_ID || 'status',
+    mondayGroupId: process.env.MONDAY_GROUP_ID || '',
     clickupListId: process.env.CLICKUP_LIST_ID || '',
     assigneeTag: process.env.ASSIGNEE_TAG || '',
     gitRemote: process.env.GIT_REMOTE || detectRemote() || 'origin',

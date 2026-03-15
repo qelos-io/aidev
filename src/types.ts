@@ -68,6 +68,11 @@ export interface Config {
   linearLabel: string;
   linearPendingStatus: string;
   linearInReviewStatus: string;
+  // Monday
+  mondayApiToken: string;
+  mondayBoardId: string;
+  mondayStatusColumnId: string;
+  mondayGroupId: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
