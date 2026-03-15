@@ -50,6 +50,11 @@ const baseAnswers: Answers = {
   jiraLabel: '',
   jiraPendingStatus: '',
   jiraInReviewStatus: '',
+  linearApiKey: '',
+  linearTeamId: '',
+  linearLabel: '',
+  linearPendingStatus: '',
+  linearInReviewStatus: '',
   mondayApiToken: '',
   mondayBoardId: '',
   mondayStatusColumnId: 'status',
@@ -57,6 +62,7 @@ const baseAnswers: Answers = {
   nonCodeTag: '',
   nonCodeClickupTeamId: '',
   nonCodeJiraProject: '',
+  nonCodeLinearTeamId: '',
   assigneeTag: '',
   gitRemote: 'origin',
   githubBaseBranch: 'main',
@@ -235,6 +241,11 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     jiraLabel: p.JIRA_LABEL || folderName,
     jiraPendingStatus: p.JIRA_PENDING_STATUS || 'To Do',
     jiraInReviewStatus: p.JIRA_IN_REVIEW_STATUS || 'In Review',
+    linearApiKey: p.LINEAR_API_KEY || '',
+    linearTeamId: p.LINEAR_TEAM_ID || '',
+    linearLabel: p.LINEAR_LABEL || folderName,
+    linearPendingStatus: p.LINEAR_PENDING_STATUS || 'Backlog',
+    linearInReviewStatus: p.LINEAR_IN_REVIEW_STATUS || 'In Review',
     mondayApiToken: p.MONDAY_API_TOKEN || '',
     mondayBoardId: p.MONDAY_BOARD_ID || '',
     mondayStatusColumnId: p.MONDAY_STATUS_COLUMN_ID || 'status',
@@ -242,6 +253,7 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     nonCodeTag: p.NON_CODE_TAG || '',
     nonCodeClickupTeamId: p.NON_CODE_CLICKUP_TEAM_ID || '',
     nonCodeJiraProject: p.NON_CODE_JIRA_PROJECT || '',
+    nonCodeLinearTeamId: p.NON_CODE_LINEAR_TEAM_ID || '',
     assigneeTag: p.ASSIGNEE_TAG || '',
     gitRemote: p.GIT_REMOTE || 'origin',
     githubBaseBranch: p.GITHUB_BASE_BRANCH || 'main',
@@ -385,6 +397,7 @@ describe('existing env round-trip (edit flow)', () => {
     assert.ok(!('NON_CODE_TAG' in p), 'NON_CODE_TAG should be absent when empty');
     assert.ok(!('NON_CODE_CLICKUP_TEAM_ID' in p), 'NON_CODE_CLICKUP_TEAM_ID should be absent when empty');
     assert.ok(!('NON_CODE_JIRA_PROJECT' in p), 'NON_CODE_JIRA_PROJECT should be absent when empty');
+    assert.ok(!('NON_CODE_LINEAR_TEAM_ID' in p), 'NON_CODE_LINEAR_TEAM_ID should be absent when empty');
   });
 });
 
@@ -445,6 +458,54 @@ describe('renderEnv non-code fields', () => {
     const parsed = dotenv.parse(first);
     assert.equal(parsed.NON_CODE_JIRA_PROJECT, 'DEVOPS');
     const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+
+  it('includes NON_CODE_LINEAR_TEAM_ID when set', () => {
+    const out = renderEnv({ ...baseAnswers, provider: 'linear', nonCodeTag: 'non-code', nonCodeLinearTeamId: 'team-uuid' });
+    assert.ok(out.includes('NON_CODE_LINEAR_TEAM_ID=team-uuid'));
+  });
+});
+
+// ─── renderEnv Linear provider ───────────────────────────────────────────────
+
+describe('renderEnv Linear provider', () => {
+  it('writes PROVIDER=linear and LINEAR_* keys', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      provider: 'linear',
+      linearApiKey: 'lin_api_xxx',
+      linearTeamId: 'team-uuid',
+      linearLabel: 'aidev',
+      linearPendingStatus: 'Backlog',
+      linearInReviewStatus: 'In Review',
+    });
+    assert.ok(out.includes('PROVIDER=linear'));
+    assert.ok(out.includes('LINEAR_API_KEY=lin_api_xxx'));
+    assert.ok(out.includes('LINEAR_TEAM_ID=team-uuid'));
+    assert.ok(out.includes('LINEAR_LABEL=aidev'));
+    assert.ok(out.includes('LINEAR_PENDING_STATUS=Backlog'));
+    assert.ok(out.includes('LINEAR_IN_REVIEW_STATUS'));
+    assert.ok(out.includes('In Review'));
+  });
+
+  it('re-rendering Linear answers with parsed values produces identical output', () => {
+    const linearAnswers: Answers = {
+      ...baseAnswers,
+      provider: 'linear',
+      clickupApiKey: '',
+      clickupTeamId: '',
+      clickupTag: '',
+      clickupPendingStatus: '',
+      clickupInReviewStatus: '',
+      linearApiKey: 'lin_api_xxx',
+      linearTeamId: 'team-uuid',
+      linearLabel: 'myproject',
+      linearPendingStatus: 'Backlog',
+      linearInReviewStatus: 'In Review',
+    };
+    const first = renderEnv(linearAnswers);
+    const second = renderEnv(answersFromParsed(dotenv.parse(first)));
     assert.equal(second, first);
   });
 });

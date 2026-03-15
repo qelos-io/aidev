@@ -62,6 +62,12 @@ export interface Config {
   jiraLabel: string;
   jiraPendingStatus: string;
   jiraInReviewStatus: string;
+  // Linear
+  linearApiKey: string;
+  linearTeamId: string;
+  linearLabel: string;
+  linearPendingStatus: string;
+  linearInReviewStatus: string;
   // Monday
   mondayApiToken: string;
   mondayBoardId: string;
@@ -71,6 +77,7 @@ export interface Config {
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
   nonCodeJiraProject: string;
+  nonCodeLinearTeamId: string;
   // Shared
   clickupListId: string;
   assigneeTag: string;

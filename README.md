@@ -356,6 +356,7 @@ ANSI colour codes are stripped so the file stays readable in any editor or `tail
 |---|---|
 | ClickUp | ✅ Implemented |
 | Jira | ✅ Implemented |
+| Linear | ✅ Implemented |
 | Monday.com | ✅ Implemented |
 | Local | ✅ Implemented |
 | Notion | 🔜 Stub — contributions welcome |

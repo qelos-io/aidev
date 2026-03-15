@@ -116,7 +116,7 @@ interface ClickUpMember {
 }
 
 export interface Answers {
-  provider: 'clickup' | 'jira' | 'local' | 'monday';
+  provider: 'clickup' | 'jira' | 'linear' | 'local' | 'monday';
   // ClickUp
   clickupApiKey: string;
   clickupTeamId: string;
@@ -131,6 +131,12 @@ export interface Answers {
   jiraLabel: string;
   jiraPendingStatus: string;
   jiraInReviewStatus: string;
+  // Linear
+  linearApiKey: string;
+  linearTeamId: string;
+  linearLabel: string;
+  linearPendingStatus: string;
+  linearInReviewStatus: string;
   // Monday
   mondayApiToken: string;
   mondayBoardId: string;
@@ -140,6 +146,7 @@ export interface Answers {
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
   nonCodeJiraProject: string;
+  nonCodeLinearTeamId: string;
   // Shared
   assigneeTag: string;
   gitRemote: string;
@@ -294,24 +301,33 @@ export function renderEnv(a: Answers): string {
             `JIRA_PENDING_STATUS=${envVal(a.jiraPendingStatus)}`,
             `JIRA_IN_REVIEW_STATUS=${envVal(a.jiraInReviewStatus)}`,
           ]
-        : a.provider === 'monday'
+        : a.provider === 'linear'
           ? [
-              `PROVIDER=monday`,
-              line('MONDAY_API_TOKEN', a.mondayApiToken),
-              line('MONDAY_BOARD_ID', a.mondayBoardId),
-              line('MONDAY_STATUS_COLUMN_ID', a.mondayStatusColumnId),
-              line('MONDAY_GROUP_ID', a.mondayGroupId),
-              `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
-              `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+              `PROVIDER=linear`,
+              line('LINEAR_API_KEY', a.linearApiKey),
+              line('LINEAR_TEAM_ID', a.linearTeamId),
+              line('LINEAR_LABEL', a.linearLabel),
+              `LINEAR_PENDING_STATUS=${envVal(a.linearPendingStatus)}`,
+              `LINEAR_IN_REVIEW_STATUS=${envVal(a.linearInReviewStatus)}`,
             ]
-          : [
-            `PROVIDER=clickup`,
-            line('CLICKUP_API_KEY', a.clickupApiKey),
-            line('CLICKUP_TEAM_ID', a.clickupTeamId),
-            line('CLICKUP_TAG', a.clickupTag),
-            `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
-            `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
-          ];
+          : a.provider === 'monday'
+            ? [
+                `PROVIDER=monday`,
+                line('MONDAY_API_TOKEN', a.mondayApiToken),
+                line('MONDAY_BOARD_ID', a.mondayBoardId),
+                line('MONDAY_STATUS_COLUMN_ID', a.mondayStatusColumnId),
+                line('MONDAY_GROUP_ID', a.mondayGroupId),
+                `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
+                `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+              ]
+            : [
+                `PROVIDER=clickup`,
+                line('CLICKUP_API_KEY', a.clickupApiKey),
+                line('CLICKUP_TEAM_ID', a.clickupTeamId),
+                line('CLICKUP_TAG', a.clickupTag),
+                `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
+                `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+              ];
 
   const lines = [
     a.aidevEnvExtend
@@ -342,6 +358,7 @@ export function renderEnv(a: Answers): string {
     line('NON_CODE_TAG', a.nonCodeTag),
     line('NON_CODE_CLICKUP_TEAM_ID', a.nonCodeClickupTeamId),
     line('NON_CODE_JIRA_PROJECT', a.nonCodeJiraProject),
+    line('NON_CODE_LINEAR_TEAM_ID', a.nonCodeLinearTeamId),
     ``,
   ];
   return lines.filter((l) => l !== null).join('\n');
@@ -416,7 +433,7 @@ export async function initCommand(): Promise<void> {
 
     // ── Provider ─────────────────────────────────────────────
     section('Task provider');
-    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira', 'local', 'monday'], existing.PROVIDER || 'clickup') as Answers['provider'];
+    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira', 'linear', 'local', 'monday'], existing.PROVIDER || 'clickup') as Answers['provider'];
 
     // Provider-specific config
     const globalEnvHint = hint('leave blank to use global env var');
@@ -435,6 +452,12 @@ export async function initCommand(): Promise<void> {
     let jiraLabel = '';
     let jiraPendingStatus = 'To Do';
     let jiraInReviewStatus = 'In Review';
+
+    let linearApiKey = '';
+    let linearTeamId = '';
+    let linearLabel = '';
+    let linearPendingStatus = 'Backlog';
+    let linearInReviewStatus = 'In Review';
 
     let mondayApiToken = '';
     let mondayBoardId = '';
@@ -472,8 +495,23 @@ export async function initCommand(): Promise<void> {
       );
       jiraPendingStatus = await ask(rl, 'Pending status name', existing.JIRA_PENDING_STATUS || 'To Do');
       jiraInReviewStatus = await ask(rl, 'In-review status name', existing.JIRA_IN_REVIEW_STATUS || 'In Review');
+    } else if (provider === 'linear') {
+      section('Linear');
+      linearApiKey = await ask(rl, `API key ${globalEnvHint}`, existing.LINEAR_API_KEY || '', true);
+      linearTeamId = await ask(
+        rl,
+        `Team ID ${hint('UUID from Linear workspace settings')}`,
+        existing.LINEAR_TEAM_ID || '',
+        true
+      );
+      linearLabel = await ask(
+        rl,
+        `Label to filter issues ${hint('issues with this label will be picked up')}`,
+        existing.LINEAR_LABEL || folderName
+      );
+      linearPendingStatus = await ask(rl, 'Pending status name', existing.LINEAR_PENDING_STATUS || 'Backlog');
+      linearInReviewStatus = await ask(rl, 'In-review status name', existing.LINEAR_IN_REVIEW_STATUS || 'In Review');
     } else if (provider === 'monday') {
-      // ── Monday ─────────────────────────────────────────────
       section('Monday.com');
       mondayApiToken = await ask(
         rl,
@@ -572,6 +610,7 @@ export async function initCommand(): Promise<void> {
 
     let nonCodeClickupTeamId = '';
     let nonCodeJiraProject = '';
+    let nonCodeLinearTeamId = '';
 
     if (nonCodeTag && provider !== 'local' && provider !== 'monday') {
       if (provider === 'clickup') {
@@ -580,22 +619,28 @@ export async function initCommand(): Promise<void> {
           `Non-code ClickUp team ID ${hint('leave blank to use same team')}`,
           existing.NON_CODE_CLICKUP_TEAM_ID || ''
         );
-      } else {
+      } else if (provider === 'jira') {
         nonCodeJiraProject = await ask(
           rl,
           `Non-code Jira project ${hint('leave blank to use same project')}`,
           existing.NON_CODE_JIRA_PROJECT || ''
+        );
+      } else if (provider === 'linear') {
+        nonCodeLinearTeamId = await ask(
+          rl,
+          `Non-code Linear team ID ${hint('leave blank to use same team')}`,
+          existing.NON_CODE_LINEAR_TEAM_ID || ''
         );
       }
     }
 
     // ── Assignee ─────────────────────────────────────────────
     section('Assignee');
-    const effectiveApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
+    const effectiveClickUpApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
     let assigneeTag: string;
 
-    if (provider === 'clickup' && effectiveApiKey) {
-      assigneeTag = await pickAssignee(rl, effectiveApiKey, existing.ASSIGNEE_TAG || '');
+    if (provider === 'clickup' && effectiveClickUpApiKey) {
+      assigneeTag = await pickAssignee(rl, effectiveClickUpApiKey, existing.ASSIGNEE_TAG || '');
     } else if (provider === 'local') {
       assigneeTag = await ask(
         rl,
@@ -625,6 +670,11 @@ export async function initCommand(): Promise<void> {
       jiraLabel,
       jiraPendingStatus,
       jiraInReviewStatus,
+      linearApiKey,
+      linearTeamId,
+      linearLabel,
+      linearPendingStatus,
+      linearInReviewStatus,
       mondayApiToken,
       mondayBoardId,
       mondayStatusColumnId,
@@ -632,6 +682,7 @@ export async function initCommand(): Promise<void> {
       nonCodeTag,
       nonCodeClickupTeamId,
       nonCodeJiraProject,
+      nonCodeLinearTeamId,
       assigneeTag,
       gitRemote,
       githubBaseBranch,

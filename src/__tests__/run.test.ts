@@ -6,6 +6,7 @@ import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
 
 const baseConfig = {
+  provider: 'clickup',
   githubRepo: 'owner/repo',
   githubBaseBranch: 'main',
   clickupInReviewStatus: 'review',
