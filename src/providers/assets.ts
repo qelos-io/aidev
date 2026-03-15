@@ -49,6 +49,16 @@ export async function downloadAttachments(
     const storedName = buildStoredFileName(attachment, usedNames);
     const destination = path.join(assetDir, storedName);
 
+    if (fs.existsSync(destination)) {
+      downloaded.push({
+        id: attachment.id,
+        name: storedName,
+        path: toRelativeAssetPath(destination),
+        sourceUrl: attachment.url,
+      });
+      continue;
+    }
+
     try {
       const response = await fetch(attachment.url, {
         ...requestInit,

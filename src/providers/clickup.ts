@@ -14,6 +14,8 @@ export class ClickUpProvider implements TaskProvider {
   private tag: string;
   private assigneeTag: string;
   private listId: string;
+  private pendingStatus: string;
+  private openStatus: string;
 
   constructor(config: Config) {
     this.apiKey = config.clickupApiKey;
@@ -21,6 +23,8 @@ export class ClickUpProvider implements TaskProvider {
     this.tag = config.clickupTag;
     this.assigneeTag = config.assigneeTag;
     this.listId = config.clickupListId;
+    this.pendingStatus = config.clickupPendingStatus || 'pending';
+    this.openStatus = config.clickupInReviewStatus || 'open';
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -120,7 +124,14 @@ export class ClickUpProvider implements TaskProvider {
       `/team/${this.teamId}/task?tags[]=${encodeURIComponent(this.tag)}&subtasks=true&include_closed=false`
     );
 
-    return Promise.all(data.tasks.map(async (t) => {
+    const pendingStatus = this.pendingStatus.toLowerCase();
+    const openStatus = this.openStatus.toLowerCase();
+    const eligibleTasks = data.tasks.filter((t) => {
+      const status = t.status.status.toLowerCase();
+      return status === openStatus || status === pendingStatus;
+    });
+
+    return Promise.all(eligibleTasks.map(async (t) => {
       let attachments: DownloadedAttachment[] = [];
       try {
         attachments = await this.fetchTaskAttachments(t.id);
