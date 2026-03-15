@@ -62,10 +62,17 @@ export interface Config {
   jiraLabel: string;
   jiraPendingStatus: string;
   jiraInReviewStatus: string;
+  // Linear
+  linearApiKey: string;
+  linearTeamId: string;
+  linearLabel: string;
+  linearPendingStatus: string;
+  linearInReviewStatus: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
   nonCodeJiraProject: string;
+  nonCodeLinearTeamId: string;
   // Shared
   clickupListId: string;
   assigneeTag: string;

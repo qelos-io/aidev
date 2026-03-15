@@ -19,6 +19,20 @@ const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
 const SLEEPING_MARKER = 'machine appears to be asleep';
 export const DEFAULT_TRIGGER_WORD = 'aidev-continue';
 
+export function getPendingStatus(config: Config): string {
+  const p = (config.provider || 'clickup').toLowerCase();
+  if (p === 'jira') return config.jiraPendingStatus;
+  if (p === 'linear') return config.linearPendingStatus;
+  return config.clickupPendingStatus;
+}
+
+export function getInReviewStatus(config: Config): string {
+  const p = (config.provider || 'clickup').toLowerCase();
+  if (p === 'jira') return config.jiraInReviewStatus;
+  if (p === 'linear') return config.linearInReviewStatus;
+  return config.clickupInReviewStatus;
+}
+
 export type RunFilter = 'all' | 'open' | 'pending';
 
 export interface SubTask {
@@ -171,8 +185,9 @@ async function processTask(
   runners: AIRunner[],
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
-  const isPending = task.status.toLowerCase() === config.clickupPendingStatus.toLowerCase();
-  const skipReason = getRunSkipReason(task.status, filter, config.clickupPendingStatus);
+  const pendingStatus = getPendingStatus(config);
+  const isPending = task.status.toLowerCase() === pendingStatus.toLowerCase();
+  const skipReason = getRunSkipReason(task.status, filter, pendingStatus);
 
   logger.task(`[${task.id}] "${task.name}" (status: ${task.status})`);
 
@@ -220,8 +235,8 @@ async function processTask(
     const clarification = await checkNeedsClarification(task, config, provider, runners);
     if (clarification) {
       await provider.postComment(task.id, `[aidev] ${clarification}`);
-      await provider.updateStatus(task.id, config.clickupPendingStatus);
-      logger.info(`Posted clarification question, set status to ${config.clickupPendingStatus}`);
+      await provider.updateStatus(task.id, getPendingStatus(config));
+      logger.info(`Posted clarification question, set status to ${getPendingStatus(config)}`);
       return 'skipped';
     }
   }
@@ -631,7 +646,7 @@ async function implementTask(
     const prUrl = tryCreatePR(config, branchName, task);
     const comment = buildCompletionComment(branchName, prUrl, config);
     await provider.postComment(task.id, comment);
-    await provider.updateStatus(task.id, config.clickupInReviewStatus);
+    await provider.updateStatus(task.id, getInReviewStatus(config));
   } catch (err) {
     logger.warn(`Branch pushed but failed to update task: ${err instanceof Error ? err.message : err}`);
   }
@@ -965,7 +980,7 @@ async function implementThinkingTask(
     const prUrl = tryCreatePR(config, branchName, task);
     const comment = buildCompletionComment(branchName, prUrl, config);
     await provider.postComment(task.id, comment);
-    await provider.updateStatus(task.id, config.clickupInReviewStatus);
+    await provider.updateStatus(task.id, getInReviewStatus(config));
   } catch (err) {
     logger.warn(`Branch pushed but failed to update task: ${err instanceof Error ? err.message : err}`);
   }
@@ -1008,7 +1023,7 @@ export function buildCompletionComment(branch: string, prUrl: string, config: Co
     lines.push(`Open PR: ${prUrl}`);
   }
 
-  lines.push(``, `Status set to: ${config.clickupInReviewStatus}`);
+  lines.push(``, `Status set to: ${getInReviewStatus(config)}`);
   return lines.join('\n');
 }
 
@@ -1033,7 +1048,7 @@ export function buildNonCodeCompletionComment(config: Config, agentResponse?: st
     lines.push(``, `---`, ``, agentResponse);
   }
 
-  lines.push(``, `Status set to: ${config.clickupInReviewStatus}`);
+  lines.push(``, `Status set to: ${getInReviewStatus(config)}`);
   return lines.join('\n');
 }
 
@@ -1049,8 +1064,9 @@ async function processNonCodeTask(
   runners: AIRunner[],
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
-  const isPending = task.status.toLowerCase() === config.clickupPendingStatus.toLowerCase();
-  const skipReason = getRunSkipReason(task.status, filter, config.clickupPendingStatus);
+  const pendingStatus = getPendingStatus(config);
+  const isPending = task.status.toLowerCase() === pendingStatus.toLowerCase();
+  const skipReason = getRunSkipReason(task.status, filter, pendingStatus);
 
   logger.task(`[${task.id}] "${task.name}" [non-code] (status: ${task.status})`);
 
@@ -1097,8 +1113,8 @@ async function processNonCodeTask(
     const clarification = await checkNeedsClarification(task, config, provider, runners);
     if (clarification) {
       await provider.postComment(task.id, `[aidev] ${clarification}`);
-      await provider.updateStatus(task.id, config.clickupPendingStatus);
-      logger.info(`Posted clarification question, set status to ${config.clickupPendingStatus}`);
+      await provider.updateStatus(task.id, getPendingStatus(config));
+      logger.info(`Posted clarification question, set status to ${getPendingStatus(config)}`);
       return 'skipped';
     }
   }
@@ -1170,7 +1186,7 @@ async function implementNonCodeTask(
   try {
     const comment = buildNonCodeCompletionComment(config, agentOutput);
     await provider.postComment(task.id, comment);
-    await provider.updateStatus(task.id, config.clickupInReviewStatus);
+    await provider.updateStatus(task.id, getInReviewStatus(config));
   } catch (err) {
     logger.warn(`Failed to update task: ${err instanceof Error ? err.message : err}`);
   }

@@ -2,6 +2,7 @@ import { Config } from '../types';
 import { TaskProvider } from './base';
 import { ClickUpProvider } from './clickup';
 import { JiraProvider } from './jira';
+import { LinearProvider } from './linear';
 import { LocalProvider, TaskMode } from './local';
 
 export function createProvider(config: Config, mode?: TaskMode): TaskProvider {
@@ -10,6 +11,8 @@ export function createProvider(config: Config, mode?: TaskMode): TaskProvider {
       return new ClickUpProvider(config);
     case 'jira':
       return new JiraProvider(config);
+    case 'linear':
+      return new LinearProvider(config);
     case 'local':
       return new LocalProvider(process.cwd(), mode || 'code');
     case 'notion':

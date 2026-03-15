@@ -59,6 +59,8 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
         clickupTeamId: config.nonCodeClickupTeamId || config.clickupTeamId,
         jiraLabel: config.nonCodeTag,
         jiraProject: config.nonCodeJiraProject || config.jiraProject,
+        linearLabel: config.nonCodeTag,
+        linearTeamId: config.nonCodeLinearTeamId || config.linearTeamId,
       };
       nonCodeProvider = createProvider(nonCodeConfig, 'non-code');
     }

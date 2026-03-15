@@ -7,6 +7,7 @@ import { mock } from 'node:test';
 import type { Config } from '../types';
 import { ClickUpProvider } from '../providers/clickup';
 import { JiraProvider } from '../providers/jira';
+import { LinearProvider } from '../providers/linear';
 
 const baseClickUpConfig = {
   clickupApiKey: 'test-key',
@@ -21,6 +22,15 @@ const baseJiraConfig = {
   jiraApiToken: 'token',
   jiraProject: 'PROJ',
   jiraLabel: 'aidev',
+  assigneeTag: '',
+} as unknown as Config;
+
+const baseLinearConfig = {
+  linearApiKey: 'lin_api_test',
+  linearTeamId: 'team-uuid-123',
+  linearLabel: 'aidev',
+  linearPendingStatus: 'Backlog',
+  linearInReviewStatus: 'In Review',
   assigneeTag: '',
 } as unknown as Config;
 
@@ -357,5 +367,91 @@ describe('JiraProvider.fetchTasks', () => {
       assert.match(tasks[0].description, /\.aidev\/assets\/PROJ-1\/101-trace\.json/);
       assert.ok(fs.existsSync(path.join(cwd, '.aidev', 'assets', 'PROJ-1', '101-trace.json')));
     });
+  });
+});
+
+// ─── LinearProvider ─────────────────────────────────────────────────────────
+
+describe('LinearProvider.fetchTasks', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns issues with identifier as id and state name as status', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('workflowStates')) {
+        return jsonResponse({
+          data: { workflowStates: { nodes: [{ id: 's1', name: 'Backlog', type: 'unstarted' }, { id: 's2', name: 'In Review', type: 'started' }] } },
+        });
+      }
+      if (body.query?.includes('issues')) {
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-1',
+                  identifier: 'ENG-42',
+                  title: 'Fix login',
+                  description: 'Fix the login flow.',
+                  url: 'https://linear.app/org/issue/ENG-42',
+                  state: { id: 's1', name: 'Backlog', type: 'unstarted' },
+                  priority: 2,
+                  labels: { nodes: [{ name: 'aidev' }] },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].id, 'ENG-42');
+    assert.equal(tasks[0].name, 'Fix login');
+    assert.equal(tasks[0].description, 'Fix the login flow.');
+    assert.equal(tasks[0].status, 'Backlog');
+    assert.equal(tasks[0].url, 'https://linear.app/org/issue/ENG-42');
+    assert.deepEqual(tasks[0].tags, ['aidev']);
+    assert.equal(tasks[0].priority, 2);
+  });
+});
+
+describe('LinearProvider.getComments', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns comments sorted ascending by date', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('issues') && body.variables?.filter?.identifier) {
+        return jsonResponse({ data: { issues: { nodes: [{ id: 'issue-uuid-1' }] } } });
+      }
+      if (body.query?.includes('issue(id:')) {
+        return jsonResponse({
+          data: {
+            issue: {
+              comments: {
+                nodes: [
+                  { id: 'c1', body: '[aidev] Starting', user: { name: 'Bot', id: 'u1' }, createdAt: '2024-01-01T10:00:00.000Z' },
+                  { id: 'c2', body: 'aidev-continue', user: { name: 'Alice', id: 'u2' }, createdAt: '2024-01-01T11:00:00.000Z' },
+                ],
+              },
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const comments = await provider.getComments('ENG-42');
+
+    assert.equal(comments.length, 2);
+    assert.equal(comments[0].text, '[aidev] Starting');
+    assert.equal(comments[1].text, 'aidev-continue');
+    assert.equal(comments[1].author, 'Alice');
   });
 });
