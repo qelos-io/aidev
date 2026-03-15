@@ -62,6 +62,11 @@ export interface Config {
   jiraLabel: string;
   jiraPendingStatus: string;
   jiraInReviewStatus: string;
+  // Monday
+  mondayApiToken: string;
+  mondayBoardId: string;
+  mondayStatusColumnId: string;
+  mondayGroupId: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;

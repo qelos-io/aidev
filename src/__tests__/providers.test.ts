@@ -7,6 +7,7 @@ import { mock } from 'node:test';
 import type { Config } from '../types';
 import { ClickUpProvider } from '../providers/clickup';
 import { JiraProvider } from '../providers/jira';
+import { MondayProvider } from '../providers/monday';
 
 const baseClickUpConfig = {
   clickupApiKey: 'test-key',
@@ -22,6 +23,15 @@ const baseJiraConfig = {
   jiraProject: 'PROJ',
   jiraLabel: 'aidev',
   assigneeTag: '',
+} as unknown as Config;
+
+const baseMondayConfig = {
+  mondayApiToken: 'test-token',
+  mondayBoardId: '12345',
+  mondayStatusColumnId: 'status',
+  mondayGroupId: 'topics',
+  clickupPendingStatus: 'Working on it',
+  clickupInReviewStatus: 'Done',
 } as unknown as Config;
 
 function jsonResponse(body: unknown) {
@@ -357,5 +367,99 @@ describe('JiraProvider.fetchTasks', () => {
       assert.match(tasks[0].description, /\.aidev\/assets\/PROJ-1\/101-trace\.json/);
       assert.ok(fs.existsSync(path.join(cwd, '.aidev', 'assets', 'PROJ-1', '101-trace.json')));
     });
+  });
+});
+
+// ─── MondayProvider ───────────────────────────────────────────────────────────
+
+describe('MondayProvider.fetchTasks', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns items whose status matches pending or in-review', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      const query = body.query as string;
+      if (query.includes('boards') && query.includes('items_page')) {
+        return jsonResponse({
+          data: {
+            boards: [
+              {
+                items_page: {
+                  cursor: null,
+                  items: [
+                    {
+                      id: '1001',
+                      name: 'Task one',
+                      url: 'https://example.monday.com/boards/12345/pulses/1001',
+                      description: { description: 'Do something' },
+                      column_values: [
+                        { id: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+                      ],
+                    },
+                    {
+                      id: '1002',
+                      name: 'Task two',
+                      url: 'https://example.monday.com/boards/12345/pulses/1002',
+                      description: { description: '' },
+                      column_values: [
+                        { id: 'status', value: '{"label":"Done"}', text: 'Done' },
+                      ],
+                    },
+                    {
+                      id: '1003',
+                      name: 'Task three',
+                      url: '',
+                      description: {},
+                      column_values: [
+                        { id: 'status', value: '{}', text: 'Stuck' },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 2);
+    assert.equal(tasks[0].id, '1001');
+    assert.equal(tasks[0].name, 'Task one');
+    assert.equal(tasks[0].status, 'Working on it');
+    assert.equal(tasks[1].id, '1002');
+    assert.equal(tasks[1].status, 'Done');
+  });
+});
+
+describe('MondayProvider.getComments', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns updates sorted ascending by date', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse({
+        data: {
+          items: [
+            {
+              updates: [
+                { id: 'u2', text_body: 'Newest', body: '<p>Newest</p>', created_at: '2024-01-02T12:00:00Z', creator: { id: 'u1', name: 'Alice' } },
+                { id: 'u1', text_body: 'Oldest', body: '<p>Oldest</p>', created_at: '2024-01-01T10:00:00Z', creator: { id: 'u1', name: 'Alice' } },
+              ],
+            },
+          ],
+        },
+      })
+    );
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const comments = await provider.getComments('1001');
+
+    assert.equal(comments.length, 2);
+    assert.equal(comments[0].text, 'Oldest');
+    assert.equal(comments[1].text, 'Newest');
   });
 });
