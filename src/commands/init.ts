@@ -116,7 +116,7 @@ interface ClickUpMember {
 }
 
 export interface Answers {
-  provider: 'clickup' | 'jira' | 'local';
+  provider: 'clickup' | 'jira' | 'local' | 'monday';
   // ClickUp
   clickupApiKey: string;
   clickupTeamId: string;
@@ -131,6 +131,11 @@ export interface Answers {
   jiraLabel: string;
   jiraPendingStatus: string;
   jiraInReviewStatus: string;
+  // Monday
+  mondayApiToken: string;
+  mondayBoardId: string;
+  mondayStatusColumnId: string;
+  mondayGroupId: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
@@ -289,7 +294,17 @@ export function renderEnv(a: Answers): string {
             `JIRA_PENDING_STATUS=${envVal(a.jiraPendingStatus)}`,
             `JIRA_IN_REVIEW_STATUS=${envVal(a.jiraInReviewStatus)}`,
           ]
-        : [
+        : a.provider === 'monday'
+          ? [
+              `PROVIDER=monday`,
+              line('MONDAY_API_TOKEN', a.mondayApiToken),
+              line('MONDAY_BOARD_ID', a.mondayBoardId),
+              line('MONDAY_STATUS_COLUMN_ID', a.mondayStatusColumnId),
+              line('MONDAY_GROUP_ID', a.mondayGroupId),
+              `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
+              `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+            ]
+          : [
             `PROVIDER=clickup`,
             line('CLICKUP_API_KEY', a.clickupApiKey),
             line('CLICKUP_TEAM_ID', a.clickupTeamId),
@@ -401,7 +416,7 @@ export async function initCommand(): Promise<void> {
 
     // ── Provider ─────────────────────────────────────────────
     section('Task provider');
-    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira', 'local'], existing.PROVIDER || 'clickup') as 'clickup' | 'jira' | 'local';
+    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira', 'local', 'monday'], existing.PROVIDER || 'clickup') as Answers['provider'];
 
     // Provider-specific config
     const globalEnvHint = hint('leave blank to use global env var');
@@ -420,6 +435,11 @@ export async function initCommand(): Promise<void> {
     let jiraLabel = '';
     let jiraPendingStatus = 'To Do';
     let jiraInReviewStatus = 'In Review';
+
+    let mondayApiToken = '';
+    let mondayBoardId = '';
+    let mondayStatusColumnId = 'status';
+    let mondayGroupId = '';
 
     if (provider === 'local') {
       // ── Local ──────────────────────────────────────────────
@@ -452,6 +472,34 @@ export async function initCommand(): Promise<void> {
       );
       jiraPendingStatus = await ask(rl, 'Pending status name', existing.JIRA_PENDING_STATUS || 'To Do');
       jiraInReviewStatus = await ask(rl, 'In-review status name', existing.JIRA_IN_REVIEW_STATUS || 'In Review');
+    } else if (provider === 'monday') {
+      // ── Monday ─────────────────────────────────────────────
+      section('Monday.com');
+      mondayApiToken = await ask(
+        rl,
+        `API token ${globalEnvHint}`,
+        existing.MONDAY_API_TOKEN || '',
+        true
+      );
+      mondayBoardId = await ask(
+        rl,
+        `Board ID ${hint('numeric board ID')}`,
+        existing.MONDAY_BOARD_ID || '',
+        true
+      );
+      mondayStatusColumnId = await ask(
+        rl,
+        `Status column ID ${hint('e.g. status — find in board columns')}`,
+        existing.MONDAY_STATUS_COLUMN_ID || 'status',
+        true
+      );
+      mondayGroupId = await ask(
+        rl,
+        `Group ID ${hint('for create_task, e.g. topics — leave blank for default')}`,
+        existing.MONDAY_GROUP_ID || ''
+      );
+      clickupPendingStatus = await ask(rl, 'Pending status label', existing.CLICKUP_PENDING_STATUS || 'Working on it');
+      clickupInReviewStatus = await ask(rl, 'In-review status label', existing.CLICKUP_IN_REVIEW_STATUS || 'Done');
     } else {
       // ── ClickUp ──────────────────────────────────────────────
       section('ClickUp');
@@ -525,7 +573,7 @@ export async function initCommand(): Promise<void> {
     let nonCodeClickupTeamId = '';
     let nonCodeJiraProject = '';
 
-    if (nonCodeTag && provider !== 'local') {
+    if (nonCodeTag && provider !== 'local' && provider !== 'monday') {
       if (provider === 'clickup') {
         nonCodeClickupTeamId = await ask(
           rl,
@@ -577,6 +625,10 @@ export async function initCommand(): Promise<void> {
       jiraLabel,
       jiraPendingStatus,
       jiraInReviewStatus,
+      mondayApiToken,
+      mondayBoardId,
+      mondayStatusColumnId,
+      mondayGroupId,
       nonCodeTag,
       nonCodeClickupTeamId,
       nonCodeJiraProject,

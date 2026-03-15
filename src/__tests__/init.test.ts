@@ -50,6 +50,10 @@ const baseAnswers: Answers = {
   jiraLabel: '',
   jiraPendingStatus: '',
   jiraInReviewStatus: '',
+  mondayApiToken: '',
+  mondayBoardId: '',
+  mondayStatusColumnId: 'status',
+  mondayGroupId: '',
   nonCodeTag: '',
   nonCodeClickupTeamId: '',
   nonCodeJiraProject: '',
@@ -133,9 +137,36 @@ describe('renderEnv local provider', () => {
     assert.ok(!out.includes('CLICKUP_API_KEY'));
     assert.ok(!out.includes('JIRA_BASE_URL'));
   });
+});
+
+describe('renderEnv monday provider', () => {
+  it('writes PROVIDER=monday and Monday keys', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      provider: 'monday',
+      mondayApiToken: 'tok',
+      mondayBoardId: '123',
+      mondayStatusColumnId: 'status',
+      mondayGroupId: 'grp',
+      clickupPendingStatus: 'Working on it',
+      clickupInReviewStatus: 'Done',
+    });
+    assert.ok(out.includes('PROVIDER=monday'));
+    assert.ok(out.includes('MONDAY_API_TOKEN=tok'));
+    assert.ok(out.includes('MONDAY_BOARD_ID=123'));
+    assert.ok(out.includes('CLICKUP_PENDING_STATUS='));
+    assert.ok(out.includes('CLICKUP_IN_REVIEW_STATUS='));
+  });
 
   it('still includes shared config (AGENTS, GIT_REMOTE, etc.)', () => {
-    const out = renderEnv({ ...baseAnswers, provider: 'local' });
+    const out = renderEnv({
+      ...baseAnswers,
+      provider: 'monday',
+      mondayApiToken: 'x',
+      mondayBoardId: '1',
+      mondayStatusColumnId: 'status',
+      mondayGroupId: '',
+    });
     assert.ok(out.includes('AGENTS=claude,cursor'));
     assert.ok(out.includes('GIT_REMOTE=origin'));
     assert.ok(out.includes('GITHUB_BASE_BRANCH=main'));
@@ -190,7 +221,7 @@ describe('getWindowsCursorInitMessage', () => {
 /** Reconstruct an Answers object from a dotenv-parsed record (same logic as initCommand). */
 function answersFromParsed(p: Record<string, string>, folderName = 'myproject'): Answers {
   return {
-    provider: (p.PROVIDER || 'clickup') as 'clickup' | 'jira',
+    provider: (p.PROVIDER || 'clickup') as Answers['provider'],
     aidevEnvExtend: p.AIDEV_ENV_EXTEND || '',
     clickupApiKey: p.CLICKUP_API_KEY || '',
     clickupTeamId: p.CLICKUP_TEAM_ID || '',
@@ -204,6 +235,10 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     jiraLabel: p.JIRA_LABEL || folderName,
     jiraPendingStatus: p.JIRA_PENDING_STATUS || 'To Do',
     jiraInReviewStatus: p.JIRA_IN_REVIEW_STATUS || 'In Review',
+    mondayApiToken: p.MONDAY_API_TOKEN || '',
+    mondayBoardId: p.MONDAY_BOARD_ID || '',
+    mondayStatusColumnId: p.MONDAY_STATUS_COLUMN_ID || 'status',
+    mondayGroupId: p.MONDAY_GROUP_ID || '',
     nonCodeTag: p.NON_CODE_TAG || '',
     nonCodeClickupTeamId: p.NON_CODE_CLICKUP_TEAM_ID || '',
     nonCodeJiraProject: p.NON_CODE_JIRA_PROJECT || '',
@@ -260,6 +295,25 @@ describe('existing env round-trip (edit flow)', () => {
       jiraInReviewStatus: 'In Review',
     };
     const first = renderEnv(jiraAnswers);
+    const second = renderEnv(answersFromParsed(dotenv.parse(first)));
+    assert.equal(second, first);
+  });
+
+  it('re-rendering Monday answers with parsed values produces identical output', () => {
+    const mondayAnswers: Answers = {
+      ...baseAnswers,
+      provider: 'monday',
+      clickupApiKey: '',
+      clickupTeamId: '',
+      clickupTag: '',
+      mondayApiToken: 'token123',
+      mondayBoardId: '123456',
+      mondayStatusColumnId: 'status',
+      mondayGroupId: 'topics',
+      clickupPendingStatus: 'Working on it',
+      clickupInReviewStatus: 'Done',
+    };
+    const first = renderEnv(mondayAnswers);
     const second = renderEnv(answersFromParsed(dotenv.parse(first)));
     assert.equal(second, first);
   });
