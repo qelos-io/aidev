@@ -157,14 +157,27 @@ export function loadConfig(customEnvPath?: string): Config {
   const triggerWord = process.env.AIDEV_TRIGGER_WORD || 'aidev-continue';
   const thinkingTag = process.env.THINKING_TAG || '';
   const nonCodeTag = process.env.NON_CODE_TAG || `${folderName}-other`;
+  const draftPr = (process.env.DRAFT_PR || 'false').toLowerCase() === 'true';
+
+  const jiraPendingStatus = process.env.JIRA_PENDING_STATUS || 'To Do';
+  const jiraInReviewStatus = process.env.JIRA_IN_REVIEW_STATUS || 'In Review';
+  const clickupPendingStatus = process.env.CLICKUP_PENDING_STATUS || 'pending';
+  const clickupInReviewStatus = process.env.CLICKUP_IN_REVIEW_STATUS || 'review';
+
+  const pendingStatus = provider === 'jira' ? jiraPendingStatus : clickupPendingStatus;
+  const inReviewStatus = provider === 'jira' ? jiraInReviewStatus : clickupInReviewStatus;
+  const inProgressStatus = provider === 'jira' ? 'In Progress' : 'in progress';
 
   return {
     provider,
     clickupApiKey: process.env.CLICKUP_API_KEY || '',
     clickupTeamId: process.env.CLICKUP_TEAM_ID || '',
     clickupTag: process.env.CLICKUP_TAG || folderName,
-    clickupPendingStatus: process.env.CLICKUP_PENDING_STATUS || 'pending',
-    clickupInReviewStatus: process.env.CLICKUP_IN_REVIEW_STATUS || 'review',
+    clickupPendingStatus,
+    clickupInReviewStatus,
+    pendingStatus,
+    inReviewStatus,
+    inProgressStatus,
     nonCodeTag,
     nonCodeClickupTeamId: process.env.NON_CODE_CLICKUP_TEAM_ID || '',
     nonCodeJiraProject: process.env.NON_CODE_JIRA_PROJECT || '',
@@ -173,8 +186,8 @@ export function loadConfig(customEnvPath?: string): Config {
     jiraApiToken: process.env.JIRA_API_TOKEN || '',
     jiraProject: process.env.JIRA_PROJECT || '',
     jiraLabel: process.env.JIRA_LABEL || folderName,
-    jiraPendingStatus: process.env.JIRA_PENDING_STATUS || 'To Do',
-    jiraInReviewStatus: process.env.JIRA_IN_REVIEW_STATUS || 'In Review',
+    jiraPendingStatus,
+    jiraInReviewStatus,
     clickupListId: process.env.CLICKUP_LIST_ID || '',
     assigneeTag: process.env.ASSIGNEE_TAG || '',
     gitRemote: process.env.GIT_REMOTE || detectRemote() || 'origin',
@@ -184,5 +197,6 @@ export function loadConfig(customEnvPath?: string): Config {
     devNotesMode,
     triggerWord,
     thinkingTag,
+    draftPr,
   };
 }

@@ -65,6 +65,10 @@ export interface Config {
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
   nonCodeJiraProject: string;
+  // Provider-agnostic resolved statuses
+  pendingStatus: string;
+  inReviewStatus: string;
+  inProgressStatus: string;
   // Shared
   clickupListId: string;
   assigneeTag: string;
@@ -75,4 +79,5 @@ export interface Config {
   devNotesMode: 'smart' | 'always';
   triggerWord: string;
   thinkingTag: string;
+  draftPr: boolean;
 }

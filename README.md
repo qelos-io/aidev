@@ -197,18 +197,45 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 | Agent | Requires |
 |---|---|
 | `claude` | [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated |
-| `cursor` | Cursor **Agent CLI** (`agent`) in PATH — see [Windows](#windows-cursor-agent-cli) below |
+| `cursor` | Cursor **Agent CLI** (`agent`) in PATH and authenticated — see [setup](#cursor-agent-cli-setup) below |
 | `windsurf` | [Windsurf](https://windsurf.com) installed with CLI available in PATH |
 
-### Windows: Cursor Agent CLI
+### Cursor Agent CLI setup
 
-On Windows, the Cursor IDE (`cursor.exe`) is separate from the headless Agent CLI. The runner uses the `agent` binary. Install it in PowerShell:
+**macOS / Linux**
+
+The `agent` binary is bundled with Cursor IDE. Install the shell command from inside Cursor:
+
+1. Open the Command Palette (`Cmd+Shift+P`)
+2. Run **Shell Command: Install 'cursor' command in PATH**
+
+Or add Cursor's bin directory to your `~/.zshrc` / `~/.bashrc` manually:
+
+```bash
+export PATH="$PATH:/Applications/Cursor.app/Contents/Resources/app/bin"
+```
+
+**Windows**
+
+The Cursor IDE (`cursor.exe`) is separate from the headless Agent CLI. Install it in PowerShell:
 
 ```powershell
 irm 'https://cursor.com/install?win32=true' | iex
 ```
 
-Then ensure `agent` is on your PATH and run `agent --version` to confirm. Without this, the Cursor runner will report as unavailable.
+**Authentication (required)**
+
+After installing, you must authenticate before `aidev` can use the Cursor runner. Choose one of:
+
+```bash
+# Option 1: interactive login (opens browser)
+agent login
+
+# Option 2: set API key from https://cursor.com/settings
+export CURSOR_API_KEY=your_key_here
+```
+
+Run `agent --version` to confirm the binary is on your PATH. If authentication is missing, aidev will log a clear warning and skip the Cursor runner automatically.
 
 **Configure agent order in `.env.aidev`:**
 

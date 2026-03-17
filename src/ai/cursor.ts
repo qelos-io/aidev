@@ -12,7 +12,25 @@ export class CursorRunner implements AIRunner {
   readonly name = 'cursor';
 
   isAvailable(): boolean {
-    return commandExists('agent');
+    if (!commandExists('agent')) return false;
+
+    if (!process.env.CURSOR_API_KEY) {
+      const result = spawnCommand('agent', ['--version'], {
+        encoding: 'utf8',
+        timeout: 3000,
+        env: getUserShellEnv(),
+      });
+
+      if (result.stderr?.includes('Authentication required') || result.status !== 0) {
+        logger.warn(
+          'Cursor Agent CLI found but not authenticated. ' +
+          'Run `agent login` or set the CURSOR_API_KEY environment variable.'
+        );
+        return false;
+      }
+    }
+
+    return true;
   }
 
   async run(prompt: string, notes?: string): Promise<AIRunResult> {

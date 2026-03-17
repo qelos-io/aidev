@@ -140,7 +140,7 @@ async function processTask(
   runners: AIRunner[],
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
-  const isPending = task.status.toLowerCase() === config.clickupPendingStatus.toLowerCase();
+  const isPending = task.status.toLowerCase() === config.pendingStatus.toLowerCase();
 
   logger.task(`[${task.id}] "${task.name}" (status: ${task.status})`);
 
@@ -197,8 +197,8 @@ async function processTask(
     const clarification = await checkNeedsClarification(task, config, provider, runners);
     if (clarification) {
       await provider.postComment(task.id, `[aidev] ${clarification}`);
-      await provider.updateStatus(task.id, config.clickupPendingStatus);
-      logger.info(`Posted clarification question, set status to ${config.clickupPendingStatus}`);
+      await provider.updateStatus(task.id, config.pendingStatus);
+      logger.info(`Posted clarification question, set status to ${config.pendingStatus}`);
       return 'skipped';
     }
   }
@@ -495,9 +495,10 @@ async function implementTask(
   runners: AIRunner[]
 ): Promise<void> {
   logger.info(`Implementing task: ${task.name}`);
+  git.checkSensitiveFilesIgnored();
 
   try {
-    await provider.updateStatus(task.id, 'in progress');
+    await provider.updateStatus(task.id, config.inProgressStatus);
     const verb = branchExists ? 'Continuing' : 'Starting';
     await provider.postComment(task.id, `[aidev] ${verb} implementation on branch \`${branchName}\``);
   } catch (err) {
@@ -613,7 +614,7 @@ async function implementTask(
     const prUrl = tryCreatePR(config, branchName, task);
     const comment = buildCompletionComment(branchName, prUrl, config);
     await provider.postComment(task.id, comment);
-    await provider.updateStatus(task.id, config.clickupInReviewStatus);
+    await provider.updateStatus(task.id, config.inReviewStatus);
   } catch (err) {
     logger.warn(`Branch pushed but failed to update task: ${err instanceof Error ? err.message : err}`);
   }
@@ -785,9 +786,10 @@ async function implementThinkingTask(
   runners: AIRunner[]
 ): Promise<void> {
   logger.info(`Implementing thinking task: ${task.name}`);
+  git.checkSensitiveFilesIgnored();
 
   try {
-    await provider.updateStatus(task.id, 'in progress');
+    await provider.updateStatus(task.id, config.inProgressStatus);
     const verb = branchExists ? 'Continuing' : 'Starting';
     await provider.postComment(
       task.id,
@@ -952,7 +954,7 @@ async function implementThinkingTask(
     const prUrl = tryCreatePR(config, branchName, task);
     const comment = buildCompletionComment(branchName, prUrl, config);
     await provider.postComment(task.id, comment);
-    await provider.updateStatus(task.id, config.clickupInReviewStatus);
+    await provider.updateStatus(task.id, config.inReviewStatus);
   } catch (err) {
     logger.warn(`Branch pushed but failed to update task: ${err instanceof Error ? err.message : err}`);
   }
@@ -971,6 +973,7 @@ export function tryCreatePR(config: Config, branch: string, task: Task): string 
       branch,
       task.name,
       `Implements: ${task.url}\n\nAutomated PR by aidev.`,
+      config.draftPr,
     );
     if (result.success) return result.url;
     logger.warn('Falling back to compare URL');
@@ -995,7 +998,7 @@ export function buildCompletionComment(branch: string, prUrl: string, config: Co
     lines.push(`Open PR: ${prUrl}`);
   }
 
-  lines.push(``, `Status set to: ${config.clickupInReviewStatus}`);
+  lines.push(``, `Status set to: ${config.inReviewStatus}`);
   return lines.join('\n');
 }
 
@@ -1020,7 +1023,7 @@ export function buildNonCodeCompletionComment(config: Config, agentResponse?: st
     lines.push(``, `---`, ``, agentResponse);
   }
 
-  lines.push(``, `Status set to: ${config.clickupInReviewStatus}`);
+  lines.push(``, `Status set to: ${config.inReviewStatus}`);
   return lines.join('\n');
 }
 
@@ -1036,7 +1039,7 @@ async function processNonCodeTask(
   runners: AIRunner[],
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
-  const isPending = task.status.toLowerCase() === config.clickupPendingStatus.toLowerCase();
+  const isPending = task.status.toLowerCase() === config.pendingStatus.toLowerCase();
 
   logger.task(`[${task.id}] "${task.name}" [non-code] (status: ${task.status})`);
 
@@ -1092,8 +1095,8 @@ async function processNonCodeTask(
     const clarification = await checkNeedsClarification(task, config, provider, runners);
     if (clarification) {
       await provider.postComment(task.id, `[aidev] ${clarification}`);
-      await provider.updateStatus(task.id, config.clickupPendingStatus);
-      logger.info(`Posted clarification question, set status to ${config.clickupPendingStatus}`);
+      await provider.updateStatus(task.id, config.pendingStatus);
+      logger.info(`Posted clarification question, set status to ${config.pendingStatus}`);
       return 'skipped';
     }
   }
@@ -1111,7 +1114,7 @@ async function implementNonCodeTask(
   logger.info(`Implementing non-code task: ${task.name}`);
 
   try {
-    await provider.updateStatus(task.id, 'in progress');
+    await provider.updateStatus(task.id, config.inProgressStatus);
     await provider.postComment(task.id, `[aidev] Starting non-code task execution`);
   } catch (err) {
     logger.warn(`Could not update task status: ${err}`);
@@ -1165,7 +1168,7 @@ async function implementNonCodeTask(
   try {
     const comment = buildNonCodeCompletionComment(config, agentOutput);
     await provider.postComment(task.id, comment);
-    await provider.updateStatus(task.id, config.clickupInReviewStatus);
+    await provider.updateStatus(task.id, config.inReviewStatus);
   } catch (err) {
     logger.warn(`Failed to update task: ${err instanceof Error ? err.message : err}`);
   }

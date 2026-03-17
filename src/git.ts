@@ -1,5 +1,30 @@
 import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { logger } from './logger';
+
+const AIDEV_GITIGNORE_PATTERNS = ['.env.aidev', 'aidev.log'];
+
+export function checkSensitiveFilesIgnored(): void {
+  const gitignorePath = path.join(process.cwd(), '.gitignore');
+  const gitignore = fs.existsSync(gitignorePath)
+    ? fs.readFileSync(gitignorePath, 'utf8')
+    : '';
+
+  const lines = gitignore.split('\n').map((l) => l.trim());
+  const missing = AIDEV_GITIGNORE_PATTERNS.filter(
+    (pattern) => !lines.some((l) => l === pattern || l === `/${pattern}`)
+  );
+
+  if (missing.length > 0) {
+    logger.warn(
+      `⚠️  aidev files are NOT in .gitignore: ${missing.join(', ')}. Adding them now to prevent accidental commits.`
+    );
+    const toAdd = '\n# aidev\n' + missing.join('\n') + '\n';
+    fs.appendFileSync(gitignorePath, toAdd, 'utf8');
+    logger.info(`.gitignore updated — added: ${missing.join(', ')}`);
+  }
+}
 
 function git(args: string[], cwd?: string): { stdout: string; stderr: string; status: number } {
   const result = spawnSync('git', args, {
@@ -122,6 +147,15 @@ export function createBranch(branch: string, expectedBase?: string): boolean {
   logger.debug(`git checkout -b ${branch}`);
   const result = git(['checkout', '-b', branch]);
   if (result.status !== 0) {
+    if (result.stderr.includes('already exists')) {
+      logger.debug(`Branch "${branch}" already exists locally — checking it out`);
+      const checkout = git(['checkout', branch]);
+      if (checkout.status !== 0) {
+        logger.error(`git checkout ${branch} failed: ${checkout.stderr}`);
+        return false;
+      }
+      return true;
+    }
     logger.error(`git checkout -b ${branch} failed: ${result.stderr}`);
     return false;
   }

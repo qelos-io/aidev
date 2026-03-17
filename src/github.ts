@@ -57,16 +57,19 @@ export function createPullRequest(
   baseBranch: string,
   headBranch: string,
   title: string,
-  body: string
+  body: string,
+  draft = false
 ): PullRequestResult {
-  logger.debug(`Creating PR: ${headBranch} → ${baseBranch}`);
-  const result = gh([
+  logger.debug(`Creating ${draft ? 'draft ' : ''}PR: ${headBranch} → ${baseBranch}`);
+  const args = [
     'pr', 'create',
     '--base', baseBranch,
     '--head', headBranch,
     '--title', title,
     '--body', body,
-  ]);
+  ];
+  if (draft) args.push('--draft');
+  const result = gh(args);
 
   if (result.status !== 0) {
     logger.warn(`gh pr create failed: ${result.stderr.trim()}`);
