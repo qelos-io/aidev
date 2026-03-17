@@ -5,6 +5,7 @@ export interface Task {
   status: string;
   url: string;
   tags: string[];
+  priority?: number;
 }
 
 export interface LocalTask {
@@ -61,10 +62,22 @@ export interface Config {
   jiraLabel: string;
   jiraPendingStatus: string;
   jiraInReviewStatus: string;
+  // Linear
+  linearApiKey: string;
+  linearTeamId: string;
+  linearLabel: string;
+  linearPendingStatus: string;
+  linearInReviewStatus: string;
+  // Monday
+  mondayApiToken: string;
+  mondayBoardId: string;
+  mondayStatusColumnId: string;
+  mondayGroupId: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
   nonCodeJiraProject: string;
+  nonCodeLinearTeamId: string;
   // Provider-agnostic resolved statuses
   pendingStatus: string;
   inReviewStatus: string;

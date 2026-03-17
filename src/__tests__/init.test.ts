@@ -50,9 +50,19 @@ const baseAnswers: Answers = {
   jiraLabel: '',
   jiraPendingStatus: '',
   jiraInReviewStatus: '',
+  linearApiKey: '',
+  linearTeamId: '',
+  linearLabel: '',
+  linearPendingStatus: '',
+  linearInReviewStatus: '',
+  mondayApiToken: '',
+  mondayBoardId: '',
+  mondayStatusColumnId: 'status',
+  mondayGroupId: '',
   nonCodeTag: '',
   nonCodeClickupTeamId: '',
   nonCodeJiraProject: '',
+  nonCodeLinearTeamId: '',
   assigneeTag: '',
   gitRemote: 'origin',
   githubBaseBranch: 'main',
@@ -133,9 +143,36 @@ describe('renderEnv local provider', () => {
     assert.ok(!out.includes('CLICKUP_API_KEY'));
     assert.ok(!out.includes('JIRA_BASE_URL'));
   });
+});
+
+describe('renderEnv monday provider', () => {
+  it('writes PROVIDER=monday and Monday keys', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      provider: 'monday',
+      mondayApiToken: 'tok',
+      mondayBoardId: '123',
+      mondayStatusColumnId: 'status',
+      mondayGroupId: 'grp',
+      clickupPendingStatus: 'Working on it',
+      clickupInReviewStatus: 'Done',
+    });
+    assert.ok(out.includes('PROVIDER=monday'));
+    assert.ok(out.includes('MONDAY_API_TOKEN=tok'));
+    assert.ok(out.includes('MONDAY_BOARD_ID=123'));
+    assert.ok(out.includes('CLICKUP_PENDING_STATUS='));
+    assert.ok(out.includes('CLICKUP_IN_REVIEW_STATUS='));
+  });
 
   it('still includes shared config (AGENTS, GIT_REMOTE, etc.)', () => {
-    const out = renderEnv({ ...baseAnswers, provider: 'local' });
+    const out = renderEnv({
+      ...baseAnswers,
+      provider: 'monday',
+      mondayApiToken: 'x',
+      mondayBoardId: '1',
+      mondayStatusColumnId: 'status',
+      mondayGroupId: '',
+    });
     assert.ok(out.includes('AGENTS=claude,cursor'));
     assert.ok(out.includes('GIT_REMOTE=origin'));
     assert.ok(out.includes('GITHUB_BASE_BRANCH=main'));
@@ -190,7 +227,7 @@ describe('getWindowsCursorInitMessage', () => {
 /** Reconstruct an Answers object from a dotenv-parsed record (same logic as initCommand). */
 function answersFromParsed(p: Record<string, string>, folderName = 'myproject'): Answers {
   return {
-    provider: (p.PROVIDER || 'clickup') as 'clickup' | 'jira',
+    provider: (p.PROVIDER || 'clickup') as Answers['provider'],
     aidevEnvExtend: p.AIDEV_ENV_EXTEND || '',
     clickupApiKey: p.CLICKUP_API_KEY || '',
     clickupTeamId: p.CLICKUP_TEAM_ID || '',
@@ -204,9 +241,19 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     jiraLabel: p.JIRA_LABEL || folderName,
     jiraPendingStatus: p.JIRA_PENDING_STATUS || 'To Do',
     jiraInReviewStatus: p.JIRA_IN_REVIEW_STATUS || 'In Review',
+    linearApiKey: p.LINEAR_API_KEY || '',
+    linearTeamId: p.LINEAR_TEAM_ID || '',
+    linearLabel: p.LINEAR_LABEL || folderName,
+    linearPendingStatus: p.LINEAR_PENDING_STATUS || 'Backlog',
+    linearInReviewStatus: p.LINEAR_IN_REVIEW_STATUS || 'In Review',
+    mondayApiToken: p.MONDAY_API_TOKEN || '',
+    mondayBoardId: p.MONDAY_BOARD_ID || '',
+    mondayStatusColumnId: p.MONDAY_STATUS_COLUMN_ID || 'status',
+    mondayGroupId: p.MONDAY_GROUP_ID || '',
     nonCodeTag: p.NON_CODE_TAG || '',
     nonCodeClickupTeamId: p.NON_CODE_CLICKUP_TEAM_ID || '',
     nonCodeJiraProject: p.NON_CODE_JIRA_PROJECT || '',
+    nonCodeLinearTeamId: p.NON_CODE_LINEAR_TEAM_ID || '',
     assigneeTag: p.ASSIGNEE_TAG || '',
     gitRemote: p.GIT_REMOTE || 'origin',
     githubBaseBranch: p.GITHUB_BASE_BRANCH || 'main',
@@ -260,6 +307,25 @@ describe('existing env round-trip (edit flow)', () => {
       jiraInReviewStatus: 'In Review',
     };
     const first = renderEnv(jiraAnswers);
+    const second = renderEnv(answersFromParsed(dotenv.parse(first)));
+    assert.equal(second, first);
+  });
+
+  it('re-rendering Monday answers with parsed values produces identical output', () => {
+    const mondayAnswers: Answers = {
+      ...baseAnswers,
+      provider: 'monday',
+      clickupApiKey: '',
+      clickupTeamId: '',
+      clickupTag: '',
+      mondayApiToken: 'token123',
+      mondayBoardId: '123456',
+      mondayStatusColumnId: 'status',
+      mondayGroupId: 'topics',
+      clickupPendingStatus: 'Working on it',
+      clickupInReviewStatus: 'Done',
+    };
+    const first = renderEnv(mondayAnswers);
     const second = renderEnv(answersFromParsed(dotenv.parse(first)));
     assert.equal(second, first);
   });
@@ -331,6 +397,7 @@ describe('existing env round-trip (edit flow)', () => {
     assert.ok(!('NON_CODE_TAG' in p), 'NON_CODE_TAG should be absent when empty');
     assert.ok(!('NON_CODE_CLICKUP_TEAM_ID' in p), 'NON_CODE_CLICKUP_TEAM_ID should be absent when empty');
     assert.ok(!('NON_CODE_JIRA_PROJECT' in p), 'NON_CODE_JIRA_PROJECT should be absent when empty');
+    assert.ok(!('NON_CODE_LINEAR_TEAM_ID' in p), 'NON_CODE_LINEAR_TEAM_ID should be absent when empty');
   });
 });
 
@@ -393,6 +460,54 @@ describe('renderEnv non-code fields', () => {
     const second = renderEnv(answersFromParsed(parsed));
     assert.equal(second, first);
   });
+
+  it('includes NON_CODE_LINEAR_TEAM_ID when set', () => {
+    const out = renderEnv({ ...baseAnswers, provider: 'linear', nonCodeTag: 'non-code', nonCodeLinearTeamId: 'team-uuid' });
+    assert.ok(out.includes('NON_CODE_LINEAR_TEAM_ID=team-uuid'));
+  });
+});
+
+// ─── renderEnv Linear provider ───────────────────────────────────────────────
+
+describe('renderEnv Linear provider', () => {
+  it('writes PROVIDER=linear and LINEAR_* keys', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      provider: 'linear',
+      linearApiKey: 'lin_api_xxx',
+      linearTeamId: 'team-uuid',
+      linearLabel: 'aidev',
+      linearPendingStatus: 'Backlog',
+      linearInReviewStatus: 'In Review',
+    });
+    assert.ok(out.includes('PROVIDER=linear'));
+    assert.ok(out.includes('LINEAR_API_KEY=lin_api_xxx'));
+    assert.ok(out.includes('LINEAR_TEAM_ID=team-uuid'));
+    assert.ok(out.includes('LINEAR_LABEL=aidev'));
+    assert.ok(out.includes('LINEAR_PENDING_STATUS=Backlog'));
+    assert.ok(out.includes('LINEAR_IN_REVIEW_STATUS'));
+    assert.ok(out.includes('In Review'));
+  });
+
+  it('re-rendering Linear answers with parsed values produces identical output', () => {
+    const linearAnswers: Answers = {
+      ...baseAnswers,
+      provider: 'linear',
+      clickupApiKey: '',
+      clickupTeamId: '',
+      clickupTag: '',
+      clickupPendingStatus: '',
+      clickupInReviewStatus: '',
+      linearApiKey: 'lin_api_xxx',
+      linearTeamId: 'team-uuid',
+      linearLabel: 'myproject',
+      linearPendingStatus: 'Backlog',
+      linearInReviewStatus: 'In Review',
+    };
+    const first = renderEnv(linearAnswers);
+    const second = renderEnv(answersFromParsed(dotenv.parse(first)));
+    assert.equal(second, first);
+  });
 });
 
 // ─── ensureGitignore ─────────────────────────────────────────────────────────
@@ -413,6 +528,8 @@ describe('ensureGitignore', () => {
       const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
       assert.ok(content.includes('.env.*'));
       assert.ok(content.includes('*.log'));
+      assert.ok(content.includes('.aidev/assets/'));
+      assert.ok(!content.includes('.aidev/\n'));
     });
   });
 
@@ -424,6 +541,7 @@ describe('ensureGitignore', () => {
       assert.ok(content.includes('node_modules/'));
       assert.ok(content.includes('.env.*'));
       assert.ok(content.includes('*.log'));
+      assert.ok(content.includes('.aidev/assets/'));
     });
   });
 
@@ -443,6 +561,16 @@ describe('ensureGitignore', () => {
       ensureGitignore(dir);
       const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
       assert.ok(content.includes('\n.env.*'));
+    });
+  });
+
+  it('replaces the legacy .aidev ignore rule with .aidev/assets/', () => {
+    withTmpDir((dir) => {
+      fs.writeFileSync(path.join(dir, '.gitignore'), '.aidev/\n');
+      ensureGitignore(dir);
+      const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+      assert.ok(content.includes('.aidev/assets/'));
+      assert.ok(!content.includes('.aidev/\n'));
     });
   });
 });

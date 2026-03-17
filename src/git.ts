@@ -162,6 +162,32 @@ export function createBranch(branch: string, expectedBase?: string): boolean {
   return true;
 }
 
+/**
+ * Creates a new branch based on the latest remote base branch.
+ * Stashes any local changes, fetches the remote, then branches directly
+ * from the remote tracking ref (e.g. origin/main) — avoiding the need
+ * to checkout or sync the local base branch.
+ */
+export function createBranchFromRemote(remote: string, baseBranch: string, branch: string): boolean {
+  stashChanges();
+
+  logger.debug(`git fetch ${remote}`);
+  const fetchResult = git(['fetch', remote]);
+  if (fetchResult.status !== 0) {
+    logger.error(`git fetch failed: ${fetchResult.stderr}`);
+    return false;
+  }
+
+  const startPoint = `${remote}/${baseBranch}`;
+  logger.debug(`git checkout -b ${branch} ${startPoint}`);
+  const result = git(['checkout', '-b', branch, startPoint]);
+  if (result.status !== 0) {
+    logger.error(`git checkout -b ${branch} ${startPoint} failed: ${result.stderr}`);
+    return false;
+  }
+  return true;
+}
+
 export function hasChanges(): boolean {
   const result = git(['status', '--porcelain']);
   return result.status === 0 && result.stdout.trim().length > 0;

@@ -21,7 +21,7 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.aidev.instructions.md', /^\*\.aidev\.instructions\.md/m],
   ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
   ['aidev.tasks.json',        /^aidev\.tasks\.json/m],
-  ['.aidev/',  /^\.aidev\//m],
+  ['.aidev/assets/',          /^\/?\.aidev\/assets\/?$/m],
 ];
 
 /**
@@ -56,17 +56,57 @@ export function ensureGitignore(dir = process.cwd()): void {
   const existing = fs.existsSync(gitignorePath)
     ? fs.readFileSync(gitignorePath, 'utf8')
     : '';
+  const normalized = normalizeGitignore(existing);
 
   const missing = GITIGNORE_RULES
-    .filter(([, regex]) => !regex.test(existing))
+    .filter(([, regex]) => !regex.test(normalized))
     .map(([pattern]) => pattern);
 
-  if (missing.length === 0) return;
+  if (normalized === existing && missing.length === 0) return;
 
-  const addition = (existing.endsWith('\n') || existing === '' ? '' : '\n')
-    + missing.join('\n') + '\n';
-  fs.appendFileSync(gitignorePath, addition, 'utf8');
-  if (dir === process.cwd()) logger.info(`.gitignore — added: ${missing.join(', ')}`);
+  const addition = missing.length === 0
+    ? ''
+    : (normalized.endsWith('\n') || normalized === '' ? '' : '\n') + missing.join('\n') + '\n';
+  fs.writeFileSync(gitignorePath, normalized + addition, 'utf8');
+
+  if (dir === process.cwd()) {
+    if (missing.length > 0) {
+      logger.info(`.gitignore — added: ${missing.join(', ')}`);
+    } else {
+      logger.info('.gitignore — updated legacy aidev ignore rules');
+    }
+  }
+}
+
+function normalizeGitignore(content: string): string {
+  if (!content) return content;
+
+  const normalizedLines: string[] = [];
+  let hasAssetsRule = false;
+
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed === '.aidev/' || trimmed === '/.aidev/') {
+      if (!hasAssetsRule) {
+        normalizedLines.push('.aidev/assets/');
+        hasAssetsRule = true;
+      }
+      continue;
+    }
+
+    if (trimmed === '.aidev/assets/' || trimmed === '/.aidev/assets/') {
+      if (!hasAssetsRule) {
+        normalizedLines.push('.aidev/assets/');
+        hasAssetsRule = true;
+      }
+      continue;
+    }
+
+    normalizedLines.push(line);
+  }
+
+  const normalized = normalizedLines.join('\n');
+  return content.endsWith('\n') && !normalized.endsWith('\n') ? `${normalized}\n` : normalized;
 }
 
 interface ClickUpMember {
@@ -76,7 +116,7 @@ interface ClickUpMember {
 }
 
 export interface Answers {
-  provider: 'clickup' | 'jira' | 'local';
+  provider: 'clickup' | 'jira' | 'linear' | 'local' | 'monday';
   // ClickUp
   clickupApiKey: string;
   clickupTeamId: string;
@@ -91,10 +131,22 @@ export interface Answers {
   jiraLabel: string;
   jiraPendingStatus: string;
   jiraInReviewStatus: string;
+  // Linear
+  linearApiKey: string;
+  linearTeamId: string;
+  linearLabel: string;
+  linearPendingStatus: string;
+  linearInReviewStatus: string;
+  // Monday
+  mondayApiToken: string;
+  mondayBoardId: string;
+  mondayStatusColumnId: string;
+  mondayGroupId: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
   nonCodeJiraProject: string;
+  nonCodeLinearTeamId: string;
   // Shared
   assigneeTag: string;
   gitRemote: string;
@@ -249,14 +301,33 @@ export function renderEnv(a: Answers): string {
             `JIRA_PENDING_STATUS=${envVal(a.jiraPendingStatus)}`,
             `JIRA_IN_REVIEW_STATUS=${envVal(a.jiraInReviewStatus)}`,
           ]
-        : [
-            `PROVIDER=clickup`,
-            line('CLICKUP_API_KEY', a.clickupApiKey),
-            line('CLICKUP_TEAM_ID', a.clickupTeamId),
-            line('CLICKUP_TAG', a.clickupTag),
-            `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
-            `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
-          ];
+        : a.provider === 'linear'
+          ? [
+              `PROVIDER=linear`,
+              line('LINEAR_API_KEY', a.linearApiKey),
+              line('LINEAR_TEAM_ID', a.linearTeamId),
+              line('LINEAR_LABEL', a.linearLabel),
+              `LINEAR_PENDING_STATUS=${envVal(a.linearPendingStatus)}`,
+              `LINEAR_IN_REVIEW_STATUS=${envVal(a.linearInReviewStatus)}`,
+            ]
+          : a.provider === 'monday'
+            ? [
+                `PROVIDER=monday`,
+                line('MONDAY_API_TOKEN', a.mondayApiToken),
+                line('MONDAY_BOARD_ID', a.mondayBoardId),
+                line('MONDAY_STATUS_COLUMN_ID', a.mondayStatusColumnId),
+                line('MONDAY_GROUP_ID', a.mondayGroupId),
+                `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
+                `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+              ]
+            : [
+                `PROVIDER=clickup`,
+                line('CLICKUP_API_KEY', a.clickupApiKey),
+                line('CLICKUP_TEAM_ID', a.clickupTeamId),
+                line('CLICKUP_TAG', a.clickupTag),
+                `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
+                `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+              ];
 
   const lines = [
     a.aidevEnvExtend
@@ -287,6 +358,7 @@ export function renderEnv(a: Answers): string {
     line('NON_CODE_TAG', a.nonCodeTag),
     line('NON_CODE_CLICKUP_TEAM_ID', a.nonCodeClickupTeamId),
     line('NON_CODE_JIRA_PROJECT', a.nonCodeJiraProject),
+    line('NON_CODE_LINEAR_TEAM_ID', a.nonCodeLinearTeamId),
     ``,
   ];
   return lines.filter((l) => l !== null).join('\n');
@@ -361,7 +433,7 @@ export async function initCommand(): Promise<void> {
 
     // ── Provider ─────────────────────────────────────────────
     section('Task provider');
-    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira', 'local'], existing.PROVIDER || 'clickup') as 'clickup' | 'jira' | 'local';
+    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira', 'linear', 'local', 'monday'], existing.PROVIDER || 'clickup') as Answers['provider'];
 
     // Provider-specific config
     const globalEnvHint = hint('leave blank to use global env var');
@@ -380,6 +452,17 @@ export async function initCommand(): Promise<void> {
     let jiraLabel = '';
     let jiraPendingStatus = 'To Do';
     let jiraInReviewStatus = 'In Review';
+
+    let linearApiKey = '';
+    let linearTeamId = '';
+    let linearLabel = '';
+    let linearPendingStatus = 'Backlog';
+    let linearInReviewStatus = 'In Review';
+
+    let mondayApiToken = '';
+    let mondayBoardId = '';
+    let mondayStatusColumnId = 'status';
+    let mondayGroupId = '';
 
     if (provider === 'local') {
       // ── Local ──────────────────────────────────────────────
@@ -412,6 +495,49 @@ export async function initCommand(): Promise<void> {
       );
       jiraPendingStatus = await ask(rl, 'Pending status name', existing.JIRA_PENDING_STATUS || 'To Do');
       jiraInReviewStatus = await ask(rl, 'In-review status name', existing.JIRA_IN_REVIEW_STATUS || 'In Review');
+    } else if (provider === 'linear') {
+      section('Linear');
+      linearApiKey = await ask(rl, `API key ${globalEnvHint}`, existing.LINEAR_API_KEY || '', true);
+      linearTeamId = await ask(
+        rl,
+        `Team ID ${hint('UUID from Linear workspace settings')}`,
+        existing.LINEAR_TEAM_ID || '',
+        true
+      );
+      linearLabel = await ask(
+        rl,
+        `Label to filter issues ${hint('issues with this label will be picked up')}`,
+        existing.LINEAR_LABEL || folderName
+      );
+      linearPendingStatus = await ask(rl, 'Pending status name', existing.LINEAR_PENDING_STATUS || 'Backlog');
+      linearInReviewStatus = await ask(rl, 'In-review status name', existing.LINEAR_IN_REVIEW_STATUS || 'In Review');
+    } else if (provider === 'monday') {
+      section('Monday.com');
+      mondayApiToken = await ask(
+        rl,
+        `API token ${globalEnvHint}`,
+        existing.MONDAY_API_TOKEN || '',
+        true
+      );
+      mondayBoardId = await ask(
+        rl,
+        `Board ID ${hint('numeric board ID')}`,
+        existing.MONDAY_BOARD_ID || '',
+        true
+      );
+      mondayStatusColumnId = await ask(
+        rl,
+        `Status column ID ${hint('e.g. status — find in board columns')}`,
+        existing.MONDAY_STATUS_COLUMN_ID || 'status',
+        true
+      );
+      mondayGroupId = await ask(
+        rl,
+        `Group ID ${hint('for create_task, e.g. topics — leave blank for default')}`,
+        existing.MONDAY_GROUP_ID || ''
+      );
+      clickupPendingStatus = await ask(rl, 'Pending status label', existing.CLICKUP_PENDING_STATUS || 'Working on it');
+      clickupInReviewStatus = await ask(rl, 'In-review status label', existing.CLICKUP_IN_REVIEW_STATUS || 'Done');
     } else {
       // ── ClickUp ──────────────────────────────────────────────
       section('ClickUp');
@@ -484,30 +610,37 @@ export async function initCommand(): Promise<void> {
 
     let nonCodeClickupTeamId = '';
     let nonCodeJiraProject = '';
+    let nonCodeLinearTeamId = '';
 
-    if (nonCodeTag && provider !== 'local') {
+    if (nonCodeTag && provider !== 'local' && provider !== 'monday') {
       if (provider === 'clickup') {
         nonCodeClickupTeamId = await ask(
           rl,
           `Non-code ClickUp team ID ${hint('leave blank to use same team')}`,
           existing.NON_CODE_CLICKUP_TEAM_ID || ''
         );
-      } else {
+      } else if (provider === 'jira') {
         nonCodeJiraProject = await ask(
           rl,
           `Non-code Jira project ${hint('leave blank to use same project')}`,
           existing.NON_CODE_JIRA_PROJECT || ''
+        );
+      } else if (provider === 'linear') {
+        nonCodeLinearTeamId = await ask(
+          rl,
+          `Non-code Linear team ID ${hint('leave blank to use same team')}`,
+          existing.NON_CODE_LINEAR_TEAM_ID || ''
         );
       }
     }
 
     // ── Assignee ─────────────────────────────────────────────
     section('Assignee');
-    const effectiveApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
+    const effectiveClickUpApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
     let assigneeTag: string;
 
-    if (provider === 'clickup' && effectiveApiKey) {
-      assigneeTag = await pickAssignee(rl, effectiveApiKey, existing.ASSIGNEE_TAG || '');
+    if (provider === 'clickup' && effectiveClickUpApiKey) {
+      assigneeTag = await pickAssignee(rl, effectiveClickUpApiKey, existing.ASSIGNEE_TAG || '');
     } else if (provider === 'local') {
       assigneeTag = await ask(
         rl,
@@ -537,9 +670,19 @@ export async function initCommand(): Promise<void> {
       jiraLabel,
       jiraPendingStatus,
       jiraInReviewStatus,
+      linearApiKey,
+      linearTeamId,
+      linearLabel,
+      linearPendingStatus,
+      linearInReviewStatus,
+      mondayApiToken,
+      mondayBoardId,
+      mondayStatusColumnId,
+      mondayGroupId,
       nonCodeTag,
       nonCodeClickupTeamId,
       nonCodeJiraProject,
+      nonCodeLinearTeamId,
       assigneeTag,
       gitRemote,
       githubBaseBranch,

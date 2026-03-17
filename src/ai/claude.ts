@@ -15,12 +15,37 @@ export class ClaudeRunner implements AIRunner {
     logger.info('Running Claude CLI...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-    const result = spawnCommand('claude', ['-p', fullPrompt, '--dangerously-skip-permissions'], {
+    const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions'];
+    const attempts: string[][] = [
+      [...baseArgs, '--model', 'auto'],
+      [...baseArgs, '--reasoning', 'auto'],
+      baseArgs,
+    ];
+
+    let result = spawnCommand('claude', attempts[0], {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       cwd: process.cwd(),
       env: getUserShellEnv(),
     });
+
+    for (let i = 1; i < attempts.length; i++) {
+      if (result.status === 0) break;
+      const err = (result.stderr || '').toLowerCase();
+      const unknownFlag =
+        err.includes('unknown option') ||
+        err.includes('unrecognized option') ||
+        err.includes('unknown argument') ||
+        err.includes('unexpected argument') ||
+        err.includes('invalid option');
+      if (!unknownFlag) break;
+      result = spawnCommand('claude', attempts[i], {
+        encoding: 'utf8',
+        timeout: 10 * 60 * 1000,
+        cwd: process.cwd(),
+        env: getUserShellEnv(),
+      });
+    }
 
     const success = result.status === 0;
     const output = result.stdout || '';

@@ -40,17 +40,39 @@ export class CursorRunner implements AIRunner {
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
     const cwd = process.cwd();
-    const result = spawnCommand(
-      'agent',
-      ['--print', '--force', '--trust', '--workspace', cwd],
-      {
+    const baseArgs = ['--print', '--force', '--trust', '--workspace', cwd];
+    const attempts: string[][] = [
+      [...baseArgs, '--model', 'auto'],
+      [...baseArgs, '--reasoning', 'auto'],
+      baseArgs,
+    ];
+
+    let result = spawnCommand('agent', attempts[0], {
+      encoding: 'utf8',
+      timeout: 10 * 60 * 1000,
+      cwd,
+      env: getUserShellEnv(),
+      input: fullPrompt,
+    });
+
+    for (let i = 1; i < attempts.length; i++) {
+      if (result.status === 0) break;
+      const err = (result.stderr || '').toLowerCase();
+      const unknownFlag =
+        err.includes('unknown option') ||
+        err.includes('unrecognized option') ||
+        err.includes('unknown argument') ||
+        err.includes('unexpected argument') ||
+        err.includes('invalid option');
+      if (!unknownFlag) break;
+      result = spawnCommand('agent', attempts[i], {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
         cwd,
         env: getUserShellEnv(),
         input: fullPrompt,
-      }
-    );
+      });
+    }
 
     const success = result.status === 0;
     const output = result.stdout || '';

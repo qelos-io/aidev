@@ -15,8 +15,23 @@ import { collectAndLogDiagnostics } from '../diagnostics';
 import { acquireLock, releaseLock, readLock } from '../lockfile';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
+const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
 const SLEEPING_MARKER = 'machine appears to be asleep';
 export const DEFAULT_TRIGGER_WORD = 'aidev-continue';
+
+export function getPendingStatus(config: Config): string {
+  const p = (config.provider || 'clickup').toLowerCase();
+  if (p === 'jira') return config.jiraPendingStatus;
+  if (p === 'linear') return config.linearPendingStatus;
+  return config.clickupPendingStatus;
+}
+
+export function getInReviewStatus(config: Config): string {
+  const p = (config.provider || 'clickup').toLowerCase();
+  if (p === 'jira') return config.jiraInReviewStatus;
+  if (p === 'linear') return config.linearInReviewStatus;
+  return config.clickupInReviewStatus;
+}
 
 export type RunFilter = 'all' | 'open' | 'pending';
 
@@ -33,10 +48,40 @@ export interface ThinkingTaskPlan {
   subtasks: SubTask[];
 }
 
+export function getRunSkipReason(status: string, filter: RunFilter, pendingStatus: string): string | null {
+  const normalizedStatus = status.toLowerCase();
+  const normalizedPendingStatus = pendingStatus.toLowerCase();
+  const isPending = normalizedStatus === normalizedPendingStatus;
+
+  if (SKIP_STATUSES.has(normalizedStatus)) {
+    return `terminal status: ${status}`;
+  }
+
+  if (normalizedStatus !== 'open' && !isPending) {
+    return `status "${status}" is not open or pending`;
+  }
+
+  if (filter === 'open' && isPending) {
+    return 'filter=open but task is pending';
+  }
+
+  if (filter === 'pending' && !isPending) {
+    return 'filter=pending but task is not pending';
+  }
+
+  return null;
+}
+
 function isThinkingTask(task: Task, config: Config): boolean {
   if (!config.thinkingTag) return false;
   const tag = config.thinkingTag.toLowerCase();
   return task.tags.some((t) => t.toLowerCase() === tag);
+}
+
+export function sortTasksByPriority(tasks: Task[]): Task[] {
+  return [...tasks].sort(
+    (a, b) => (a.priority ?? NO_PRIORITY) - (b.priority ?? NO_PRIORITY)
+  );
 }
 
 function taskPlanPath(taskId: string): string {
@@ -102,7 +147,7 @@ export async function runCommand(
     }
 
     logger.info(`Fetching tasks (filter: ${filter})...`);
-    const tasks = await provider.fetchTasks();
+    const tasks = sortTasksByPriority(await provider.fetchTasks());
     logger.info(`Found ${tasks.length} tagged task(s)`);
 
     let processed = 0;
@@ -116,7 +161,7 @@ export async function runCommand(
 
     if (nonCodeProvider) {
       logger.info(`Fetching non-code tasks (filter: ${filter})...`);
-      const nonCodeTasks = await nonCodeProvider.fetchTasks();
+      const nonCodeTasks = sortTasksByPriority(await nonCodeProvider.fetchTasks());
       logger.info(`Found ${nonCodeTasks.length} non-code task(s)`);
 
       for (const task of nonCodeTasks) {
@@ -140,26 +185,19 @@ async function processTask(
   runners: AIRunner[],
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
-  const isPending = task.status.toLowerCase() === config.pendingStatus.toLowerCase();
+  const pendingStatus = config.pendingStatus;
+  const isPending = task.status.toLowerCase() === pendingStatus.toLowerCase();
+  const skipReason = getRunSkipReason(task.status, filter, pendingStatus);
 
   logger.task(`[${task.id}] "${task.name}" (status: ${task.status})`);
 
-  if (SKIP_STATUSES.has(task.status.toLowerCase())) {
-    logger.info(`[${task.id}] "${task.name}" skipped — terminal status: ${task.status}`);
+  if (skipReason) {
+    logger.info(`[${task.id}] "${task.name}" skipped — ${skipReason}`);
     return 'skipped';
   }
 
   const branchName = `${task.id}/${git.slugify(task.name)}`;
   const branchExists = git.remoteBranchExists(config.gitRemote, branchName);
-
-  if (filter === 'open' && isPending) {
-    logger.info(`[${task.id}] "${task.name}" skipped — filter=open but task is pending`);
-    return 'skipped';
-  }
-  if (filter === 'pending' && !isPending) {
-    logger.info(`[${task.id}] "${task.name}" skipped — filter=pending but task is not pending`);
-    return 'skipped';
-  }
 
   if (isPending || branchExists) {
     const comments = await provider.getComments(task.id);
@@ -513,14 +551,9 @@ async function implementTask(
     }
     logger.info(`Continuing on existing branch: ${branchName}`);
   } else {
-    if (!git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch)) {
-      logger.error('Failed to prepare base branch');
+    if (!git.createBranchFromRemote(config.gitRemote, config.githubBaseBranch, branchName)) {
+      logger.error(`Failed to create branch ${branchName} from ${config.gitRemote}/${config.githubBaseBranch}`);
       await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
-      return;
-    }
-
-    if (!git.createBranch(branchName, config.githubBaseBranch)) {
-      logger.error(`Failed to create branch ${branchName}`);
       return;
     }
   }
@@ -807,14 +840,9 @@ async function implementThinkingTask(
     }
     logger.info(`Continuing on existing branch: ${branchName}`);
   } else {
-    if (!git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch)) {
-      logger.error('Failed to prepare base branch');
+    if (!git.createBranchFromRemote(config.gitRemote, config.githubBaseBranch, branchName)) {
+      logger.error(`Failed to create branch ${branchName} from ${config.gitRemote}/${config.githubBaseBranch}`);
       await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
-      return;
-    }
-
-    if (!git.createBranch(branchName, config.githubBaseBranch)) {
-      logger.error(`Failed to create branch ${branchName}`);
       return;
     }
   }
@@ -1039,21 +1067,14 @@ async function processNonCodeTask(
   runners: AIRunner[],
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
-  const isPending = task.status.toLowerCase() === config.pendingStatus.toLowerCase();
+  const pendingStatus = config.pendingStatus;
+  const isPending = task.status.toLowerCase() === pendingStatus.toLowerCase();
+  const skipReason = getRunSkipReason(task.status, filter, pendingStatus);
 
   logger.task(`[${task.id}] "${task.name}" [non-code] (status: ${task.status})`);
 
-  if (SKIP_STATUSES.has(task.status.toLowerCase())) {
-    logger.info(`[${task.id}] "${task.name}" skipped — terminal status: ${task.status}`);
-    return 'skipped';
-  }
-
-  if (filter === 'open' && isPending) {
-    logger.info(`[${task.id}] "${task.name}" skipped — filter=open but task is pending`);
-    return 'skipped';
-  }
-  if (filter === 'pending' && !isPending) {
-    logger.info(`[${task.id}] "${task.name}" skipped — filter=pending but task is not pending`);
+  if (skipReason) {
+    logger.info(`[${task.id}] "${task.name}" skipped — ${skipReason}`);
     return 'skipped';
   }
 

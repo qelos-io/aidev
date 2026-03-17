@@ -6,3 +6,4 @@ src/
 CLAUDE.md
 tsconfig.json
 *.tgz
+aidev.log

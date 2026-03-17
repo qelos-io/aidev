@@ -1,6 +1,12 @@
 import { Task, Comment, Config, CreateTaskParams, CreateTaskResult } from '../types';
 import { TaskProvider } from './base';
 import { logger } from '../logger';
+import {
+  appendAttachmentPaths,
+  downloadAttachments,
+  DownloadedAttachment,
+  NativeAttachment,
+} from './assets';
 
 export class ClickUpProvider implements TaskProvider {
   private apiKey: string;
@@ -8,6 +14,8 @@ export class ClickUpProvider implements TaskProvider {
   private tag: string;
   private assigneeTag: string;
   private listId: string;
+  private pendingStatus: string;
+  private openStatus: string;
 
   constructor(config: Config) {
     this.apiKey = config.clickupApiKey;
@@ -15,6 +23,8 @@ export class ClickUpProvider implements TaskProvider {
     this.tag = config.clickupTag;
     this.assigneeTag = config.assigneeTag;
     this.listId = config.clickupListId;
+    this.pendingStatus = config.clickupPendingStatus || 'pending';
+    this.openStatus = config.clickupInReviewStatus || 'open';
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -61,6 +71,38 @@ export class ClickUpProvider implements TaskProvider {
     throw lastError;
   }
 
+  private buildAuthHeaders(): Record<string, string> {
+    return {
+      Authorization: this.apiKey,
+      Accept: '*/*',
+    };
+  }
+
+  private async fetchTaskAttachments(taskId: string): Promise<DownloadedAttachment[]> {
+    interface RawTaskAttachment {
+      id?: string | number;
+      title?: string;
+      url?: string;
+    }
+
+    interface TaskDetailsResponse {
+      attachments?: RawTaskAttachment[];
+    }
+
+    const detail = await this.request<TaskDetailsResponse>(`/task/${taskId}`);
+    const attachments: NativeAttachment[] = (detail.attachments || [])
+      .filter((attachment) => Boolean(attachment.url))
+      .map((attachment) => ({
+        id: attachment.id !== undefined ? String(attachment.id) : undefined,
+        name: attachment.title,
+        url: attachment.url,
+      }));
+
+    return downloadAttachments(taskId, attachments, {
+      headers: this.buildAuthHeaders(),
+    });
+  }
+
   async fetchTasks(): Promise<Task[]> {
     logger.debug(`Fetching tasks with tag "${this.tag}" from team ${this.teamId}`);
 
@@ -69,6 +111,7 @@ export class ClickUpProvider implements TaskProvider {
       name: string;
       description?: string;
       status: { status: string };
+      priority: { id: string } | null;
       url: string;
       tags: Array<{ name: string }>;
     }
@@ -81,13 +124,32 @@ export class ClickUpProvider implements TaskProvider {
       `/team/${this.teamId}/task?tags[]=${encodeURIComponent(this.tag)}&subtasks=true&include_closed=false`
     );
 
-    return data.tasks.map((t) => ({
-      id: t.id,
-      name: t.name,
-      description: t.description || '',
-      status: t.status.status.toLowerCase(),
-      url: t.url,
-      tags: t.tags.map((tag) => tag.name),
+    const pendingStatus = this.pendingStatus.toLowerCase();
+    const openStatus = this.openStatus.toLowerCase();
+    const eligibleTasks = data.tasks.filter((t) => {
+      const status = t.status.status.toLowerCase();
+      return status === openStatus || status === pendingStatus;
+    });
+
+    return Promise.all(eligibleTasks.map(async (t) => {
+      let attachments: DownloadedAttachment[] = [];
+      try {
+        attachments = await this.fetchTaskAttachments(t.id);
+      } catch (err) {
+        logger.warn(
+          `[${t.id}] Failed to fetch ClickUp attachments: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+
+      return {
+        id: t.id,
+        name: t.name,
+        description: appendAttachmentPaths(t.description || '', attachments),
+        status: t.status.status.toLowerCase(),
+        url: t.url,
+        tags: t.tags.map((tag) => tag.name),
+        priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
+      };
     }));
   }
 

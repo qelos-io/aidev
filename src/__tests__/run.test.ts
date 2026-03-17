@@ -1,11 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification } from '../commands/run';
+import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
 
 const baseConfig = {
+  provider: 'clickup',
   githubRepo: 'owner/repo',
   githubBaseBranch: 'main',
   clickupInReviewStatus: 'review',
@@ -347,6 +348,79 @@ describe('buildNonCodePrompt', () => {
   it('includes conversation context when provided', () => {
     const prompt = buildNonCodePrompt(task, '\n\nConversation context:\nAlice: Please clarify');
     assert.ok(prompt.includes('Alice: Please clarify'));
+  });
+});
+
+// ─── sortTasksByPriority ─────────────────────────────────────────────────────
+
+function makeTask(id: string, priority?: number): Task {
+  return { id, name: `task-${id}`, description: '', status: 'open', url: '', tags: [], priority };
+}
+
+describe('sortTasksByPriority', () => {
+  it('sorts tasks by priority ascending (urgent first)', () => {
+    const tasks = [makeTask('a', 4), makeTask('b', 1), makeTask('c', 2)];
+    const sorted = sortTasksByPriority(tasks);
+    assert.deepEqual(sorted.map((t) => t.id), ['b', 'c', 'a']);
+  });
+
+  it('puts tasks without priority last', () => {
+    const tasks = [makeTask('a'), makeTask('b', 2), makeTask('c', 1)];
+    const sorted = sortTasksByPriority(tasks);
+    assert.deepEqual(sorted.map((t) => t.id), ['c', 'b', 'a']);
+  });
+
+  it('preserves relative order among tasks with the same priority', () => {
+    const tasks = [makeTask('a', 2), makeTask('b', 2), makeTask('c', 2)];
+    const sorted = sortTasksByPriority(tasks);
+    assert.deepEqual(sorted.map((t) => t.id), ['a', 'b', 'c']);
+  });
+
+  it('preserves relative order among tasks without priority', () => {
+    const tasks = [makeTask('a'), makeTask('b'), makeTask('c')];
+    const sorted = sortTasksByPriority(tasks);
+    assert.deepEqual(sorted.map((t) => t.id), ['a', 'b', 'c']);
+  });
+
+  it('does not mutate the original array', () => {
+    const tasks = [makeTask('a', 3), makeTask('b', 1)];
+    const sorted = sortTasksByPriority(tasks);
+    assert.equal(tasks[0].id, 'a');
+    assert.equal(sorted[0].id, 'b');
+  });
+
+  it('handles empty array', () => {
+    assert.deepEqual(sortTasksByPriority([]), []);
+  });
+
+  it('handles single task', () => {
+    const sorted = sortTasksByPriority([makeTask('a', 1)]);
+    assert.equal(sorted.length, 1);
+    assert.equal(sorted[0].id, 'a');
+  });
+});
+
+// ─── getRunSkipReason ─────────────────────────────────────────────────────────
+
+describe('getRunSkipReason', () => {
+  it('allows open tasks for the default all filter', () => {
+    assert.equal(getRunSkipReason('open', 'all', 'pending'), null);
+  });
+
+  it('allows configured pending tasks for the default all filter', () => {
+    assert.equal(getRunSkipReason('Pending Review', 'all', 'pending review'), null);
+  });
+
+  it('skips statuses that are neither open nor pending', () => {
+    assert.equal(getRunSkipReason('failed', 'all', 'pending'), 'status "failed" is not open or pending');
+  });
+
+  it('skips pending tasks for the open filter', () => {
+    assert.equal(getRunSkipReason('pending', 'open', 'pending'), 'filter=open but task is pending');
+  });
+
+  it('skips open tasks for the pending filter', () => {
+    assert.equal(getRunSkipReason('open', 'pending', 'pending'), 'filter=pending but task is not pending');
   });
 });
 

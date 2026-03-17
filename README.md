@@ -6,10 +6,10 @@
 
 **aidev** turns your tasks into merged code — automatically.
 
-It polls your task manager (ClickUp, Jira, or local markdown files), checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
+It polls your task manager (ClickUp, Jira, Monday.com, or local markdown files), checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
 
 ```
-Task (ClickUp / Jira / local)  →  AI implements  →  git push  →  "in review"
+Task (ClickUp / Jira / Monday / local)  →  AI implements  →  git push  →  "in review"
 ```
 
 ---
@@ -383,6 +383,8 @@ ANSI colour codes are stripped so the file stays readable in any editor or `tail
 |---|---|
 | ClickUp | ✅ Implemented |
 | Jira | ✅ Implemented |
+| Linear | ✅ Implemented |
+| Monday.com | ✅ Implemented |
 | Local | ✅ Implemented |
 | Notion | 🔜 Stub — contributions welcome |
 | Trello | 🔜 Stub — contributions welcome |
@@ -463,7 +465,7 @@ Please use the new auth API endpoint for this.
 
 To add a comment, append a `---` separator followed by a `## your-name` header and your message. aidev parses these entries automatically and uses them as conversation context, just like ClickUp/Jira comments.
 
-The `.aidev/` folder is automatically added to `.gitignore` during `aidev init`.
+Downloaded task attachments are stored in `.aidev/assets/<task-id>/`, and `aidev init` adds `.aidev/assets/` to `.gitignore` automatically.
 
 ---
 

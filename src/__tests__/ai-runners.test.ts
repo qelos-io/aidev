@@ -224,6 +224,55 @@ describe('WindsurfRunner – failed tasks', () => {
   });
 });
 
+describe('WindsurfRunner – process cleanup', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('kills Windsurf IDE after run when it was not already running', async () => {
+    const spawnMock = mock.method(childProcess, 'spawnSync', (command: string) => {
+      const base = { pid: 1, output: [], stderr: '', status: 0, signal: null, error: undefined };
+      if (command === 'pgrep') return { ...base, stdout: '', status: 1 };
+      if (command === 'tasklist') return { ...base, stdout: 'INFO: No tasks are running' };
+      return { ...base, stdout: '' };
+    });
+    spyLogger();
+
+    const runner = new WindsurfRunner();
+    await runner.run('test prompt');
+
+    const killCommands = ['taskkill', 'pkill'];
+    const calls: string[] = spawnMock.mock.calls.map((c: { arguments: string[] }) => c.arguments[0]);
+    assert.ok(
+      calls.some((cmd: string) => killCommands.includes(cmd)),
+      `Expected one of [${killCommands}] in spawn calls: [${calls}]`
+    );
+  });
+
+  it('does not kill Windsurf IDE when it was already running', async () => {
+    const spawnMock = mock.method(childProcess, 'spawnSync', (command: string) => {
+      const base = { pid: 1, output: [], stderr: '', status: 0, signal: null, error: undefined };
+      if (command === 'tasklist') {
+        return { ...base, stdout: 'Windsurf.exe  1234 Console  1  100,000 K' };
+      }
+      if (command === 'pgrep') {
+        return { ...base, stdout: '1234' };
+      }
+      return { ...base, stdout: '' };
+    });
+    spyLogger();
+
+    const runner = new WindsurfRunner();
+    await runner.run('test prompt');
+
+    const killCommands = ['taskkill', 'pkill'];
+    const calls: string[] = spawnMock.mock.calls.map((c: { arguments: string[] }) => c.arguments[0]);
+    assert.ok(
+      !calls.some((cmd: string) => killCommands.includes(cmd)),
+      `Expected none of [${killCommands}] in spawn calls: [${calls}]`
+    );
+  });
+});
+
 // ─── createRunners ────────────────────────────────────────────────────────────
 
 function makeConfig(agents: Config['agents']): Config {

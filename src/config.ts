@@ -128,7 +128,11 @@ export function loadConfig(customEnvPath?: string): Config {
       ? []
       : provider === 'jira'
         ? ['JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_PROJECT']
-        : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
+        : provider === 'linear'
+          ? ['LINEAR_API_KEY', 'LINEAR_TEAM_ID']
+          : provider === 'monday'
+            ? ['MONDAY_API_TOKEN', 'MONDAY_BOARD_ID', 'MONDAY_STATUS_COLUMN_ID']
+            : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
   for (const key of required) {
     if (!process.env[key]) {
       throw new Error(`Missing required config: ${key}. Run 'aidev init' to create .env.aidev`);
@@ -163,10 +167,12 @@ export function loadConfig(customEnvPath?: string): Config {
   const jiraInReviewStatus = process.env.JIRA_IN_REVIEW_STATUS || 'In Review';
   const clickupPendingStatus = process.env.CLICKUP_PENDING_STATUS || 'pending';
   const clickupInReviewStatus = process.env.CLICKUP_IN_REVIEW_STATUS || 'review';
+  const linearPendingStatus = process.env.LINEAR_PENDING_STATUS || 'Backlog';
+  const linearInReviewStatus = process.env.LINEAR_IN_REVIEW_STATUS || 'In Review';
 
-  const pendingStatus = provider === 'jira' ? jiraPendingStatus : clickupPendingStatus;
-  const inReviewStatus = provider === 'jira' ? jiraInReviewStatus : clickupInReviewStatus;
-  const inProgressStatus = provider === 'jira' ? 'In Progress' : 'in progress';
+  const pendingStatus = provider === 'jira' ? jiraPendingStatus : provider === 'linear' ? linearPendingStatus : clickupPendingStatus;
+  const inReviewStatus = provider === 'jira' ? jiraInReviewStatus : provider === 'linear' ? linearInReviewStatus : clickupInReviewStatus;
+  const inProgressStatus = provider === 'jira' || provider === 'linear' ? 'In Progress' : 'in progress';
 
   return {
     provider,
@@ -181,6 +187,7 @@ export function loadConfig(customEnvPath?: string): Config {
     nonCodeTag,
     nonCodeClickupTeamId: process.env.NON_CODE_CLICKUP_TEAM_ID || '',
     nonCodeJiraProject: process.env.NON_CODE_JIRA_PROJECT || '',
+    nonCodeLinearTeamId: process.env.NON_CODE_LINEAR_TEAM_ID || '',
     jiraBaseUrl: process.env.JIRA_BASE_URL || '',
     jiraEmail: process.env.JIRA_EMAIL || '',
     jiraApiToken: process.env.JIRA_API_TOKEN || '',
@@ -188,6 +195,15 @@ export function loadConfig(customEnvPath?: string): Config {
     jiraLabel: process.env.JIRA_LABEL || folderName,
     jiraPendingStatus,
     jiraInReviewStatus,
+    linearApiKey: process.env.LINEAR_API_KEY || '',
+    linearTeamId: process.env.LINEAR_TEAM_ID || '',
+    linearLabel: process.env.LINEAR_LABEL || folderName,
+    linearPendingStatus,
+    linearInReviewStatus,
+    mondayApiToken: process.env.MONDAY_API_TOKEN || '',
+    mondayBoardId: process.env.MONDAY_BOARD_ID || '',
+    mondayStatusColumnId: process.env.MONDAY_STATUS_COLUMN_ID || 'status',
+    mondayGroupId: process.env.MONDAY_GROUP_ID || '',
     clickupListId: process.env.CLICKUP_LIST_ID || '',
     assigneeTag: process.env.ASSIGNEE_TAG || '',
     gitRemote: process.env.GIT_REMOTE || detectRemote() || 'origin',
