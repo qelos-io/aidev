@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
@@ -18,57 +21,82 @@ export class WindsurfRunner implements AIRunner {
 
     const wasRunning = isWindsurfProcessRunning();
     const cwd = process.cwd();
-    // Prompt must go via stdin only — positional args are treated as file paths
-    // by the windsurf CLI and would create files named with the prompt text.
-    const baseArgs = ['--agent', '--print', '--trust', '--workspace', cwd, '-'];
+
+    // On Windows, cmd.exe does not forward stdin to child processes spawned via
+    // .cmd shims, so piping via `-` leaves windsurf with an unread temp file and
+    // no agent prompt.  Write the prompt to a named temp file and pass its path
+    // as the positional argument instead.
+    let tmpFile: string | undefined;
+    let stdinInput: string | undefined;
+    let promptArg: string;
+
+    if (isWindows) {
+      tmpFile = path.join(os.tmpdir(), `aidev-windsurf-${process.pid}.txt`);
+      fs.writeFileSync(tmpFile, fullPrompt, 'utf8');
+      promptArg = tmpFile;
+    } else {
+      stdinInput = fullPrompt;
+      // Prompt must go via stdin on non-Windows — positional args are treated as
+      // file paths by the windsurf CLI and would create files named with the
+      // prompt text.
+      promptArg = '-';
+    }
+
+    const baseArgs = ['--agent', '--print', '--trust', '--workspace', cwd, promptArg];
     const attempts: string[][] = [
       ['--model', 'auto', ...baseArgs],
       ['--reasoning', 'auto', ...baseArgs],
       baseArgs,
     ];
 
-    let result = spawnCommand('windsurf', attempts[0], {
-      encoding: 'utf8',
-      timeout: 10 * 60 * 1000,
-      cwd,
-      env: getUserShellEnv(),
-      input: fullPrompt,
-    });
-
-    for (let i = 1; i < attempts.length; i++) {
-      if (result.status === 0) break;
-      const err = (result.stderr || '').toLowerCase();
-      const unknownFlag =
-        err.includes('unknown option') ||
-        err.includes('unrecognized option') ||
-        err.includes('unknown argument') ||
-        err.includes('unexpected argument') ||
-        err.includes('invalid option');
-      if (!unknownFlag) break;
-      result = spawnCommand('windsurf', attempts[i], {
+    try {
+      let result = spawnCommand('windsurf', attempts[0], {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
         cwd,
         env: getUserShellEnv(),
-        input: fullPrompt,
+        input: stdinInput,
       });
+
+      for (let i = 1; i < attempts.length; i++) {
+        if (result.status === 0) break;
+        const err = (result.stderr || '').toLowerCase();
+        const unknownFlag =
+          err.includes('unknown option') ||
+          err.includes('unrecognized option') ||
+          err.includes('unknown argument') ||
+          err.includes('unexpected argument') ||
+          err.includes('invalid option');
+        if (!unknownFlag) break;
+        result = spawnCommand('windsurf', attempts[i], {
+          encoding: 'utf8',
+          timeout: 10 * 60 * 1000,
+          cwd,
+          env: getUserShellEnv(),
+          input: stdinInput,
+        });
+      }
+
+      const success = result.status === 0;
+      const output = result.stdout || '';
+      const error = result.stderr || '';
+
+      if (!success) {
+        logger.warn(`Windsurf exited with status ${result.status}`);
+        if (error) logger.warn(`windsurf stderr: ${error.slice(0, 500)}`);
+        if (result.error) logger.warn(`windsurf spawn error: ${result.error.message}`);
+      }
+
+      if (!wasRunning) {
+        killWindsurfProcess();
+      }
+
+      return { success, output, error };
+    } finally {
+      if (tmpFile) {
+        try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+      }
     }
-
-    const success = result.status === 0;
-    const output = result.stdout || '';
-    const error = result.stderr || '';
-
-    if (!success) {
-      logger.warn(`Windsurf exited with status ${result.status}`);
-      if (error) logger.warn(`windsurf stderr: ${error.slice(0, 500)}`);
-      if (result.error) logger.warn(`windsurf spawn error: ${result.error.message}`);
-    }
-
-    if (!wasRunning) {
-      killWindsurfProcess();
-    }
-
-    return { success, output, error };
   }
 }
 
