@@ -10,6 +10,7 @@ const baseConfig = {
   githubRepo: 'owner/repo',
   githubBaseBranch: 'main',
   clickupInReviewStatus: 'review',
+  inReviewStatus: 'review',
 } as Config;
 
 // ─── buildPRUrl ───────────────────────────────────────────────────────────────
