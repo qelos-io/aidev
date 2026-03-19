@@ -50,17 +50,88 @@ export function commandExists(name: string): boolean {
 }
 
 /**
+ * Parses an npm-generated .cmd shim to extract the target Node.js script path.
+ * npm shims contain a line like:
+ *   "%_prog%"  "%dp0%\node_modules\...\cli.js" %*
+ * or:
+ *   "%~dp0\node_modules\...\cli.js" %*
+ *
+ * Returns the resolved absolute path to the .js entry point, or null if the
+ * shim format is unrecognised or the script doesn't exist on disk.
+ */
+export function parseCmdShimTarget(cmdPath: string): string | null {
+  try {
+    const content = fs.readFileSync(cmdPath, 'utf8');
+    const dir = path.dirname(cmdPath);
+
+    // Match: "%dp0%\path\to\script.js"  or  "%~dp0\path\to\script.js"
+    // Note: %~dp0 has no closing % (it's a batch parameter modifier), while
+    // %dp0% is a regular env var set earlier in the shim.
+    const dpMatch = content.match(/%(?:~dp0|dp0%)[\\\/]([^"]+\.(?:js|mjs|cjs))/i);
+    if (dpMatch) {
+      const scriptPath = path.resolve(dir, dpMatch[1]);
+      if (fs.existsSync(scriptPath)) return scriptPath;
+    }
+
+    // Fallback: look for a bare node_modules script path on the last executable line
+    const lines = content.split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const m = lines[i].match(/"([^"]+node_modules[\\\/][^"]+\.(?:js|mjs|cjs))"/i);
+      if (m) {
+        const candidate = path.isAbsolute(m[1]) ? m[1] : path.resolve(dir, m[1]);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Detects whether a resolved binary path is a Windows .cmd/.bat shim and
- * returns adjusted spawn arguments that route through cmd.exe.
- * Returns null when no adjustment is needed.
+ * returns adjusted spawn arguments that bypass cmd.exe.
+ *
+ * First tries to parse the .cmd shim to find the underlying Node.js script
+ * so we can spawn `node.exe <script> <args>` directly. This avoids cmd.exe's
+ * broken stdin forwarding and its mangling of shell metacharacters in
+ * arguments (which breaks AI prompts containing &, |, <, >, ", % etc.).
+ *
+ * Falls back to `cmd.exe /c` only when the shim can't be parsed.
+ * Returns null when no adjustment is needed (non-.cmd binary).
  */
 export function resolveWindowsCmd(
   resolvedPath: string | null,
   args: string[]
 ): { bin: string; args: string[] } | null {
   if (!resolvedPath || !/\.(cmd|bat)$/i.test(resolvedPath)) return null;
+
+  const scriptTarget = parseCmdShimTarget(resolvedPath);
+  if (scriptTarget) {
+    // Spawn node.exe directly — no cmd.exe involved
+    const nodeExe = findNodeForCmd(path.dirname(resolvedPath));
+    return { bin: nodeExe, args: [scriptTarget, ...args] };
+  }
+
+  // Fallback: route through cmd.exe (non-npm shims, custom .bat files, etc.)
   const comspec = process.env.ComSpec || 'cmd.exe';
   return { bin: comspec, args: ['/c', resolvedPath, ...args] };
+}
+
+/**
+ * Returns the Node.js executable to use for a .cmd shim directory.
+ * Prefers a local node.exe next to the shim (e.g. nvm/volta shims),
+ * then falls back to the currently running node.
+ */
+function findNodeForCmd(cmdDir: string): string {
+  const local = path.join(cmdDir, 'node.exe');
+  try {
+    fs.accessSync(local, fs.constants.F_OK);
+    return local;
+  } catch {
+    return process.execPath;
+  }
 }
 
 /**
@@ -81,7 +152,9 @@ export function spawnCommand(
     return spawnSync(command, args, options);
   }
 
-  const resolved = findBin(command);
+  // If `command` is already an absolute/relative path to a .cmd/.bat, use it
+  // directly; otherwise search PATH via findBin.
+  const resolved = /\.(cmd|bat)$/i.test(command) ? command : findBin(command);
   const winCmd = resolveWindowsCmd(resolved, args);
   if (winCmd) {
     return spawnSync(winCmd.bin, winCmd.args, options);

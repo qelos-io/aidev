@@ -9,6 +9,7 @@ import { ClickUpProvider } from '../providers/clickup';
 import { JiraProvider } from '../providers/jira';
 import { LinearProvider } from '../providers/linear';
 import { MondayProvider } from '../providers/monday';
+import { NotionProvider } from '../providers/notion';
 
 const baseClickUpConfig = {
   clickupApiKey: 'test-key',
@@ -42,6 +43,14 @@ const baseMondayConfig = {
   mondayGroupId: 'topics',
   clickupPendingStatus: 'Working on it',
   clickupInReviewStatus: 'Done',
+} as unknown as Config;
+
+const baseNotionConfig = {
+  notionApiKey: 'test-notion-key',
+  notionDatabaseId: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+  notionStatusProperty: 'Status',
+  notionPendingStatus: 'pending',
+  notionInReviewStatus: 'review',
 } as unknown as Config;
 
 function jsonResponse(body: unknown) {
@@ -553,6 +562,93 @@ describe('MondayProvider.getComments', () => {
 
     const provider = new MondayProvider(baseMondayConfig);
     const comments = await provider.getComments('1001');
+
+    assert.equal(comments.length, 2);
+    assert.equal(comments[0].text, 'Oldest');
+    assert.equal(comments[1].text, 'Newest');
+  });
+});
+
+// ─── NotionProvider ─────────────────────────────────────────────────────────
+
+describe('NotionProvider.fetchTasks', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns pages with pending or review status from database query', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/databases/') && url.includes('/query') === false && (init?.method ?? 'GET') === 'GET') {
+        return jsonResponse({
+          id: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+          properties: {
+            Name: { type: 'title' },
+            Status: { type: 'status' },
+          },
+        });
+      }
+      if (url.includes('/query')) {
+        return jsonResponse({
+          results: [
+            {
+              id: 'a1b2c3d4-e5f6-7890-1234-5678abcdef01',
+              url: 'https://notion.so/a1b2c3d4e5f6789012345678abcdef01',
+              properties: {
+                Name: { title: [{ plain_text: 'Task one' }] },
+                Status: { status: { name: 'pending' } },
+                Description: { rich_text: [{ plain_text: 'Do something' }] },
+              },
+            },
+            {
+              id: 'a1b2c3d4-e5f6-7890-1234-5678abcdef02',
+              url: 'https://notion.so/page-two',
+              properties: {
+                Name: { title: [{ plain_text: 'Task two' }] },
+                Status: { status: { name: 'review' } },
+              },
+            },
+          ],
+          next_cursor: null,
+          has_more: false,
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 2);
+    assert.equal(tasks[0].id, 'a1b2c3d4e5f6789012345678abcdef01');
+    assert.equal(tasks[0].name, 'Task one');
+    assert.equal(tasks[0].description, 'Do something');
+    assert.equal(tasks[0].status, 'pending');
+    assert.equal(tasks[0].url, 'https://notion.so/a1b2c3d4e5f6789012345678abcdef01');
+    assert.equal(tasks[1].name, 'Task two');
+    assert.equal(tasks[1].status, 'review');
+  });
+});
+
+describe('NotionProvider.getComments', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns comments sorted ascending by date', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/comments')) {
+        return jsonResponse({
+          results: [
+            { id: 'c2', created_time: '2024-01-02T12:00:00.000Z', created_by: { id: 'u1' }, rich_text: [{ plain_text: 'Newest' }] },
+            { id: 'c1', created_time: '2024-01-01T10:00:00.000Z', created_by: { id: 'u1' }, rich_text: [{ plain_text: 'Oldest' }] },
+          ],
+          next_cursor: null,
+          has_more: false,
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const comments = await provider.getComments('a1b2c3d4e5f6789012345678abcdef01');
 
     assert.equal(comments.length, 2);
     assert.equal(comments[0].text, 'Oldest');

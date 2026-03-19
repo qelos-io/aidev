@@ -132,14 +132,16 @@ export function loadConfig(customEnvPath?: string): Config {
           ? ['LINEAR_API_KEY', 'LINEAR_TEAM_ID']
           : provider === 'monday'
             ? ['MONDAY_API_TOKEN', 'MONDAY_BOARD_ID', 'MONDAY_STATUS_COLUMN_ID']
-            : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
+            : provider === 'notion'
+              ? ['NOTION_API_KEY', 'NOTION_DATABASE_ID']
+              : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
   for (const key of required) {
     if (!process.env[key]) {
       throw new Error(`Missing required config: ${key}. Run 'aidev init' to create .env.aidev`);
     }
   }
 
-  const validAgents: AgentName[] = ['claude', 'cursor', 'windsurf'];
+  const validAgents: AgentName[] = ['claude', 'codex', 'cursor', 'windsurf'];
   const agentsRaw = process.env.AGENTS || 'claude,cursor';
   const agents = agentsRaw
     .split(',')
@@ -180,6 +182,7 @@ export function loadConfig(customEnvPath?: string): Config {
     clickupTeamId: process.env.CLICKUP_TEAM_ID || '',
     clickupTag: process.env.CLICKUP_TAG || folderName,
     clickupPendingStatus,
+    clickupOpenStatus: process.env.CLICKUP_OPEN_STATUS || 'open',
     clickupInReviewStatus,
     pendingStatus,
     inReviewStatus,
@@ -204,6 +207,11 @@ export function loadConfig(customEnvPath?: string): Config {
     mondayBoardId: process.env.MONDAY_BOARD_ID || '',
     mondayStatusColumnId: process.env.MONDAY_STATUS_COLUMN_ID || 'status',
     mondayGroupId: process.env.MONDAY_GROUP_ID || '',
+    notionApiKey: process.env.NOTION_API_KEY || '',
+    notionDatabaseId: process.env.NOTION_DATABASE_ID || '',
+    notionStatusProperty: process.env.NOTION_STATUS_PROPERTY || 'Status',
+    notionPendingStatus: process.env.NOTION_PENDING_STATUS || 'pending',
+    notionInReviewStatus: process.env.NOTION_IN_REVIEW_STATUS || 'review',
     clickupListId: process.env.CLICKUP_LIST_ID || '',
     assigneeTag: process.env.ASSIGNEE_TAG || '',
     gitRemote: process.env.GIT_REMOTE || detectRemote() || 'origin',

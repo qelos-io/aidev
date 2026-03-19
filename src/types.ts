@@ -44,7 +44,7 @@ export interface Comment {
   date: number; // epoch ms
 }
 
-export type AgentName = 'claude' | 'cursor' | 'windsurf';
+export type AgentName = 'claude' | 'codex' | 'cursor' | 'windsurf';
 
 export interface Config {
   provider: string;
@@ -53,6 +53,7 @@ export interface Config {
   clickupTeamId: string;
   clickupTag: string;
   clickupPendingStatus: string;
+  clickupOpenStatus: string;
   clickupInReviewStatus: string;
   // Jira
   jiraBaseUrl: string;
@@ -73,6 +74,12 @@ export interface Config {
   mondayBoardId: string;
   mondayStatusColumnId: string;
   mondayGroupId: string;
+  // Notion
+  notionApiKey: string;
+  notionDatabaseId: string;
+  notionStatusProperty: string;
+  notionPendingStatus: string;
+  notionInReviewStatus: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;

@@ -11,7 +11,7 @@ import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
 import { commandExists, isWindows } from '../platform';
 import chalk from 'chalk';
 
-const VALID_AGENTS = ['claude', 'cursor', 'windsurf'] as const;
+const VALID_AGENTS = ['claude', 'codex', 'cursor', 'windsurf'] as const;
 
 // Patterns we want guaranteed in .gitignore.
 // Each entry: [pattern to write, regex that matches equivalent existing lines]

@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { logger } from '../logger';
 import { ClaudeRunner } from '../ai/claude';
+import { CodexRunner } from '../ai/codex';
 import { CursorRunner } from '../ai/cursor';
 import { WindsurfRunner } from '../ai/windsurf';
+import { isDockerWindsurfAvailable } from '../ai/windsurf';
 import { createRunners } from '../ai/index';
+import { isWindows } from '../platform';
 import type { Config } from '../types';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -89,6 +92,86 @@ describe('ClaudeRunner – failed tasks', () => {
     spyLogger();
 
     const runner = new ClaudeRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.output, '');
+  });
+});
+
+// ─── ClaudeRunner – argv order ────────────────────────────────────────────────
+
+describe('ClaudeRunner – argv order', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('first attempt omits --model so default CLI model is used', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (_cmd: unknown, args: unknown) => {
+      argvSnapshots.push([...(args as string[])]);
+      return {
+        pid: 1,
+        output: [],
+        stdout: 'ok',
+        stderr: '',
+        status: 0,
+        signal: null,
+        error: undefined,
+      };
+    });
+    spyLogger();
+
+    await new ClaudeRunner().run('fix the bug');
+
+    assert.equal(argvSnapshots.length, 1);
+    const args = argvSnapshots[0];
+    const pIdx = args.indexOf('-p');
+    assert.ok(pIdx >= 0, 'expected -p in spawn argv (after any Windows node cli.js prefix)');
+    assert.equal(args[pIdx + 1], 'fix the bug');
+    assert.ok(args.includes('--dangerously-skip-permissions'));
+    assert.ok(!args.includes('--model'));
+  });
+});
+
+// ─── CodexRunner ─────────────────────────────────────────────────────────────
+
+describe('CodexRunner', () => {
+  it('isAvailable returns boolean (depends on codex CLI in PATH)', () => {
+    const runner = new CodexRunner();
+    assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+describe('CodexRunner – failed tasks', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('returns success=false when codex exits with non-zero status', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'codex failed' });
+    spyLogger();
+
+    const runner = new CodexRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'codex failed');
+  });
+
+  it('logs a warning with exit status on failure', async () => {
+    mockSpawnSync({ status: 2, stdout: '', stderr: 'auth error' });
+    const spies = spyLogger();
+
+    const runner = new CodexRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(warnCalls.some((msg) => msg?.includes('status 2')));
+  });
+
+  it('returns empty output on failure', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'err' });
+    spyLogger();
+
+    const runner = new CodexRunner();
     const result = await runner.run('test prompt');
 
     assert.equal(result.output, '');
@@ -224,7 +307,7 @@ describe('WindsurfRunner – failed tasks', () => {
   });
 });
 
-describe('WindsurfRunner – process cleanup', () => {
+describe('WindsurfRunner – process cleanup (non-Windows CLI mode)', { skip: isWindows }, () => {
   beforeEach(() => mock.restoreAll());
   afterEach(() => mock.restoreAll());
 
@@ -232,7 +315,6 @@ describe('WindsurfRunner – process cleanup', () => {
     const spawnMock = mock.method(childProcess, 'spawnSync', (command: string) => {
       const base = { pid: 1, output: [], stderr: '', status: 0, signal: null, error: undefined };
       if (command === 'pgrep') return { ...base, stdout: '', status: 1 };
-      if (command === 'tasklist') return { ...base, stdout: 'INFO: No tasks are running' };
       return { ...base, stdout: '' };
     });
     spyLogger();
@@ -240,20 +322,16 @@ describe('WindsurfRunner – process cleanup', () => {
     const runner = new WindsurfRunner();
     await runner.run('test prompt');
 
-    const killCommands = ['taskkill', 'pkill'];
     const calls: string[] = spawnMock.mock.calls.map((c: { arguments: string[] }) => c.arguments[0]);
     assert.ok(
-      calls.some((cmd: string) => killCommands.includes(cmd)),
-      `Expected one of [${killCommands}] in spawn calls: [${calls}]`
+      calls.some((cmd: string) => cmd === 'pkill'),
+      `Expected pkill in spawn calls: [${calls}]`
     );
   });
 
   it('does not kill Windsurf IDE when it was already running', async () => {
     const spawnMock = mock.method(childProcess, 'spawnSync', (command: string) => {
       const base = { pid: 1, output: [], stderr: '', status: 0, signal: null, error: undefined };
-      if (command === 'tasklist') {
-        return { ...base, stdout: 'Windsurf.exe  1234 Console  1  100,000 K' };
-      }
       if (command === 'pgrep') {
         return { ...base, stdout: '1234' };
       }
@@ -264,12 +342,23 @@ describe('WindsurfRunner – process cleanup', () => {
     const runner = new WindsurfRunner();
     await runner.run('test prompt');
 
-    const killCommands = ['taskkill', 'pkill'];
     const calls: string[] = spawnMock.mock.calls.map((c: { arguments: string[] }) => c.arguments[0]);
     assert.ok(
-      !calls.some((cmd: string) => killCommands.includes(cmd)),
-      `Expected none of [${killCommands}] in spawn calls: [${calls}]`
+      !calls.some((cmd: string) => cmd === 'pkill'),
+      `Expected no pkill in spawn calls: [${calls}]`
     );
+  });
+});
+
+describe('WindsurfRunner – Docker mode (Windows)', { skip: !isWindows }, () => {
+  it('isDockerWindsurfAvailable checks for docker and WINDSURF_TOKEN', () => {
+    // This test reflects the real environment — just verify it returns a boolean
+    assert.equal(typeof isDockerWindsurfAvailable(), 'boolean');
+  });
+
+  it('isAvailable returns boolean on Windows', () => {
+    const runner = new WindsurfRunner();
+    assert.equal(typeof runner.isAvailable(), 'boolean');
   });
 });
 
@@ -285,10 +374,10 @@ describe('createRunners', () => {
 
   it('returns runners in the order specified by config.agents', () => {
     spyLogger();
-    const runners = createRunners(makeConfig(['cursor', 'windsurf', 'claude']));
+    const runners = createRunners(makeConfig(['cursor', 'codex', 'windsurf', 'claude']));
     assert.deepEqual(
       runners.map((r) => r.name),
-      ['cursor', 'windsurf', 'claude']
+      ['cursor', 'codex', 'windsurf', 'claude']
     );
   });
 
