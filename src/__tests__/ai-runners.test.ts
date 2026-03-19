@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { logger } from '../logger';
 import { ClaudeRunner } from '../ai/claude';
+import { CodexRunner } from '../ai/codex';
 import { CursorRunner } from '../ai/cursor';
 import { WindsurfRunner } from '../ai/windsurf';
 import { isDockerWindsurfAvailable } from '../ai/windsurf';
@@ -97,6 +98,8 @@ describe('ClaudeRunner – failed tasks', () => {
   });
 });
 
+// ─── ClaudeRunner – argv order ────────────────────────────────────────────────
+
 describe('ClaudeRunner – argv order', () => {
   beforeEach(() => mock.restoreAll());
   afterEach(() => mock.restoreAll());
@@ -126,6 +129,52 @@ describe('ClaudeRunner – argv order', () => {
     assert.equal(args[pIdx + 1], 'fix the bug');
     assert.ok(args.includes('--dangerously-skip-permissions'));
     assert.ok(!args.includes('--model'));
+  });
+});
+
+// ─── CodexRunner ─────────────────────────────────────────────────────────────
+
+describe('CodexRunner', () => {
+  it('isAvailable returns boolean (depends on codex CLI in PATH)', () => {
+    const runner = new CodexRunner();
+    assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+describe('CodexRunner – failed tasks', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('returns success=false when codex exits with non-zero status', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'codex failed' });
+    spyLogger();
+
+    const runner = new CodexRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'codex failed');
+  });
+
+  it('logs a warning with exit status on failure', async () => {
+    mockSpawnSync({ status: 2, stdout: '', stderr: 'auth error' });
+    const spies = spyLogger();
+
+    const runner = new CodexRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(warnCalls.some((msg) => msg?.includes('status 2')));
+  });
+
+  it('returns empty output on failure', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'err' });
+    spyLogger();
+
+    const runner = new CodexRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.output, '');
   });
 });
 
@@ -325,10 +374,10 @@ describe('createRunners', () => {
 
   it('returns runners in the order specified by config.agents', () => {
     spyLogger();
-    const runners = createRunners(makeConfig(['cursor', 'windsurf', 'claude']));
+    const runners = createRunners(makeConfig(['cursor', 'codex', 'windsurf', 'claude']));
     assert.deepEqual(
       runners.map((r) => r.name),
-      ['cursor', 'windsurf', 'claude']
+      ['cursor', 'codex', 'windsurf', 'claude']
     );
   });
 
