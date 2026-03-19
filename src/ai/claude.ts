@@ -2,6 +2,18 @@ import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
 import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
 
+/** True when stderr/stdout suggests the next argv list may work (e.g. unsupported flag). */
+function shouldRetryClaudeAttempt(stderr: string, stdout: string): boolean {
+  const err = `${stderr}\n${stdout}`.toLowerCase();
+  return (
+    err.includes('unknown option') ||
+    err.includes('unrecognized option') ||
+    err.includes('unknown argument') ||
+    err.includes('unexpected argument') ||
+    err.includes('invalid option')
+  );
+}
+
 export class ClaudeRunner implements AIRunner {
   readonly name = 'claude';
 
@@ -16,10 +28,11 @@ export class ClaudeRunner implements AIRunner {
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
     const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions'];
+    // Prefer default model from CLI/settings first; `--model auto` fails on some installs/plans.
     const attempts: string[][] = [
-      [...baseArgs, '--model', 'auto'],
-      [...baseArgs, '--reasoning', 'auto'],
       baseArgs,
+      [...baseArgs, '--reasoning', 'auto'],
+      [...baseArgs, '--model', 'auto'],
     ];
 
     let result = spawnCommand('claude', attempts[0], {
@@ -31,14 +44,7 @@ export class ClaudeRunner implements AIRunner {
 
     for (let i = 1; i < attempts.length; i++) {
       if (result.status === 0) break;
-      const err = (result.stderr || '').toLowerCase();
-      const unknownFlag =
-        err.includes('unknown option') ||
-        err.includes('unrecognized option') ||
-        err.includes('unknown argument') ||
-        err.includes('unexpected argument') ||
-        err.includes('invalid option');
-      if (!unknownFlag) break;
+      if (!shouldRetryClaudeAttempt(result.stderr || '', result.stdout || '')) break;
       result = spawnCommand('claude', attempts[i], {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
