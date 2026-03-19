@@ -179,6 +179,23 @@ async function validateAntigravityPermissions(
   logger.info('Antigravity: CLI found (no additional permissions needed).');
 }
 
+// ── Codex ──────────────────────────────────────────────────────────────────
+
+async function validateCodexPermissions(
+  _rl: readline.Interface,
+  _dir: string
+): Promise<void> {
+  if (!commandExists('codex')) {
+    logger.warn(
+      'Codex CLI not found — install with: npm install -g @openai/codex. ' +
+      'Set OPENAI_API_KEY or run codex login.'
+    );
+    return;
+  }
+
+  logger.info('Codex: CLI found (codex exec, no additional permissions needed).');
+}
+
 // ── Public API ────────────────────────────────────────────────────────────
 
 export async function validateAgentPermissions(
@@ -193,6 +210,8 @@ export async function validateAgentPermissions(
       await validateCursorPermissions(rl, dir);
     } else if (agent === 'antigravity') {
       await validateAntigravityPermissions(rl, dir);
+    } else if (agent === 'codex') {
+      await validateCodexPermissions(rl, dir);
     }
   }
 }

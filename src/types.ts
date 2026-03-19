@@ -44,7 +44,7 @@ export interface Comment {
   date: number; // epoch ms
 }
 
-export type AgentName = 'antigravity' | 'claude' | 'cursor' | 'windsurf';
+export type AgentName = 'antigravity' | 'claude' | 'codex' | 'cursor' | 'windsurf';
 
 export interface Config {
   provider: string;
@@ -74,6 +74,12 @@ export interface Config {
   mondayBoardId: string;
   mondayStatusColumnId: string;
   mondayGroupId: string;
+  // Notion
+  notionApiKey: string;
+  notionDatabaseId: string;
+  notionStatusProperty: string;
+  notionPendingStatus: string;
+  notionInReviewStatus: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
