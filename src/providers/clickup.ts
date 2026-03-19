@@ -24,7 +24,7 @@ export class ClickUpProvider implements TaskProvider {
     this.assigneeTag = config.assigneeTag;
     this.listId = config.clickupListId;
     this.pendingStatus = config.clickupPendingStatus || 'pending';
-    this.openStatus = config.clickupInReviewStatus || 'open';
+    this.openStatus = config.clickupOpenStatus || 'open';
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
