@@ -44,7 +44,7 @@ export interface Comment {
   date: number; // epoch ms
 }
 
-export type AgentName = 'claude' | 'cursor' | 'windsurf';
+export type AgentName = 'antigravity' | 'claude' | 'cursor' | 'windsurf';
 
 export interface Config {
   provider: string;

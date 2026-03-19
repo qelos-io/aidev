@@ -1,11 +1,13 @@
 import { Config } from '../types';
 import { AIRunner } from './base';
+import { AntigravityRunner } from './antigravity';
 import { ClaudeRunner } from './claude';
 import { CursorRunner } from './cursor';
 import { WindsurfRunner } from './windsurf';
 import { logger } from '../logger';
 
 const registry: Record<string, AIRunner> = {
+  antigravity: new AntigravityRunner(),
   claude: new ClaudeRunner(),
   cursor: new CursorRunner(),
   windsurf: new WindsurfRunner(),

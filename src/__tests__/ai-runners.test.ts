@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { logger } from '../logger';
+import { AntigravityRunner } from '../ai/antigravity';
 import { ClaudeRunner } from '../ai/claude';
 import { CursorRunner } from '../ai/cursor';
 import { WindsurfRunner } from '../ai/windsurf';
@@ -91,6 +92,52 @@ describe('ClaudeRunner – failed tasks', () => {
     spyLogger();
 
     const runner = new ClaudeRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.output, '');
+  });
+});
+
+// ─── AntigravityRunner ────────────────────────────────────────────────────────
+
+describe('AntigravityRunner', () => {
+  it('isAvailable returns boolean (depends on agy/antigravity in PATH)', () => {
+    const runner = new AntigravityRunner();
+    assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+describe('AntigravityRunner – failed tasks', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('returns success=false when antigravity exits with non-zero status', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'antigravity failed' });
+    spyLogger();
+
+    const runner = new AntigravityRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'antigravity failed');
+  });
+
+  it('logs a warning with exit status on failure', async () => {
+    mockSpawnSync({ status: 2, stdout: '', stderr: 'not found' });
+    const spies = spyLogger();
+
+    const runner = new AntigravityRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(warnCalls.some((msg) => msg?.includes('status 2')));
+  });
+
+  it('returns empty output on failure', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'err' });
+    spyLogger();
+
+    const runner = new AntigravityRunner();
     const result = await runner.run('test prompt');
 
     assert.equal(result.output, '');
@@ -293,10 +340,10 @@ describe('createRunners', () => {
 
   it('returns runners in the order specified by config.agents', () => {
     spyLogger();
-    const runners = createRunners(makeConfig(['cursor', 'windsurf', 'claude']));
+    const runners = createRunners(makeConfig(['cursor', 'windsurf', 'claude', 'antigravity']));
     assert.deepEqual(
       runners.map((r) => r.name),
-      ['cursor', 'windsurf', 'claude']
+      ['cursor', 'windsurf', 'claude', 'antigravity']
     );
   });
 

@@ -162,6 +162,23 @@ async function validateCursorPermissions(
   logger.info('Cursor: agent CLI found (uses --trust flag, no additional permissions needed).');
 }
 
+// ── Antigravity ────────────────────────────────────────────────────────────
+
+async function validateAntigravityPermissions(
+  _rl: readline.Interface,
+  _dir: string
+): Promise<void> {
+  if (!commandExists('agy') && !commandExists('antigravity')) {
+    logger.warn(
+      'Antigravity CLI (agy or antigravity) not found — install from ' +
+      'antigravity.google/download or ensure it is on your PATH.'
+    );
+    return;
+  }
+
+  logger.info('Antigravity: CLI found (no additional permissions needed).');
+}
+
 // ── Public API ────────────────────────────────────────────────────────────
 
 export async function validateAgentPermissions(
@@ -174,6 +191,8 @@ export async function validateAgentPermissions(
       await validateClaudePermissions(rl, dir);
     } else if (agent === 'cursor') {
       await validateCursorPermissions(rl, dir);
+    } else if (agent === 'antigravity') {
+      await validateAntigravityPermissions(rl, dir);
     }
   }
 }
