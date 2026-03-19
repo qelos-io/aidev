@@ -98,6 +98,38 @@ describe('ClaudeRunner – failed tasks', () => {
   });
 });
 
+describe('ClaudeRunner – argv order', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('first attempt omits --model so default CLI model is used', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (_cmd: unknown, args: unknown) => {
+      argvSnapshots.push([...(args as string[])]);
+      return {
+        pid: 1,
+        output: [],
+        stdout: 'ok',
+        stderr: '',
+        status: 0,
+        signal: null,
+        error: undefined,
+      };
+    });
+    spyLogger();
+
+    await new ClaudeRunner().run('fix the bug');
+
+    assert.equal(argvSnapshots.length, 1);
+    const args = argvSnapshots[0];
+    const pIdx = args.indexOf('-p');
+    assert.ok(pIdx >= 0, 'expected -p in spawn argv (after any Windows node cli.js prefix)');
+    assert.equal(args[pIdx + 1], 'fix the bug');
+    assert.ok(args.includes('--dangerously-skip-permissions'));
+    assert.ok(!args.includes('--model'));
+  });
+});
+
 // ─── AntigravityRunner ────────────────────────────────────────────────────────
 
 describe('AntigravityRunner', () => {

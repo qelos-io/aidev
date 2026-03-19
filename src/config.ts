@@ -168,6 +168,7 @@ export function loadConfig(customEnvPath?: string): Config {
     clickupTeamId: process.env.CLICKUP_TEAM_ID || '',
     clickupTag: process.env.CLICKUP_TAG || folderName,
     clickupPendingStatus: process.env.CLICKUP_PENDING_STATUS || 'pending',
+    clickupOpenStatus: process.env.CLICKUP_OPEN_STATUS || 'open',
     clickupInReviewStatus: process.env.CLICKUP_IN_REVIEW_STATUS || 'review',
     nonCodeTag,
     nonCodeClickupTeamId: process.env.NON_CODE_CLICKUP_TEAM_ID || '',
