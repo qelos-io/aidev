@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason } from '../commands/run';
+import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -285,6 +285,37 @@ describe('hasAidevComment', () => {
       makeComment('[aidev] Non-code task complete!'),
     ];
     assert.equal(hasAidevComment(comments), true);
+  });
+});
+
+// ─── filterAutomatedComments ──────────────────────────────────────────────────
+
+describe('filterAutomatedComments', () => {
+  it('returns empty array for empty input', () => {
+    assert.deepEqual(filterAutomatedComments([]), []);
+  });
+
+  it('removes comments containing [aidev]', () => {
+    const human = makeComment('Please fix the tests');
+    const automated = makeComment('[aidev] Starting implementation on branch foo');
+    const result = filterAutomatedComments([human, automated]);
+    assert.deepEqual(result, [human]);
+  });
+
+  it('keeps all comments when none are automated', () => {
+    const comments = [
+      makeComment('Please fix the tests'),
+      makeComment('I agree, this needs work'),
+    ];
+    assert.deepEqual(filterAutomatedComments(comments), comments);
+  });
+
+  it('removes all comments when all are automated', () => {
+    const comments = [
+      makeComment('[aidev] Starting implementation'),
+      makeComment('[aidev] Merge conflicts resolved automatically.'),
+    ];
+    assert.deepEqual(filterAutomatedComments(comments), []);
   });
 });
 
