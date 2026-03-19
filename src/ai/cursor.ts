@@ -1,6 +1,6 @@
 import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
+import { commandExists, getUserShellEnv, shouldRetryAgentCliAttempt, spawnCommand } from '../platform';
 
 /**
  * Cursor Agent CLI runner. Uses the `agent` binary on all platforms.
@@ -39,14 +39,7 @@ export class CursorRunner implements AIRunner {
 
     for (let i = 1; i < attempts.length; i++) {
       if (result.status === 0) break;
-      const err = (result.stderr || '').toLowerCase();
-      const unknownFlag =
-        err.includes('unknown option') ||
-        err.includes('unrecognized option') ||
-        err.includes('unknown argument') ||
-        err.includes('unexpected argument') ||
-        err.includes('invalid option');
-      if (!unknownFlag) break;
+      if (!shouldRetryAgentCliAttempt(result.stderr || '', result.stdout || '')) break;
       result = spawnCommand('agent', attempts[i], {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,

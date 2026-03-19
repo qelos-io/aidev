@@ -4,7 +4,13 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv, isWindows, spawnCommand } from '../platform';
+import {
+  commandExists,
+  getUserShellEnv,
+  isWindows,
+  shouldRetryAgentCliAttempt,
+  spawnCommand,
+} from '../platform';
 
 /** Docker image for headless Windsurf on Windows. */
 const WINDSURF_DOCKER_IMAGE = process.env.WINDSURF_DOCKER_IMAGE || 'windsurfinabox';
@@ -55,17 +61,10 @@ async function runViaCli(fullPrompt: string): Promise<AIRunResult> {
     input: stdinInput,
   });
 
-  for (let i = 1; i < attempts.length; i++) {
-    if (result.status === 0) break;
-    const err = (result.stderr || '').toLowerCase();
-    const unknownFlag =
-      err.includes('unknown option') ||
-      err.includes('unrecognized option') ||
-      err.includes('unknown argument') ||
-      err.includes('unexpected argument') ||
-      err.includes('invalid option');
-    if (!unknownFlag) break;
-    result = spawnCommand('windsurf', attempts[i], {
+    for (let i = 1; i < attempts.length; i++) {
+      if (result.status === 0) break;
+      if (!shouldRetryAgentCliAttempt(result.stderr || '', result.stdout || '')) break;
+      result = spawnCommand('windsurf', attempts[i], {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       cwd,
