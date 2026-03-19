@@ -26,6 +26,13 @@ export function getPendingStatus(config: Config): string {
   return config.clickupPendingStatus;
 }
 
+export function getOpenStatus(config: Config): string {
+  const p = (config.provider || 'clickup').toLowerCase();
+  if (p === 'jira') return 'open';
+  if (p === 'linear') return 'open';
+  return config.clickupOpenStatus || 'open';
+}
+
 export function getInReviewStatus(config: Config): string {
   const p = (config.provider || 'clickup').toLowerCase();
   if (p === 'jira') return config.jiraInReviewStatus;
@@ -48,16 +55,18 @@ export interface ThinkingTaskPlan {
   subtasks: SubTask[];
 }
 
-export function getRunSkipReason(status: string, filter: RunFilter, pendingStatus: string): string | null {
+export function getRunSkipReason(status: string, filter: RunFilter, pendingStatus: string, openStatus: string = 'open'): string | null {
   const normalizedStatus = status.toLowerCase();
   const normalizedPendingStatus = pendingStatus.toLowerCase();
+  const normalizedOpenStatus = openStatus.toLowerCase();
   const isPending = normalizedStatus === normalizedPendingStatus;
+  const isOpen = normalizedStatus === normalizedOpenStatus;
 
   if (SKIP_STATUSES.has(normalizedStatus)) {
     return `terminal status: ${status}`;
   }
 
-  if (normalizedStatus !== 'open' && !isPending) {
+  if (!isOpen && !isPending) {
     return `status "${status}" is not open or pending`;
   }
 
@@ -186,8 +195,9 @@ async function processTask(
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
   const pendingStatus = getPendingStatus(config);
+  const openStatus = getOpenStatus(config);
   const isPending = task.status.toLowerCase() === pendingStatus.toLowerCase();
-  const skipReason = getRunSkipReason(task.status, filter, pendingStatus);
+  const skipReason = getRunSkipReason(task.status, filter, pendingStatus, openStatus);
 
   logger.task(`[${task.id}] "${task.name}" (status: ${task.status})`);
 
@@ -1065,8 +1075,9 @@ async function processNonCodeTask(
   screenAvailable: boolean
 ): Promise<'processed' | 'skipped'> {
   const pendingStatus = getPendingStatus(config);
+  const openStatus = getOpenStatus(config);
   const isPending = task.status.toLowerCase() === pendingStatus.toLowerCase();
-  const skipReason = getRunSkipReason(task.status, filter, pendingStatus);
+  const skipReason = getRunSkipReason(task.status, filter, pendingStatus, openStatus);
 
   logger.task(`[${task.id}] "${task.name}" [non-code] (status: ${task.status})`);
 

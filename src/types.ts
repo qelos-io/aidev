@@ -53,6 +53,7 @@ export interface Config {
   clickupTeamId: string;
   clickupTag: string;
   clickupPendingStatus: string;
+  clickupOpenStatus: string;
   clickupInReviewStatus: string;
   // Jira
   jiraBaseUrl: string;
