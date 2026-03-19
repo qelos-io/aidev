@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { logger } from '../logger';
+import { AntigravityRunner } from '../ai/antigravity';
 import { ClaudeRunner } from '../ai/claude';
 import { CodexRunner } from '../ai/codex';
 import { CursorRunner } from '../ai/cursor';
@@ -106,8 +107,13 @@ describe('ClaudeRunner – argv order', () => {
 
   it('first attempt omits --model so default CLI model is used', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (_cmd: unknown, args: unknown) => {
-      argvSnapshots.push([...(args as string[])]);
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      // On Windows, spawnCommand calls findBin which may invoke where.exe —
+      // skip those helper calls and only capture the real CLI invocations.
+      const command = cmd as string;
+      if (!command.endsWith('where.exe')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
       return {
         pid: 1,
         output: [],
@@ -132,12 +138,58 @@ describe('ClaudeRunner – argv order', () => {
   });
 });
 
+// ─── AntigravityRunner ────────────────────────────────────────────────────────
+
+describe('AntigravityRunner', () => {
+  it('isAvailable returns boolean (depends on agy/antigravity in PATH)', () => {
+    const runner = new AntigravityRunner();
+    assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
 // ─── CodexRunner ─────────────────────────────────────────────────────────────
 
 describe('CodexRunner', () => {
   it('isAvailable returns boolean (depends on codex CLI in PATH)', () => {
     const runner = new CodexRunner();
     assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+describe('AntigravityRunner – failed tasks', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('returns success=false when antigravity exits with non-zero status', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'antigravity failed' });
+    spyLogger();
+
+    const runner = new AntigravityRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'antigravity failed');
+  });
+
+  it('logs a warning with exit status on failure', async () => {
+    mockSpawnSync({ status: 2, stdout: '', stderr: 'not found' });
+    const spies = spyLogger();
+
+    const runner = new AntigravityRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(warnCalls.some((msg) => msg?.includes('status 2')));
+  });
+
+  it('returns empty output on failure', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'err' });
+    spyLogger();
+
+    const runner = new AntigravityRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.output, '');
   });
 });
 
@@ -374,10 +426,12 @@ describe('createRunners', () => {
 
   it('returns runners in the order specified by config.agents', () => {
     spyLogger();
-    const runners = createRunners(makeConfig(['cursor', 'codex', 'windsurf', 'claude']));
+    const runners = createRunners(
+      makeConfig(['cursor', 'codex', 'windsurf', 'claude', 'antigravity'])
+    );
     assert.deepEqual(
       runners.map((r) => r.name),
-      ['cursor', 'codex', 'windsurf', 'claude']
+      ['cursor', 'codex', 'windsurf', 'claude', 'antigravity']
     );
   });
 

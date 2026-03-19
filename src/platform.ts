@@ -50,6 +50,31 @@ export function commandExists(name: string): boolean {
 }
 
 /**
+ * True when a CLI attempt failed in a way that may succeed with the next argv list
+ * (e.g. unsupported flags, or a model id the current install cannot use).
+ */
+export function shouldRetryAgentCliAttempt(stderr: string, stdout: string): boolean {
+  const text = `${stderr}\n${stdout}`.toLowerCase();
+  if (
+    text.includes('unknown option') ||
+    text.includes('unrecognized option') ||
+    text.includes('unknown argument') ||
+    text.includes('unexpected argument') ||
+    text.includes('invalid option')
+  ) {
+    return true;
+  }
+  if (
+    text.includes('issue with the selected model') ||
+    (text.includes('selected model') &&
+      (text.includes('may not exist') || text.includes('may not have access')))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Parses an npm-generated .cmd shim to extract the target Node.js script path.
  * npm shims contain a line like:
  *   "%_prog%"  "%dp0%\node_modules\...\cli.js" %*

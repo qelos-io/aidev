@@ -41,7 +41,7 @@ after(() => {
 describe('lockfilePath', () => {
   it('returns path ending with LOCK_FILENAME inside cwd', () => {
     const p = lockfilePath('/some/dir');
-    assert.equal(p, `/some/dir/${LOCK_FILENAME}`);
+    assert.equal(p, path.join('/some/dir', LOCK_FILENAME));
   });
 });
 

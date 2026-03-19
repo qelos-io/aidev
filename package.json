@@ -1,7 +1,7 @@
 {
   "name": "@qelos/aidev",
-  "version": "0.2.13",
-  "description": "AI-powered task executor — polls ClickUp (and more) to implement tasks with Claude or Cursor",
+  "version": "0.2.13-alpha.0",
+  "description": "AI-powered task executor — polls ClickUp (and more) to implement tasks with Claude, Cursor, Windsurf, or Antigravity",
   "type": "commonjs",
   "bin": {
     "aidev": "dist/cli.js"
@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc && node -e \"if(process.platform!=='win32')require('node:fs').chmodSync('dist/cli.js',0o755)\"",
     "dev": "tsx src/cli.ts",
-    "test": "node --require tsx/cjs --test 'src/__tests__/**/*.test.ts'",
+    "test": "node scripts/run-tests.cjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

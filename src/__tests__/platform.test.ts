@@ -3,7 +3,15 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { commandExists, findBin, spawnCommand, resolveWindowsCmd, parseCmdShimTarget, isWindows } from '../platform';
+import {
+  commandExists,
+  findBin,
+  spawnCommand,
+  resolveWindowsCmd,
+  parseCmdShimTarget,
+  isWindows,
+  shouldRetryAgentCliAttempt,
+} from '../platform';
 
 const FAKE = '__aidev_definitely_not_a_real_binary_xyz__';
 
@@ -14,6 +22,26 @@ describe('commandExists', () => {
 
   it('returns false for a non-existent binary', () => {
     assert.equal(commandExists(FAKE), false);
+  });
+});
+
+describe('shouldRetryAgentCliAttempt', () => {
+  it('returns true for unknown option style stderr', () => {
+    assert.equal(shouldRetryAgentCliAttempt('error: unknown option --foo', ''), true);
+  });
+
+  it('returns true for Cursor-style invalid model message', () => {
+    assert.equal(
+      shouldRetryAgentCliAttempt(
+        "There's an issue with the selected model (auto). It may not exist or you may not have access to it.",
+        ''
+      ),
+      true
+    );
+  });
+
+  it('returns false for unrelated stderr', () => {
+    assert.equal(shouldRetryAgentCliAttempt('build failed: syntax error', ''), false);
   });
 });
 

@@ -141,7 +141,7 @@ export function loadConfig(customEnvPath?: string): Config {
     }
   }
 
-  const validAgents: AgentName[] = ['claude', 'codex', 'cursor', 'windsurf'];
+  const validAgents: AgentName[] = ['antigravity', 'claude', 'codex', 'cursor', 'windsurf'];
   const agentsRaw = process.env.AGENTS || 'claude,cursor';
   const agents = agentsRaw
     .split(',')

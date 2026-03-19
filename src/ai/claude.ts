@@ -1,18 +1,6 @@
 import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
-
-/** True when stderr/stdout suggests the next argv list may work (e.g. unsupported flag). */
-function shouldRetryClaudeAttempt(stderr: string, stdout: string): boolean {
-  const err = `${stderr}\n${stdout}`.toLowerCase();
-  return (
-    err.includes('unknown option') ||
-    err.includes('unrecognized option') ||
-    err.includes('unknown argument') ||
-    err.includes('unexpected argument') ||
-    err.includes('invalid option')
-  );
-}
+import { commandExists, getUserShellEnv, shouldRetryAgentCliAttempt, spawnCommand } from '../platform';
 
 export class ClaudeRunner implements AIRunner {
   readonly name = 'claude';
@@ -44,7 +32,7 @@ export class ClaudeRunner implements AIRunner {
 
     for (let i = 1; i < attempts.length; i++) {
       if (result.status === 0) break;
-      if (!shouldRetryClaudeAttempt(result.stderr || '', result.stdout || '')) break;
+      if (!shouldRetryAgentCliAttempt(result.stderr || '', result.stdout || '')) break;
       result = spawnCommand('claude', attempts[i], {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,

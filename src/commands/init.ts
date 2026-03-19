@@ -11,7 +11,7 @@ import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
 import { commandExists, isWindows } from '../platform';
 import chalk from 'chalk';
 
-const VALID_AGENTS = ['claude', 'codex', 'cursor', 'windsurf'] as const;
+const VALID_AGENTS = ['antigravity', 'claude', 'codex', 'cursor', 'windsurf'] as const;
 
 // Patterns we want guaranteed in .gitignore.
 // Each entry: [pattern to write, regex that matches equivalent existing lines]
@@ -342,7 +342,7 @@ export function renderEnv(a: Answers): string {
     `GITHUB_BASE_BRANCH=${envVal(a.githubBaseBranch)}`,
     line('GITHUB_REPO', a.githubRepo),
     ``,
-    `# Agents to use, in fallback order (comma-separated: claude, cursor, windsurf)`,
+    `# Agents to use, in fallback order (comma-separated: antigravity, claude, codex, cursor, windsurf)`,
     `AGENTS=${a.agents}`,
     ``,
     `# DEV_NOTES_MODE: smart (only ask when unclear) | always (ask before every task)`,

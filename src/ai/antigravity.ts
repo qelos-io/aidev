@@ -3,33 +3,33 @@ import { logger } from '../logger';
 import { commandExists, getUserShellEnv, shouldRetryAgentCliAttempt, spawnCommand } from '../platform';
 
 /**
- * Cursor Agent CLI runner. Uses the `agent` binary on all platforms.
- * On Windows, the Cursor IDE is `cursor.exe` and does not support headless agent
- * mode; the separate Agent CLI must be installed (e.g. irm 'https://cursor.com/install?win32=true' | iex)
- * so that `agent` is in PATH.
+ * Google Antigravity agent runner. Uses the `agy` CLI (or `antigravity` on some
+ * installs). Opens the workspace and runs the agent with the prompt on stdin.
+ * See https://antigravity.codes and antigravity.google/download.
  */
-export class CursorRunner implements AIRunner {
-  readonly name = 'cursor';
+export class AntigravityRunner implements AIRunner {
+  readonly name = 'antigravity';
 
   isAvailable(): boolean {
-    return commandExists('agent');
+    return commandExists('agy') || commandExists('antigravity');
   }
 
   async run(prompt: string, notes?: string): Promise<AIRunResult> {
     const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
 
-    logger.info('Running Cursor Agent...');
+    logger.info('Running Antigravity agent...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
     const cwd = process.cwd();
-    const baseArgs = ['--print', '--force', '--trust', '--workspace', cwd];
+    const bin = commandExists('agy') ? 'agy' : 'antigravity';
+    const baseArgs = ['.'];
     const attempts: string[][] = [
-      [...baseArgs, '--model', 'auto'],
-      [...baseArgs, '--reasoning', 'auto'],
+      ['--agent', '--print', ...baseArgs],
+      ['--print', ...baseArgs],
       baseArgs,
     ];
 
-    let result = spawnCommand('agent', attempts[0], {
+    let result = spawnCommand(bin, attempts[0], {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       cwd,
@@ -40,7 +40,7 @@ export class CursorRunner implements AIRunner {
     for (let i = 1; i < attempts.length; i++) {
       if (result.status === 0) break;
       if (!shouldRetryAgentCliAttempt(result.stderr || '', result.stdout || '')) break;
-      result = spawnCommand('agent', attempts[i], {
+      result = spawnCommand(bin, attempts[i], {
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
         cwd,
@@ -54,9 +54,9 @@ export class CursorRunner implements AIRunner {
     const error = result.stderr || '';
 
     if (!success) {
-      logger.warn(`Cursor Agent exited with status ${result.status}`);
-      if (error) logger.warn(`cursor stderr: ${error.slice(0, 500)}`);
-      if (result.error) logger.warn(`cursor spawn error: ${result.error.message}`);
+      logger.warn(`Antigravity exited with status ${result.status}`);
+      if (error) logger.warn(`antigravity stderr: ${error.slice(0, 500)}`);
+      if (result.error) logger.warn(`antigravity spawn error: ${result.error.message}`);
     }
 
     return { success, output, error };

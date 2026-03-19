@@ -94,7 +94,7 @@ ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
   ${d('CLICKUP_API_KEY')}      ClickUp personal API token
   ${d('CLICKUP_TEAM_ID')}      Workspace / team ID
   ${d('CLICKUP_TAG')}          Tag used to filter tasks ${d('(default: folder name)')}
-  ${d('AGENTS')}               Agent order: ${c('claude,cursor')} ${d('| cursor,claude | claude | cursor')}
+  ${d('AGENTS')}               Agent order: ${c('claude,cursor')} ${d('| antigravity | cursor | windsurf | …')}
   ${d('DEV_NOTES_MODE')}       ${c('smart')} ${d('(default) | always')}
   ${d('AIDEV_TRIGGER_WORD')}   Trigger word to re-process a skipped task ${d('(default: aidev-continue)')}
   ${d('NON_CODE_TAG')}         Tag for non-code tasks ${d('(default: <folder-name>-other)')}
