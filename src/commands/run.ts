@@ -572,8 +572,9 @@ async function implementTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    if (comments.length > 0) {
-      context = '\n\nConversation context:\n' + comments.map((c) => `${c.author}: ${c.text}`).join('\n');
+    const humanComments = filterAutomatedComments(comments);
+    if (humanComments.length > 0) {
+      context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
     }
   } catch {
     // ignore
@@ -860,8 +861,9 @@ async function implementThinkingTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    if (comments.length > 0) {
-      context = '\n\nConversation context:\n' + comments.map((c) => `${c.author}: ${c.text}`).join('\n');
+    const humanComments = filterAutomatedComments(comments);
+    if (humanComments.length > 0) {
+      context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
     }
   } catch { /* ignore */ }
 
@@ -1068,6 +1070,10 @@ export function hasAidevComment(comments: Comment[]): boolean {
   return comments.some((c) => c.text.includes('[aidev]'));
 }
 
+export function filterAutomatedComments(comments: Comment[]): Comment[] {
+  return comments.filter((c) => !c.text.includes('[aidev]'));
+}
+
 async function processNonCodeTask(
   task: Task,
   filter: RunFilter,
@@ -1154,8 +1160,9 @@ async function implementNonCodeTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    if (comments.length > 0) {
-      context = '\n\nConversation context:\n' + comments.map((c) => `${c.author}: ${c.text}`).join('\n');
+    const humanComments = filterAutomatedComments(comments);
+    if (humanComments.length > 0) {
+      context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
     }
   } catch {
     // ignore
