@@ -107,8 +107,13 @@ describe('ClaudeRunner – argv order', () => {
 
   it('first attempt omits --model so default CLI model is used', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (_cmd: unknown, args: unknown) => {
-      argvSnapshots.push([...(args as string[])]);
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      // On Windows, spawnCommand calls findBin which may invoke where.exe —
+      // skip those helper calls and only capture the real CLI invocations.
+      const command = cmd as string;
+      if (!command.endsWith('where.exe')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
       return {
         pid: 1,
         output: [],
