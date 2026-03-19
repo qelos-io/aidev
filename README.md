@@ -196,6 +196,7 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 
 | Agent | Requires |
 |---|---|
+| `antigravity` | Google **Antigravity** CLI (`agy` or `antigravity`) in PATH — see [Antigravity](https://antigravity.google/download) |
 | `claude` | [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated |
 | `cursor` | Cursor **Agent CLI** (`agent`) in PATH — see [Windows](#windows-cursor-agent-cli) below |
 | `windsurf` | [Windsurf](https://windsurf.com) installed with CLI available in PATH |
@@ -222,8 +223,11 @@ AGENTS=cursor
 # Cursor first (useful when working locally with a monitor)
 AGENTS=cursor,claude
 
-# All three: Claude first, then Windsurf, then Cursor
+# Claude first, then Windsurf, then Cursor
 AGENTS=claude,windsurf,cursor
+
+# Antigravity first, then Claude
+AGENTS=antigravity,claude
 
 # Windsurf only
 AGENTS=windsurf

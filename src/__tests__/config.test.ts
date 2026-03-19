@@ -303,13 +303,15 @@ describe('resolveEnvPath', () => {
   });
 
   it('resolves relative paths against the supplied base', () => {
-    const result = resolveEnvPath('.aidev.global', '/projects/myapp');
-    assert.equal(result, '/projects/myapp/.aidev.global');
+    const base = '/projects/myapp';
+    const result = resolveEnvPath('.aidev.global', base);
+    assert.equal(result, path.resolve(base, '.aidev.global'));
   });
 
   it('resolves ../ relative paths correctly', () => {
-    const result = resolveEnvPath('../shared/aidev.global', '/projects/myapp');
-    assert.equal(result, '/projects/shared/aidev.global');
+    const base = '/projects/myapp';
+    const result = resolveEnvPath('../shared/aidev.global', base);
+    assert.equal(result, path.resolve(base, '../shared/aidev.global'));
   });
 });
 
