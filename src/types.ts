@@ -73,6 +73,12 @@ export interface Config {
   mondayBoardId: string;
   mondayStatusColumnId: string;
   mondayGroupId: string;
+  // Notion
+  notionApiKey: string;
+  notionDatabaseId: string;
+  notionStatusProperty: string;
+  notionPendingStatus: string;
+  notionInReviewStatus: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;

@@ -5,6 +5,7 @@ import { JiraProvider } from './jira';
 import { LinearProvider } from './linear';
 import { LocalProvider, TaskMode } from './local';
 import { MondayProvider } from './monday';
+import { NotionProvider } from './notion';
 
 export function createProvider(config: Config, mode?: TaskMode): TaskProvider {
   switch (config.provider.toLowerCase()) {
@@ -19,7 +20,7 @@ export function createProvider(config: Config, mode?: TaskMode): TaskProvider {
     case 'monday':
       return new MondayProvider(config);
     case 'notion':
-      throw new Error('Notion provider is not yet implemented. Contributions welcome!');
+      return new NotionProvider(config);
     case 'trello':
       throw new Error('Trello provider is not yet implemented. Contributions welcome!');
     default:

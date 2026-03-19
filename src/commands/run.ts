@@ -23,6 +23,7 @@ export function getPendingStatus(config: Config): string {
   const p = (config.provider || 'clickup').toLowerCase();
   if (p === 'jira') return config.jiraPendingStatus;
   if (p === 'linear') return config.linearPendingStatus;
+  if (p === 'notion') return config.notionPendingStatus;
   return config.clickupPendingStatus;
 }
 
@@ -30,6 +31,7 @@ export function getInReviewStatus(config: Config): string {
   const p = (config.provider || 'clickup').toLowerCase();
   if (p === 'jira') return config.jiraInReviewStatus;
   if (p === 'linear') return config.linearInReviewStatus;
+  if (p === 'notion') return config.notionInReviewStatus;
   return config.clickupInReviewStatus;
 }
 
