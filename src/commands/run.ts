@@ -1042,13 +1042,28 @@ export function buildCompletionComment(branch: string, prUrl: string, config: Co
 }
 
 export function buildNonCodePrompt(task: Task, context: string): string {
+  const hasComments = context.trim().length > 0;
+
+  if (hasComments) {
+    return `You are handling a non-code task. This task does NOT require code changes — it requires a thoughtful, verbal response.
+
+Task: ${task.name}
+
+Original description:
+${task.description || '(no description provided)'}
+${context}
+
+IMPORTANT: The conversation above contains follow-up comments. Focus on the LATEST comment as the primary request to address — it may refine, override, or follow up on the original description. Use the original description and earlier comments only as background context.
+
+Please provide a clear, detailed response. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who wrote the latest comment.`;
+  }
+
   return `You are handling a non-code task. This task does NOT require code changes — it requires a thoughtful, verbal response.
 
 Task: ${task.name}
 
 Description:
 ${task.description || '(no description provided)'}
-${context}
 
 Please provide a clear, detailed response to this task. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who created the task.`;
 }
