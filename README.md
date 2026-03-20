@@ -187,6 +187,7 @@ CLICKUP_TAG=my-project
 | `AGENTS` | `claude,cursor` | Comma-separated list of agents in priority order |
 | `DEV_NOTES_MODE` | `smart` | When to ask for clarification (`smart` or `always`) |
 | `AIDEV_TRIGGER_WORD` | `aidev-continue` | Comment containing this word re-triggers a skipped task |
+| `AIDEV_COMMENT_PREFIX` | `[aidev]` | Custom prefix for all aidev comments posted to task providers |
 
 ---
 
@@ -239,7 +240,7 @@ AGENTS=windsurf
 
 ## Trigger word & re-processing
 
-aidev prefixes every comment it posts with `[aidev]`. This lets it distinguish its own comments from human replies when deciding whether to re-process a task.
+aidev prefixes every comment it posts with `[aidev]` (configurable via `AIDEV_COMMENT_PREFIX`). This lets it distinguish its own comments from human replies when deciding whether to re-process a task.
 
 A task is normally skipped when:
 - A remote branch already exists for it, **or**
@@ -254,7 +255,12 @@ AIDEV_TRIGGER_WORD=please-retry
 
 The trigger word match is case-insensitive, so `aidev-continue`, `AIDEV-CONTINUE`, and `Aidev-Continue` all work.
 
-For pending tasks, a regular human reply (any comment without `[aidev]`) also triggers re-processing — the trigger word is an additional explicit mechanism.
+For pending tasks, a regular human reply (any comment without the configured prefix) also triggers re-processing — the trigger word is an additional explicit mechanism.
+
+```bash
+# Customise the comment prefix in .env.aidev
+AIDEV_COMMENT_PREFIX=[mybot]
+```
 
 ---
 

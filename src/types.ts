@@ -95,4 +95,5 @@ export interface Config {
   devNotesMode: 'smart' | 'always';
   triggerWord: string;
   thinkingTag: string;
+  commentPrefix: string;
 }

@@ -71,6 +71,7 @@ const baseAnswers: Answers = {
   devNotesMode: 'smart',
   triggerWord: 'aidev-continue',
   thinkingTag: '',
+  commentPrefix: '[aidev]',
   aidevEnvExtend: '',
 };
 
@@ -262,6 +263,7 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     devNotesMode: p.DEV_NOTES_MODE || 'smart',
     triggerWord: p.AIDEV_TRIGGER_WORD || 'aidev-continue',
     thinkingTag: p.THINKING_TAG || '',
+    commentPrefix: p.AIDEV_COMMENT_PREFIX || '[aidev]',
   };
 }
 
