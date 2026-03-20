@@ -10,6 +10,7 @@ const baseConfig = {
   githubRepo: 'owner/repo',
   githubBaseBranch: 'main',
   clickupInReviewStatus: 'review',
+  commentPrefix: '[aidev]',
 } as Config;
 
 // ─── buildPRUrl ───────────────────────────────────────────────────────────────
@@ -54,6 +55,13 @@ describe('buildCompletionComment', () => {
   it('omits PR link when empty', () => {
     const comment = buildCompletionComment('abc/branch', '', baseConfig);
     assert.ok(!comment.includes('https://'));
+  });
+
+  it('uses custom prefix when configured', () => {
+    const customConfig = { ...baseConfig, commentPrefix: '[mybot]' } as Config;
+    const comment = buildCompletionComment('abc/branch', '', customConfig);
+    assert.ok(comment.startsWith('[mybot]'));
+    assert.ok(!comment.includes('[aidev]'));
   });
 });
 
@@ -116,6 +124,22 @@ describe('hasHumanReply', () => {
       makeComment('[aidev] All AI runners failed.'),
     ];
     assert.equal(hasHumanReply(comments), false);
+  });
+
+  it('uses custom prefix when provided', () => {
+    const comments = [
+      makeComment('[mybot] Starting implementation'),
+      makeComment('Please also fix the tests'),
+    ];
+    assert.equal(hasHumanReply(comments, '[mybot]'), true);
+  });
+
+  it('returns false when last comment has custom prefix', () => {
+    const comments = [
+      makeComment('[mybot] Starting implementation'),
+      makeComment('[mybot] All AI runners failed.'),
+    ];
+    assert.equal(hasHumanReply(comments, '[mybot]'), false);
   });
 });
 
@@ -286,6 +310,20 @@ describe('hasAidevComment', () => {
     ];
     assert.equal(hasAidevComment(comments), true);
   });
+
+  it('detects custom prefix', () => {
+    const comments = [
+      makeComment('[mybot] Starting implementation'),
+    ];
+    assert.equal(hasAidevComment(comments, '[mybot]'), true);
+  });
+
+  it('returns false when custom prefix is not present', () => {
+    const comments = [
+      makeComment('[aidev] Starting implementation'),
+    ];
+    assert.equal(hasAidevComment(comments, '[mybot]'), false);
+  });
 });
 
 // ─── filterAutomatedComments ──────────────────────────────────────────────────
@@ -316,6 +354,13 @@ describe('filterAutomatedComments', () => {
       makeComment('[aidev] Merge conflicts resolved automatically.'),
     ];
     assert.deepEqual(filterAutomatedComments(comments), []);
+  });
+
+  it('filters by custom prefix', () => {
+    const human = makeComment('Please fix the tests');
+    const automated = makeComment('[mybot] Starting implementation on branch foo');
+    const result = filterAutomatedComments([human, automated], '[mybot]');
+    assert.deepEqual(result, [human]);
   });
 });
 
@@ -352,6 +397,13 @@ describe('buildNonCodeCompletionComment', () => {
   it('omits agent response section when not provided', () => {
     const comment = buildNonCodeCompletionComment(baseConfig);
     assert.ok(!comment.includes('---'));
+  });
+
+  it('uses custom prefix when configured', () => {
+    const customConfig = { ...baseConfig, commentPrefix: '[mybot]' } as Config;
+    const comment = buildNonCodeCompletionComment(customConfig);
+    assert.ok(comment.startsWith('[mybot]'));
+    assert.ok(!comment.includes('[aidev]'));
   });
 });
 

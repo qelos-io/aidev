@@ -216,7 +216,7 @@ async function processTask(
     const trigger = hasTriggerWord(comments, config.triggerWord);
 
     if (isPending) {
-      const reply = hasHumanReply(comments);
+      const reply = hasHumanReply(comments, config.commentPrefix);
       if (!reply && !trigger) {
         logger.info(`[${task.id}] "${task.name}" skipped — pending task has no human reply or trigger word ("${config.triggerWord}")`);
         return 'skipped';
@@ -235,18 +235,18 @@ async function processTask(
     }
 
     if (!screenAvailable) {
-      await notifySleeping(task, provider);
+      await notifySleeping(task, provider, config.commentPrefix);
       return 'skipped';
     }
   } else {
     if (!screenAvailable) {
-      await notifySleeping(task, provider);
+      await notifySleeping(task, provider, config.commentPrefix);
       return 'skipped';
     }
 
     const clarification = await checkNeedsClarification(task, config, provider, runners);
     if (clarification) {
-      await provider.postComment(task.id, `[aidev] ${clarification}`);
+      await provider.postComment(task.id, `${config.commentPrefix} ${clarification}`);
       await provider.updateStatus(task.id, getPendingStatus(config));
       logger.info(`Posted clarification question, set status to ${getPendingStatus(config)}`);
       return 'skipped';
@@ -261,10 +261,10 @@ async function processTask(
   return 'processed';
 }
 
-export function hasHumanReply(comments: Comment[]): boolean {
+export function hasHumanReply(comments: Comment[], commentPrefix: string = '[aidev]'): boolean {
   if (comments.length < 2) return false;
   const lastComment = comments[comments.length - 1];
-  return !lastComment.text.includes('[aidev]');
+  return !lastComment.text.includes(commentPrefix);
 }
 
 /**
@@ -280,7 +280,7 @@ export function hasTriggerWord(comments: Comment[], triggerWord: string): boolea
   return false;
 }
 
-async function notifySleeping(task: Task, provider: TaskProvider): Promise<void> {
+async function notifySleeping(task: Task, provider: TaskProvider, commentPrefix: string): Promise<void> {
   try {
     const comments = await provider.getComments(task.id);
     const lastComment = comments.length > 0 ? comments[comments.length - 1] : null;
@@ -295,7 +295,7 @@ async function notifySleeping(task: Task, provider: TaskProvider): Promise<void>
   try {
     await provider.postComment(
       task.id,
-      `[aidev] Cannot work on this task — the ${SLEEPING_MARKER} or the screen is locked. ` +
+      `${commentPrefix} Cannot work on this task — the ${SLEEPING_MARKER} or the screen is locked. ` +
         'AI agents require an active display session to operate. Please wake the machine and unlock the screen so I can continue.'
     );
     logger.info(`[${task.id}] Posted sleep notification`);
@@ -425,7 +425,7 @@ async function resolveConflictsWithAI(
   try {
     await provider.postComment(
       task.id,
-      `[aidev] Branch \`${branchName}\` has merge conflicts with \`${config.githubBaseBranch}\` ` +
+      `${config.commentPrefix} Branch \`${branchName}\` has merge conflicts with \`${config.githubBaseBranch}\` ` +
       `in ${check.conflictFiles.length} file(s). Attempting automatic resolution...`
     );
   } catch { /* ignore */ }
@@ -463,7 +463,7 @@ async function resolveConflictsWithAI(
       try {
         await provider.postComment(
           task.id,
-          '[aidev] Failed to automatically resolve merge conflicts. Manual intervention needed to rebase/merge the branch.'
+          `${config.commentPrefix} Failed to automatically resolve merge conflicts. Manual intervention needed to rebase/merge the branch.`
         );
       } catch { /* ignore */ }
       return false;
@@ -481,7 +481,7 @@ async function resolveConflictsWithAI(
 
     logger.success('Merge conflicts resolved successfully');
     try {
-      await provider.postComment(task.id, '[aidev] Merge conflicts resolved automatically.');
+      await provider.postComment(task.id, `${config.commentPrefix} Merge conflicts resolved automatically.`);
     } catch { /* ignore */ }
   }
 
@@ -549,7 +549,7 @@ async function implementTask(
   try {
     await provider.updateStatus(task.id, 'in progress');
     const verb = branchExists ? 'Continuing' : 'Starting';
-    await provider.postComment(task.id, `[aidev] ${verb} implementation on branch \`${branchName}\``);
+    await provider.postComment(task.id, `${config.commentPrefix} ${verb} implementation on branch \`${branchName}\``);
   } catch (err) {
     logger.warn(`Could not update task status: ${err}`);
   }
@@ -557,14 +557,14 @@ async function implementTask(
   if (branchExists) {
     if (!git.fetchAndCheckoutBranch(config.gitRemote, branchName)) {
       logger.error(`Failed to checkout existing branch ${branchName}`);
-      await provider.postComment(task.id, '[aidev] Failed to checkout existing branch. Manual intervention needed.');
+      await provider.postComment(task.id, `${config.commentPrefix} Failed to checkout existing branch. Manual intervention needed.`);
       return;
     }
     logger.info(`Continuing on existing branch: ${branchName}`);
   } else {
     if (!git.createBranchFromRemote(config.gitRemote, config.githubBaseBranch, branchName)) {
       logger.error(`Failed to create branch ${branchName} from ${config.gitRemote}/${config.githubBaseBranch}`);
-      await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
+      await provider.postComment(task.id, `${config.commentPrefix} Failed to prepare git branch. Manual intervention needed.`);
       return;
     }
   }
@@ -572,7 +572,7 @@ async function implementTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    const humanComments = filterAutomatedComments(comments);
+    const humanComments = filterAutomatedComments(comments, config.commentPrefix);
     if (humanComments.length > 0) {
       context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
     }
@@ -631,7 +631,7 @@ async function implementTask(
     const diagnostics = collectAndLogDiagnostics();
     await provider.postComment(
       task.id,
-      `[aidev] All AI runners failed. Manual implementation needed.\n\n${diagnostics}`
+      `${config.commentPrefix} All AI runners failed. Manual implementation needed.\n\n${diagnostics}`
     );
     if (!branchExists) {
       git.deleteBranch(branchName);
@@ -640,7 +640,7 @@ async function implementTask(
   }
 
   // Commit and push
-  if (!git.addAll() || !git.commit(`[aidev] Implement: ${task.name}\n\nTask: ${task.url}`, branchName)) {
+  if (!git.addAll() || !git.commit(`${config.commentPrefix} Implement: ${task.name}\n\nTask: ${task.url}`, branchName)) {
     logger.error('Failed to commit changes');
     return;
   }
@@ -837,7 +837,7 @@ async function implementThinkingTask(
     const verb = branchExists ? 'Continuing' : 'Starting';
     await provider.postComment(
       task.id,
-      `[aidev] ${verb} implementation on branch \`${branchName}\` (thinking mode — will analyze and break into sub-tasks)`
+      `${config.commentPrefix} ${verb} implementation on branch \`${branchName}\` (thinking mode — will analyze and break into sub-tasks)`
     );
   } catch (err) {
     logger.warn(`Could not update task status: ${err}`);
@@ -846,14 +846,14 @@ async function implementThinkingTask(
   if (branchExists) {
     if (!git.fetchAndCheckoutBranch(config.gitRemote, branchName)) {
       logger.error(`Failed to checkout existing branch ${branchName}`);
-      await provider.postComment(task.id, '[aidev] Failed to checkout existing branch. Manual intervention needed.');
+      await provider.postComment(task.id, `${config.commentPrefix} Failed to checkout existing branch. Manual intervention needed.`);
       return;
     }
     logger.info(`Continuing on existing branch: ${branchName}`);
   } else {
     if (!git.createBranchFromRemote(config.gitRemote, config.githubBaseBranch, branchName)) {
       logger.error(`Failed to create branch ${branchName} from ${config.gitRemote}/${config.githubBaseBranch}`);
-      await provider.postComment(task.id, '[aidev] Failed to prepare git branch. Manual intervention needed.');
+      await provider.postComment(task.id, `${config.commentPrefix} Failed to prepare git branch. Manual intervention needed.`);
       return;
     }
   }
@@ -861,7 +861,7 @@ async function implementThinkingTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    const humanComments = filterAutomatedComments(comments);
+    const humanComments = filterAutomatedComments(comments, config.commentPrefix);
     if (humanComments.length > 0) {
       context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
     }
@@ -895,7 +895,7 @@ async function implementThinkingTask(
     plan = await analyzeAndPlan(task, context, runners);
     if (!plan) {
       logger.error('Failed to create implementation plan');
-      await provider.postComment(task.id, '[aidev] Failed to analyze and break down the task. Manual implementation needed.');
+      await provider.postComment(task.id, `${config.commentPrefix} Failed to analyze and break down the task. Manual implementation needed.`);
       cleanupThinkingFiles(task.id);
       if (!branchExists) git.deleteBranch(branchName);
       return;
@@ -906,7 +906,7 @@ async function implementThinkingTask(
     try {
       await provider.postComment(
         task.id,
-        `[aidev] Task analyzed and broken into ${plan.subtasks.length} sub-tasks:\n\n${formatSubtaskList(plan)}`
+        `${config.commentPrefix} Task analyzed and broken into ${plan.subtasks.length} sub-tasks:\n\n${formatSubtaskList(plan)}`
       );
     } catch (err) {
       logger.warn(`Failed to post breakdown comment: ${err}`);
@@ -937,14 +937,14 @@ async function implementThinkingTask(
       try {
         await provider.postComment(
           task.id,
-          `[aidev] Step ${subtask.id} failed: ${subtask.title}\n\n${formatSubtaskList(plan)}\n\n${diagnostics}`
+          `${config.commentPrefix} Step ${subtask.id} failed: ${subtask.title}\n\n${formatSubtaskList(plan)}\n\n${diagnostics}`
         );
       } catch { /* ignore */ }
 
       break;
     }
 
-    if (!git.addAll() || !git.commit(`[aidev] Step ${subtask.id}: ${subtask.title}\n\nTask: ${task.url}`, branchName)) {
+    if (!git.addAll() || !git.commit(`${config.commentPrefix} Step ${subtask.id}: ${subtask.title}\n\nTask: ${task.url}`, branchName)) {
       subtask.status = 'failed';
       writeTaskPlan(plan);
       allSucceeded = false;
@@ -967,7 +967,7 @@ async function implementThinkingTask(
     try {
       await provider.postComment(
         task.id,
-        `[aidev] Step ${subtask.id} complete: ${subtask.title}\n\n${formatSubtaskList(plan)}`
+        `${config.commentPrefix} Step ${subtask.id} complete: ${subtask.title}\n\n${formatSubtaskList(plan)}`
       );
     } catch { /* ignore */ }
   }
@@ -980,7 +980,7 @@ async function implementThinkingTask(
       const diagnostics = collectAndLogDiagnostics();
       await provider.postComment(
         task.id,
-        `[aidev] Thinking task did not complete all sub-tasks. Manual intervention needed.\n\n${diagnostics}`
+        `${config.commentPrefix} Thinking task did not complete all sub-tasks. Manual intervention needed.\n\n${diagnostics}`
       );
     } catch { /* ignore */ }
     return;
@@ -1028,7 +1028,7 @@ export function buildPRUrl(config: Config, branch: string): string {
 
 export function buildCompletionComment(branch: string, prUrl: string, config: Config): string {
   const lines = [
-    `[aidev] Implementation complete!`,
+    `${config.commentPrefix} Implementation complete!`,
     ``,
     `Branch: \`${branch}\``,
   ];
@@ -1055,7 +1055,7 @@ Please provide a clear, detailed response to this task. Your response will be po
 
 export function buildNonCodeCompletionComment(config: Config, agentResponse?: string): string {
   const lines = [
-    `[aidev] Non-code task complete!`,
+    `${config.commentPrefix} Non-code task complete!`,
   ];
 
   if (agentResponse) {
@@ -1066,12 +1066,12 @@ export function buildNonCodeCompletionComment(config: Config, agentResponse?: st
   return lines.join('\n');
 }
 
-export function hasAidevComment(comments: Comment[]): boolean {
-  return comments.some((c) => c.text.includes('[aidev]'));
+export function hasAidevComment(comments: Comment[], commentPrefix: string = '[aidev]'): boolean {
+  return comments.some((c) => c.text.includes(commentPrefix));
 }
 
-export function filterAutomatedComments(comments: Comment[]): Comment[] {
-  return comments.filter((c) => !c.text.includes('[aidev]'));
+export function filterAutomatedComments(comments: Comment[], commentPrefix: string = '[aidev]'): Comment[] {
+  return comments.filter((c) => !c.text.includes(commentPrefix));
 }
 
 async function processNonCodeTask(
@@ -1095,13 +1095,13 @@ async function processNonCodeTask(
   }
 
   const comments = await provider.getComments(task.id);
-  const wasProcessed = hasAidevComment(comments);
+  const wasProcessed = hasAidevComment(comments, config.commentPrefix);
 
   if (isPending || wasProcessed) {
     const trigger = hasTriggerWord(comments, config.triggerWord);
 
     if (isPending) {
-      const reply = hasHumanReply(comments);
+      const reply = hasHumanReply(comments, config.commentPrefix);
       if (!reply && !trigger) {
         logger.info(`[${task.id}] "${task.name}" skipped — pending with no human reply or trigger word ("${config.triggerWord}")`);
         return 'skipped';
@@ -1120,18 +1120,18 @@ async function processNonCodeTask(
     }
 
     if (!screenAvailable) {
-      await notifySleeping(task, provider);
+      await notifySleeping(task, provider, config.commentPrefix);
       return 'skipped';
     }
   } else {
     if (!screenAvailable) {
-      await notifySleeping(task, provider);
+      await notifySleeping(task, provider, config.commentPrefix);
       return 'skipped';
     }
 
     const clarification = await checkNeedsClarification(task, config, provider, runners);
     if (clarification) {
-      await provider.postComment(task.id, `[aidev] ${clarification}`);
+      await provider.postComment(task.id, `${config.commentPrefix} ${clarification}`);
       await provider.updateStatus(task.id, getPendingStatus(config));
       logger.info(`Posted clarification question, set status to ${getPendingStatus(config)}`);
       return 'skipped';
@@ -1152,7 +1152,7 @@ async function implementNonCodeTask(
 
   try {
     await provider.updateStatus(task.id, 'in progress');
-    await provider.postComment(task.id, `[aidev] Starting non-code task execution`);
+    await provider.postComment(task.id, `${config.commentPrefix} Starting non-code task execution`);
   } catch (err) {
     logger.warn(`Could not update task status: ${err}`);
   }
@@ -1160,7 +1160,7 @@ async function implementNonCodeTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    const humanComments = filterAutomatedComments(comments);
+    const humanComments = filterAutomatedComments(comments, config.commentPrefix);
     if (humanComments.length > 0) {
       context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
     }
@@ -1198,7 +1198,7 @@ async function implementNonCodeTask(
     const diagnostics = collectAndLogDiagnostics();
     await provider.postComment(
       task.id,
-      `[aidev] All AI runners failed. Manual intervention needed.\n\n${diagnostics}`
+      `${config.commentPrefix} All AI runners failed. Manual intervention needed.\n\n${diagnostics}`
     );
     return;
   }
