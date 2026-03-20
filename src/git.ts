@@ -159,6 +159,16 @@ export function hasChanges(): boolean {
   return result.status === 0 && result.stdout.trim().length > 0;
 }
 
+/**
+ * Returns true if the current branch has commits ahead of the remote base branch.
+ */
+export function hasCommitsAhead(remote: string, baseBranch: string): boolean {
+  const result = git(['rev-list', '--count', `${remote}/${baseBranch}..HEAD`]);
+  if (result.status !== 0) return false;
+  const count = parseInt(result.stdout.trim(), 10) || 0;
+  return count > 0;
+}
+
 export function addAll(): boolean {
   const result = git(['add', '-A']);
   return result.status === 0;
