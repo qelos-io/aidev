@@ -432,6 +432,18 @@ describe('buildNonCodePrompt', () => {
     const prompt = buildNonCodePrompt(task, '\n\nConversation context:\nAlice: Please clarify');
     assert.ok(prompt.includes('Alice: Please clarify'));
   });
+
+  it('instructs AI to focus on latest comment when comments exist', () => {
+    const prompt = buildNonCodePrompt(task, '\n\nConversation context:\nAlice: Change the env file');
+    assert.ok(prompt.includes('LATEST comment'));
+    assert.ok(prompt.includes('Original description'));
+  });
+
+  it('does not mention latest comment when no comments', () => {
+    const prompt = buildNonCodePrompt(task, '');
+    assert.ok(!prompt.includes('LATEST comment'));
+    assert.ok(!prompt.includes('Original description'));
+  });
 });
 
 // ─── sortTasksByPriority ─────────────────────────────────────────────────────
