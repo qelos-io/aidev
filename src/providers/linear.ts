@@ -95,7 +95,7 @@ export class LinearProvider implements TaskProvider {
       team: { id: { eq: this.teamId } },
       state: { type: { nin: ['completed', 'canceled'] } },
     };
-    if (this.label) {
+    if (this.label && this.label !== '*') {
       (filter as Record<string, unknown>).labels = { name: { eq: this.label } };
     }
 

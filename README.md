@@ -159,7 +159,7 @@ CLICKUP_TAG=my-project
 |---|---|---|
 | `CLICKUP_API_KEY` | — | Personal API token — can be set as a shell env var |
 | `CLICKUP_TEAM_ID` | — | Workspace / team ID — can be set as a shell env var |
-| `CLICKUP_TAG` | — | Tasks with this tag will be picked up |
+| `CLICKUP_TAG` | — | Tasks with this tag will be picked up (set to `*` to match all tasks) |
 | `CLICKUP_PENDING_STATUS` | `pending` | Status name for "waiting for reply" |
 | `CLICKUP_IN_REVIEW_STATUS` | `review` | Status set after implementation |
 | `ASSIGNEE_TAG` | — | Only process tasks assigned to this user (optional) |
@@ -168,6 +168,8 @@ CLICKUP_TAG=my-project
 | `NON_CODE_CLICKUP_TEAM_ID` | same as `CLICKUP_TEAM_ID` | Different workspace for non-code tasks (optional) |
 
 > **Tip:** `CLICKUP_API_KEY` and `CLICKUP_TEAM_ID` are intentionally omitted from `.env.aidev` if you leave them blank during `aidev init` — they will be read from your shell environment instead.
+
+> **Wildcard tag (`*`):** Set `CLICKUP_TAG=*` (or `JIRA_LABEL=*` / `LINEAR_LABEL=*`) to match **all** tasks regardless of tags/labels. This is useful when the AI dev has its own dedicated user in the task provider and every task assigned to it should be processed.
 
 ### Git & GitHub
 

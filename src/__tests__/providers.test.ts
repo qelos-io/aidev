@@ -150,6 +150,51 @@ describe('ClickUpProvider.fetchTasks', () => {
   });
 });
 
+describe('ClickUpProvider.fetchTasks — wildcard tag', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('omits tag filter from API call when tag is "*"', async () => {
+    await withTempCwd(async () => {
+      let capturedUrl = '';
+      mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('/team/team1/task')) {
+          capturedUrl = url;
+          return jsonResponse({
+            tasks: [
+              {
+                id: 'task1',
+                name: 'Any-tag task',
+                description: 'No specific tag required.',
+                status: { status: 'open' },
+                priority: { id: '1' },
+                url: 'https://app.clickup.com/t/task1',
+                tags: [{ name: 'random' }],
+              },
+            ],
+          });
+        }
+        if (url.endsWith('/task/task1')) {
+          return jsonResponse({ attachments: [] });
+        }
+        return jsonResponse({});
+      });
+
+      const provider = new ClickUpProvider({
+        ...baseClickUpConfig,
+        clickupTag: '*',
+      } as unknown as Config);
+      const tasks = await provider.fetchTasks();
+
+      assert.equal(tasks.length, 1);
+      assert.equal(tasks[0].name, 'Any-tag task');
+      // The URL should NOT contain a tags[] parameter
+      assert.ok(!capturedUrl.includes('tags%5B%5D'), 'should omit tags[] filter when tag is "*"');
+      assert.ok(!capturedUrl.includes('tags[]='), 'should omit tags[] filter when tag is "*"');
+    });
+  });
+});
+
 describe('ClickUpProvider.getComments', () => {
   afterEach(() => mock.restoreAll());
 
@@ -339,6 +384,52 @@ describe('JiraProvider.getComments', () => {
   });
 });
 
+describe('JiraProvider.fetchTasks — wildcard label', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('omits label clause from JQL when label is "*"', async () => {
+    await withTempCwd(async () => {
+      let capturedUrl = '';
+      mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('/search/jql')) {
+          capturedUrl = url;
+          return jsonResponse({
+            issues: [
+              {
+                id: '2001',
+                key: 'PROJ-5',
+                fields: {
+                  summary: 'Unlabelled task',
+                  description: null,
+                  status: { name: 'Open' },
+                  priority: { id: '3' },
+                  labels: [],
+                  self: 'https://example.atlassian.net/rest/api/3/issue/2001',
+                  attachment: [],
+                },
+              },
+            ],
+          });
+        }
+        return jsonResponse({});
+      });
+
+      const provider = new JiraProvider({
+        ...baseJiraConfig,
+        jiraLabel: '*',
+      } as unknown as Config);
+      const tasks = await provider.fetchTasks();
+
+      assert.equal(tasks.length, 1);
+      assert.equal(tasks[0].id, 'PROJ-5');
+      // JQL should NOT contain "AND labels =" clause
+      const decodedUrl = decodeURIComponent(capturedUrl);
+      assert.ok(!decodedUrl.includes('AND labels ='), 'should omit labels clause from JQL when label is "*"');
+    });
+  });
+});
+
 describe('JiraProvider.fetchTasks', () => {
   afterEach(() => mock.restoreAll());
 
@@ -390,6 +481,55 @@ describe('JiraProvider.fetchTasks', () => {
 });
 
 // ─── LinearProvider ─────────────────────────────────────────────────────────
+
+describe('LinearProvider.fetchTasks — wildcard label', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('omits label filter from GraphQL query when label is "*"', async () => {
+    let capturedFilter: Record<string, unknown> = {};
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('workflowStates')) {
+        return jsonResponse({
+          data: { workflowStates: { nodes: [{ id: 's1', name: 'Backlog', type: 'unstarted' }] } },
+        });
+      }
+      if (body.query?.includes('issues')) {
+        capturedFilter = body.variables?.filter || {};
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-2',
+                  identifier: 'ENG-99',
+                  title: 'No label task',
+                  description: 'Should appear without label filter.',
+                  url: 'https://linear.app/org/issue/ENG-99',
+                  state: { id: 's1', name: 'Backlog', type: 'unstarted' },
+                  priority: 1,
+                  labels: { nodes: [] },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider({
+      ...baseLinearConfig,
+      linearLabel: '*',
+    } as unknown as Config);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].id, 'ENG-99');
+    // Filter should NOT contain a labels key
+    assert.equal(capturedFilter.labels, undefined, 'should not include labels filter when label is "*"');
+  });
+});
 
 describe('LinearProvider.fetchTasks', () => {
   afterEach(() => mock.restoreAll());
