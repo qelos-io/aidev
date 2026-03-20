@@ -120,8 +120,9 @@ export class ClickUpProvider implements TaskProvider {
       tasks: RawTask[];
     }
 
+    const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
     const data = await this.request<TasksResponse>(
-      `/team/${this.teamId}/task?tags[]=${encodeURIComponent(this.tag)}&subtasks=true&include_closed=false`
+      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false`
     );
 
     const pendingStatus = this.pendingStatus.toLowerCase();
