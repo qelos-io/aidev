@@ -156,6 +156,7 @@ export interface Answers {
   devNotesMode: string;
   triggerWord: string;
   thinkingTag: string;
+  commentPrefix: string;
   aidevEnvExtend: string;
 }
 
@@ -350,6 +351,9 @@ export function renderEnv(a: Answers): string {
     ``,
     `# AIDEV_TRIGGER_WORD: comment containing this word re-triggers task processing (default: aidev-continue)`,
     `AIDEV_TRIGGER_WORD=${envVal(a.triggerWord)}`,
+    ``,
+    `# AIDEV_COMMENT_PREFIX: custom prefix for aidev comments in task providers (default: [aidev])`,
+    a.commentPrefix !== '[aidev]' ? `AIDEV_COMMENT_PREFIX=${envVal(a.commentPrefix)}` : `# AIDEV_COMMENT_PREFIX=${envVal(a.commentPrefix)}`,
     ``,
     `# THINKING_TAG: tasks with this tag are analyzed and broken into sub-tasks before execution`,
     line('THINKING_TAG', a.thinkingTag),
@@ -586,6 +590,14 @@ export async function initCommand(): Promise<void> {
       existing.AIDEV_TRIGGER_WORD || 'aidev-continue'
     );
 
+    // ── Comment prefix ──────────────────────────────────────
+    section('Comment prefix');
+    const commentPrefix = await ask(
+      rl,
+      `Comment prefix ${hint('prefix for aidev comments in task providers')}`,
+      existing.AIDEV_COMMENT_PREFIX || '[aidev]'
+    );
+
     // ── Thinking tag ────────────────────────────────────────
     section('Thinking tasks');
     const thinkingTag = await ask(
@@ -691,6 +703,7 @@ export async function initCommand(): Promise<void> {
       devNotesMode,
       triggerWord,
       thinkingTag,
+      commentPrefix,
     };
 
     ensureGitignore();
