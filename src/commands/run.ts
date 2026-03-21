@@ -1063,7 +1063,9 @@ ${context}
 
 IMPORTANT: The conversation above contains follow-up comments. Focus on the LATEST comment as the primary request to address — it may refine, override, or follow up on the original description. Use the original description and earlier comments only as background context.
 
-Please provide a clear, detailed response. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who wrote the latest comment.`;
+Please provide a clear, detailed response. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who wrote the latest comment.
+
+CRITICAL: Your entire output will be posted verbatim as the comment. Do NOT include any meta-commentary, preamble, or instructions like "Here is the comment:" or "You can paste this as...". Just write the comment content directly.`;
   }
 
   return `You are handling a non-code task. This task does NOT require code changes — it requires a thoughtful, verbal response.
@@ -1073,7 +1075,26 @@ Task: ${task.name}
 Description:
 ${task.description || '(no description provided)'}
 
-Please provide a clear, detailed response to this task. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who created the task.`;
+Please provide a clear, detailed response to this task. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who created the task.
+
+CRITICAL: Your entire output will be posted verbatim as the comment. Do NOT include any meta-commentary, preamble, or instructions like "Here is the comment:" or "You can paste this as...". Just write the comment content directly.`;
+}
+
+export function stripAgentPreamble(text: string): string {
+  // Remove common AI preamble patterns like:
+  // "Here is text you can paste as the ticket comment:"
+  // "Here's the comment:"
+  // "Below is the response:"
+  // Followed by optional --- separators
+  const preamblePattern = /^[\s\S]*?(?:here(?:'s| is)(?: the| some| a| text)?(?: text)?(?: you can paste| for the| for you| that can be)[\s\S]*?(?:comment|ticket|response|reply|answer)[\s\S]*?:)\s*(?:\n-{2,}\n)?/i;
+  const stripped = text.replace(preamblePattern, '');
+
+  // Also handle patterns like "Sure, here's the comment:\n---\n"
+  const surePattern = /^(?:sure[,!.]?\s*)?(?:here(?:'s| is| are)[\s\S]*?:)\s*(?:\n-{2,}\n)?/i;
+  const result = stripped === text ? text.replace(surePattern, '') : stripped;
+
+  // Clean up leading whitespace/separators left after stripping
+  return result.replace(/^[\s]*(?:-{3,}\s*\n)?/, '').trimEnd();
 }
 
 export function buildNonCodeCompletionComment(config: Config, agentResponse?: string): string {
@@ -1082,7 +1103,8 @@ export function buildNonCodeCompletionComment(config: Config, agentResponse?: st
   ];
 
   if (agentResponse) {
-    lines.push(``, `---`, ``, agentResponse);
+    const cleaned = stripAgentPreamble(agentResponse);
+    lines.push(``, `---`, ``, cleaned);
   }
 
   lines.push(``, `Status set to: ${getInReviewStatus(config)}`);

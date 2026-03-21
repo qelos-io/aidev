@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason } from '../commands/run';
+import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, stripAgentPreamble } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -407,6 +407,74 @@ describe('buildNonCodeCompletionComment', () => {
   });
 });
 
+// ─── stripAgentPreamble ──────────────────────────────────────────────────────
+
+describe('stripAgentPreamble', () => {
+  it('strips "Here is text you can paste as the ticket comment:" preamble', () => {
+    const input = 'Here is text you can paste as the ticket comment:\n\n---\n\n**Re: "Yes to everything you said."**\n\nThanks for confirming.';
+    const result = stripAgentPreamble(input);
+    assert.ok(result.startsWith('**Re:'));
+    assert.ok(!result.includes('Here is text'));
+  });
+
+  it('strips "Here is the comment:" preamble', () => {
+    const input = "Here is the comment:\n\nThe answer is 42.";
+    const result = stripAgentPreamble(input);
+    assert.equal(result, 'The answer is 42.');
+  });
+
+  it('strips "Sure, here\'s the response:" preamble', () => {
+    const input = "Sure, here's the response:\n\nAll good.";
+    const result = stripAgentPreamble(input);
+    assert.equal(result, 'All good.');
+  });
+
+  it('strips "Here is a response you can paste as the comment:" with separator', () => {
+    const input = 'Here is a response you can paste as the comment:\n---\nActual content here.';
+    const result = stripAgentPreamble(input);
+    assert.equal(result, 'Actual content here.');
+  });
+
+  it('does not strip normal content', () => {
+    const input = 'The deployment process works as follows:\n\n1. Build the Docker image\n2. Push to registry';
+    const result = stripAgentPreamble(input);
+    assert.equal(result, input);
+  });
+
+  it('preserves content that just mentions "here" casually', () => {
+    const input = 'Here we need to consider the trade-offs between speed and reliability.';
+    const result = stripAgentPreamble(input);
+    assert.equal(result, input);
+  });
+
+  it('handles empty string', () => {
+    assert.equal(stripAgentPreamble(''), '');
+  });
+
+  it('handles content with only separator after preamble', () => {
+    const input = 'Here is text you can paste as the ticket comment:\n---\nReal content';
+    const result = stripAgentPreamble(input);
+    assert.equal(result, 'Real content');
+  });
+});
+
+// ─── buildNonCodeCompletionComment strips preamble ───────────────────────────
+
+describe('buildNonCodeCompletionComment strips agent preamble', () => {
+  it('strips preamble from agent response in completion comment', () => {
+    const agentOutput = 'Here is text you can paste as the ticket comment:\n\n---\n\nActual response content.';
+    const comment = buildNonCodeCompletionComment(baseConfig, agentOutput);
+    assert.ok(comment.includes('Actual response content.'));
+    assert.ok(!comment.includes('Here is text you can paste'));
+  });
+
+  it('preserves clean agent response without preamble', () => {
+    const agentOutput = 'The answer to your question is 42.';
+    const comment = buildNonCodeCompletionComment(baseConfig, agentOutput);
+    assert.ok(comment.includes('The answer to your question is 42.'));
+  });
+});
+
 // ─── buildNonCodePrompt ──────────────────────────────────────────────────────
 
 describe('buildNonCodePrompt', () => {
@@ -443,6 +511,18 @@ describe('buildNonCodePrompt', () => {
     const prompt = buildNonCodePrompt(task, '');
     assert.ok(!prompt.includes('LATEST comment'));
     assert.ok(!prompt.includes('Original description'));
+  });
+
+  it('instructs AI not to include preamble in output (no comments)', () => {
+    const prompt = buildNonCodePrompt(task, '');
+    assert.ok(prompt.includes('posted verbatim'));
+    assert.ok(prompt.includes('Do NOT include'));
+  });
+
+  it('instructs AI not to include preamble in output (with comments)', () => {
+    const prompt = buildNonCodePrompt(task, '\n\nConversation context:\nAlice: Please clarify');
+    assert.ok(prompt.includes('posted verbatim'));
+    assert.ok(prompt.includes('Do NOT include'));
   });
 });
 
