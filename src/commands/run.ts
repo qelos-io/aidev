@@ -617,6 +617,12 @@ async function implementTask(
       break;
     }
 
+    if (result.success && !git.hasChanges() && git.hasCommitsAhead(config.gitRemote, config.githubBaseBranch)) {
+      logger.info(`${runner.name} produced no new file changes, but branch already has commits ahead of ${config.githubBaseBranch}`);
+      implemented = true;
+      break;
+    }
+
     if (!result.success) {
       logger.warn(`${runner.name} failed — trying next runner`);
       previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
@@ -639,15 +645,17 @@ async function implementTask(
     return;
   }
 
-  // Commit and push
-  if (!git.addAll() || !git.commit(`${config.commentPrefix} Implement: ${task.name}\n\nTask: ${task.url}`, branchName)) {
-    logger.error('Failed to commit changes');
-    return;
-  }
+  // Commit and push (only if there are new changes to commit)
+  if (git.hasChanges()) {
+    if (!git.addAll() || !git.commit(`${config.commentPrefix} Implement: ${task.name}\n\nTask: ${task.url}`, branchName)) {
+      logger.error('Failed to commit changes');
+      return;
+    }
 
-  if (!git.push(config.gitRemote, branchName)) {
-    logger.error('Failed to push branch');
-    return;
+    if (!git.push(config.gitRemote, branchName)) {
+      logger.error('Failed to push branch');
+      return;
+    }
   }
 
   if (reviewThreads.length > 0) {
