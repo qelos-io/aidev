@@ -1053,22 +1053,26 @@ export function buildNonCodePrompt(task: Task, context: string): string {
   const hasComments = context.trim().length > 0;
 
   if (hasComments) {
-    return `You are handling a non-code task. This task does NOT require code changes — it requires a thoughtful, verbal response.
-
-Task: ${task.name}
+    return `Task: ${task.name}
 
 Original description:
 ${task.description || '(no description provided)'}
 ${context}
 
-IMPORTANT: The conversation above contains follow-up comments. Focus on the LATEST comment as the primary request to address — it may refine, override, or follow up on the original description. Use the original description and earlier comments only as background context.
+⚠️ CRITICAL: This is a FOLLOW-UP request. The conversation above contains new comments from the user.
+YOUR PRIMARY TASK is to address the LATEST comment at the bottom of the conversation - this is the user's current request.
+The latest comment may:
+- Ask for something completely different from the original task
+- Request modifications to what was already done
+- Add new requirements
 
-Please provide a clear, detailed response. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who wrote the latest comment.`;
+DO NOT repeat what was already done. DO NOT re-execute the original task unless explicitly asked.
+Focus ENTIRELY on addressing the latest comment as your main instruction.
+
+Please provide a clear, detailed response to the LATEST comment. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who wrote the latest comment.`;
   }
 
-  return `You are handling a non-code task. This task does NOT require code changes — it requires a thoughtful, verbal response.
-
-Task: ${task.name}
+  return `Task: ${task.name}
 
 Description:
 ${task.description || '(no description provided)'}
@@ -1082,7 +1086,29 @@ export function buildNonCodeCompletionComment(config: Config, agentResponse?: st
   ];
 
   if (agentResponse) {
-    lines.push(``, `---`, ``, agentResponse);
+    // Filter out instructional text like "Here's text you can paste as the **task ticket comment**"
+    // and extract only the actual content
+    let cleanedResponse = agentResponse;
+    
+    // Look for the content after the first "---" separator, as the actual content usually follows
+    const separatorIndex = agentResponse.indexOf('---');
+    if (separatorIndex !== -1) {
+      const afterSeparator = agentResponse.substring(separatorIndex + 3).trim();
+      // Look for the start of actual content (skip any remaining instructional text)
+      const lines = afterSeparator.split('\n');
+      const contentStartIndex = lines.findIndex(line => 
+        line.trim() && 
+        !line.toLowerCase().includes('here\'s text you can paste') &&
+        !line.toLowerCase().includes('task ticket comment') &&
+        !line.toLowerCase().includes('addresses your latest ask')
+      );
+      
+      if (contentStartIndex !== -1) {
+        cleanedResponse = lines.slice(contentStartIndex).join('\n').trim();
+      }
+    }
+    
+    lines.push(``, `---`, ``, cleanedResponse);
   }
 
   lines.push(``, `Status set to: ${getInReviewStatus(config)}`);
@@ -1122,6 +1148,7 @@ async function processNonCodeTask(
 
   if (isPending || wasProcessed) {
     const trigger = hasTriggerWord(comments, config.triggerWord);
+    const hasHumanFollowUp = hasHumanReply(comments, config.commentPrefix);
 
     if (isPending) {
       const reply = hasHumanReply(comments, config.commentPrefix);
@@ -1135,11 +1162,16 @@ async function processNonCodeTask(
           : 'Pending non-code task has a human reply — proceeding'
       );
     } else {
-      if (!trigger) {
-        logger.info(`[${task.id}] "${task.name}" skipped — already processed, no trigger word`);
+      // For already processed tasks, check if there's a human follow-up or trigger word
+      if (!trigger && !hasHumanFollowUp) {
+        logger.info(`[${task.id}] "${task.name}" skipped — already processed, no trigger word or human follow-up`);
         return 'skipped';
       }
-      logger.info(`Trigger word "${config.triggerWord}" found — re-processing non-code task`);
+      logger.info(
+        trigger
+          ? `Trigger word "${config.triggerWord}" found — re-processing non-code task`
+          : 'Human follow-up comment found — processing non-code task'
+      );
     }
 
     if (!screenAvailable) {

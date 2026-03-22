@@ -405,22 +405,34 @@ describe('buildNonCodeCompletionComment', () => {
     assert.ok(comment.startsWith('[mybot]'));
     assert.ok(!comment.includes('[aidev]'));
   });
+
+  it('filters out instructional text from agent response', () => {
+    const agentResponse = `Here's text you can paste as the **task ticket comment** (addresses your latest ask: do it + push):
+
+---
+
+**Done — publish + push**
+
+I published **one English post** from the LinkedIn drafts, using the **oldest draft by git history** (first commit that added the file): \`qelos-plugins-microfrontends.md\` (committed 2026-03-11 00:51, before \`qelos-netlify-plugin.md\`). The body sent to LinkedIn was the **\`## Post (English)\`** section, **without markdown** (no \`**\`, \`\`\`, or \`#\` headings) so it matches what the text webhook expects.`;
+    
+    const comment = buildNonCodeCompletionComment(baseConfig, agentResponse);
+    
+    // Should not include the instructional text
+    assert.ok(!comment.includes('Here\'s text you can paste as the'));
+    assert.ok(!comment.includes('task ticket comment'));
+    assert.ok(!comment.includes('addresses your latest ask'));
+    
+    // Should include the actual content
+    assert.ok(comment.includes('Done — publish + push'));
+    assert.ok(comment.includes('I published **one English post** from the LinkedIn drafts'));
+    assert.ok(comment.includes('qelos-plugins-microfrontends.md'));
+  });
 });
 
 // ─── buildNonCodePrompt ──────────────────────────────────────────────────────
 
 describe('buildNonCodePrompt', () => {
   const task = { id: '1', name: 'Research question', description: 'What is X?', status: 'open', url: 'http://example.com', tags: [] };
-
-  it('indicates the task is non-code', () => {
-    const prompt = buildNonCodePrompt(task, '');
-    assert.ok(prompt.includes('non-code'));
-  });
-
-  it('asks for a verbal response', () => {
-    const prompt = buildNonCodePrompt(task, '');
-    assert.ok(prompt.includes('verbal response'));
-  });
 
   it('includes task name and description', () => {
     const prompt = buildNonCodePrompt(task, '');
@@ -437,6 +449,9 @@ describe('buildNonCodePrompt', () => {
     const prompt = buildNonCodePrompt(task, '\n\nConversation context:\nAlice: Change the env file');
     assert.ok(prompt.includes('LATEST comment'));
     assert.ok(prompt.includes('Original description'));
+    assert.ok(prompt.includes('CRITICAL'));
+    assert.ok(prompt.includes('FOLLOW-UP request'));
+    assert.ok(prompt.includes('DO NOT repeat what was already done'));
   });
 
   it('does not mention latest comment when no comments', () => {
