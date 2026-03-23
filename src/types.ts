@@ -80,6 +80,18 @@ export interface Config {
   notionStatusProperty: string;
   notionPendingStatus: string;
   notionInReviewStatus: string;
+  // Trello
+  trelloApiKey: string;
+  trelloToken: string;
+  trelloBoardId: string;
+  trelloLabel: string;
+  trelloOpenList: string;
+  trelloPendingList: string;
+  trelloInProgressList: string;
+  trelloInReviewList: string;
+  trelloOpenStatus: string;
+  trelloPendingStatus: string;
+  trelloInReviewStatus: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;

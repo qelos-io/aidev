@@ -6,6 +6,7 @@ import { LinearProvider } from './linear';
 import { LocalProvider, TaskMode } from './local';
 import { MondayProvider } from './monday';
 import { NotionProvider } from './notion';
+import { TrelloProvider } from './trello';
 
 export function createProvider(config: Config, mode?: TaskMode): TaskProvider {
   switch (config.provider.toLowerCase()) {
@@ -22,7 +23,7 @@ export function createProvider(config: Config, mode?: TaskMode): TaskProvider {
     case 'notion':
       return new NotionProvider(config);
     case 'trello':
-      throw new Error('Trello provider is not yet implemented. Contributions welcome!');
+      return new TrelloProvider(config);
     default:
       throw new Error(`Unknown provider: ${config.provider}`);
   }
