@@ -61,6 +61,7 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
         jiraProject: config.nonCodeJiraProject || config.jiraProject,
         linearLabel: config.nonCodeTag,
         linearTeamId: config.nonCodeLinearTeamId || config.linearTeamId,
+        trelloLabel: config.nonCodeTag,
       };
       nonCodeProvider = createProvider(nonCodeConfig, 'non-code');
     }

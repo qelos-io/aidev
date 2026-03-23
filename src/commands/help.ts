@@ -90,7 +90,7 @@ ${b('EXAMPLES')}
   ${d('$')} ${g('aidev schedule get')}
 
 ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
-  ${d('PROVIDER')}             ${c('clickup')} ${d('(default) | jira | linear | local | monday')}
+  ${d('PROVIDER')}             ${c('clickup')} ${d('(default) | jira | linear | local | monday | notion | trello')}
   ${d('CLICKUP_API_KEY')}      ClickUp personal API token
   ${d('CLICKUP_TEAM_ID')}      Workspace / team ID
   ${d('CLICKUP_TAG')}          Tag used to filter tasks ${d('(default: folder name)')}

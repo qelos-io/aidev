@@ -134,7 +134,9 @@ export function loadConfig(customEnvPath?: string): Config {
             ? ['MONDAY_API_TOKEN', 'MONDAY_BOARD_ID', 'MONDAY_STATUS_COLUMN_ID']
             : provider === 'notion'
               ? ['NOTION_API_KEY', 'NOTION_DATABASE_ID']
-              : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
+              : provider === 'trello'
+                ? ['TRELLO_API_KEY', 'TRELLO_TOKEN', 'TRELLO_BOARD_ID']
+                : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
   for (const key of required) {
     if (!process.env[key]) {
       throw new Error(`Missing required config: ${key}. Run 'aidev init' to create .env.aidev`);
@@ -198,6 +200,17 @@ export function loadConfig(customEnvPath?: string): Config {
     notionStatusProperty: process.env.NOTION_STATUS_PROPERTY || 'Status',
     notionPendingStatus: process.env.NOTION_PENDING_STATUS || 'pending',
     notionInReviewStatus: process.env.NOTION_IN_REVIEW_STATUS || 'review',
+    trelloApiKey: process.env.TRELLO_API_KEY || '',
+    trelloToken: process.env.TRELLO_TOKEN || '',
+    trelloBoardId: process.env.TRELLO_BOARD_ID || '',
+    trelloLabel: process.env.TRELLO_LABEL || folderName,
+    trelloOpenList: process.env.TRELLO_OPEN_LIST || 'To Do',
+    trelloPendingList: process.env.TRELLO_PENDING_LIST || 'Blocked',
+    trelloInProgressList: process.env.TRELLO_IN_PROGRESS_LIST || 'Doing',
+    trelloInReviewList: process.env.TRELLO_IN_REVIEW_LIST || 'In Review',
+    trelloOpenStatus: process.env.TRELLO_OPEN_STATUS || 'open',
+    trelloPendingStatus: process.env.TRELLO_PENDING_STATUS || 'pending',
+    trelloInReviewStatus: process.env.TRELLO_IN_REVIEW_STATUS || 'review',
     clickupListId: process.env.CLICKUP_LIST_ID || '',
     assigneeTag: process.env.ASSIGNEE_TAG || '',
     gitRemote: process.env.GIT_REMOTE || detectRemote() || 'origin',

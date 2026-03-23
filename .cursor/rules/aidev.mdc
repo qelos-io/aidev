@@ -22,7 +22,7 @@ alwaysApply: true
 
 ### Providers (`src/providers/`)
 - `TaskProvider` interface: `fetchTasks()`, `postComment()`, `getComments()`, `updateStatus()`
-- Only ClickUp is implemented; Jira/Notion/Trello stubs throw descriptive errors
+- Implemented providers include ClickUp, Jira, Linear, Monday, Notion, Trello, and local; register new ones in `createProvider()`
 - To add a provider: implement `TaskProvider`, register in `createProvider()` factory
 
 ### AI Runners (`src/ai/`)

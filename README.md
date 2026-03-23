@@ -6,10 +6,10 @@
 
 **aidev** turns your tasks into merged code — automatically.
 
-It polls your task manager (ClickUp, Jira, Linear, Monday.com, Notion, or local markdown files), checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
+It polls your task manager (ClickUp, Jira, Linear, Monday.com, Notion, Trello, or local markdown files), checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
 
 ```
-Task (ClickUp / Jira / Monday / Notion / local)  →  AI implements  →  git push  →  "in review"
+Task (ClickUp / Jira / Monday / Notion / Trello / local)  →  AI implements  →  git push  →  "in review"
 ```
 
 ---

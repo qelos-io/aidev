@@ -10,6 +10,7 @@ import { JiraProvider } from '../providers/jira';
 import { LinearProvider } from '../providers/linear';
 import { MondayProvider } from '../providers/monday';
 import { NotionProvider } from '../providers/notion';
+import { TrelloProvider } from '../providers/trello';
 
 const baseClickUpConfig = {
   clickupApiKey: 'test-key',
@@ -51,6 +52,20 @@ const baseNotionConfig = {
   notionStatusProperty: 'Status',
   notionPendingStatus: 'pending',
   notionInReviewStatus: 'review',
+} as unknown as Config;
+
+const baseTrelloConfig = {
+  trelloApiKey: 'trello-key',
+  trelloToken: 'trello-token',
+  trelloBoardId: 'board1',
+  trelloLabel: 'aidev',
+  trelloOpenList: 'To Do',
+  trelloPendingList: 'Blocked',
+  trelloInProgressList: 'Doing',
+  trelloInReviewList: 'In Review',
+  trelloOpenStatus: 'open',
+  trelloPendingStatus: 'pending',
+  trelloInReviewStatus: 'review',
 } as unknown as Config;
 
 function jsonResponse(body: unknown) {
@@ -765,6 +780,173 @@ describe('NotionProvider.fetchTasks', () => {
     assert.equal(tasks[0].url, 'https://notion.so/a1b2c3d4e5f6789012345678abcdef01');
     assert.equal(tasks[1].name, 'Task two');
     assert.equal(tasks[1].status, 'review');
+  });
+});
+
+// ─── TrelloProvider ─────────────────────────────────────────────────────────
+
+describe('TrelloProvider.fetchTasks', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns cards assigned to token user with label in open or pending lists', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/members/me')) {
+        return jsonResponse({ id: 'member-me' });
+      }
+      if (url.includes('/boards/board1/lists')) {
+        return jsonResponse([
+          { id: 'list-open', name: 'To Do' },
+          { id: 'list-pending', name: 'Blocked' },
+        ]);
+      }
+      if (url.includes('/boards/board1/cards')) {
+        return jsonResponse([
+          {
+            id: 'card1',
+            name: 'Do work',
+            desc: 'Details',
+            url: 'https://trello.com/c/abc/card1',
+            idList: 'list-open',
+            idMembers: ['member-me'],
+            labels: [{ id: 'l1', name: 'aidev' }],
+          },
+          {
+            id: 'card2',
+            name: 'Wrong assignee',
+            desc: '',
+            url: 'https://trello.com/c/def/card2',
+            idList: 'list-open',
+            idMembers: ['other'],
+            labels: [{ id: 'l1', name: 'aidev' }],
+          },
+          {
+            id: 'card3',
+            name: 'In Doing column',
+            desc: '',
+            url: 'https://trello.com/c/ghi/card3',
+            idList: 'list-doing',
+            idMembers: ['member-me'],
+            labels: [{ id: 'l1', name: 'aidev' }],
+          },
+        ]);
+      }
+      if (url.includes('/cards/card1/attachments')) {
+        return jsonResponse([]);
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new TrelloProvider(baseTrelloConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].id, 'card1');
+    assert.equal(tasks[0].status, 'open');
+    assert.deepEqual(tasks[0].tags, ['aidev']);
+  });
+
+  it('omits label filter when TRELLO_LABEL is *', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/members/me')) {
+        return jsonResponse({ id: 'member-me' });
+      }
+      if (url.includes('/boards/board1/lists')) {
+        return jsonResponse([
+          { id: 'list-open', name: 'To Do' },
+          { id: 'list-pending', name: 'Blocked' },
+        ]);
+      }
+      if (url.includes('/boards/board1/cards')) {
+        return jsonResponse([
+          {
+            id: 'card1',
+            name: 'No label',
+            desc: '',
+            url: 'https://trello.com/c/abc/card1',
+            idList: 'list-open',
+            idMembers: ['member-me'],
+            labels: [],
+          },
+        ]);
+      }
+      if (url.includes('/cards/card1/attachments')) {
+        return jsonResponse([]);
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new TrelloProvider({
+      ...baseTrelloConfig,
+      trelloLabel: '*',
+    } as unknown as Config);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].name, 'No label');
+  });
+});
+
+describe('TrelloProvider.getComments', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns comment actions sorted ascending by date', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/cards/card1/actions')) {
+        return jsonResponse([
+          {
+            id: 'a2',
+            type: 'commentCard',
+            date: '2024-01-02T12:00:00.000Z',
+            data: { text: 'Newest' },
+            idMemberCreator: 'u1',
+            memberCreator: { id: 'u1', fullName: 'Alice', username: 'alice' },
+          },
+          {
+            id: 'a1',
+            type: 'commentCard',
+            date: '2024-01-01T10:00:00.000Z',
+            data: { text: 'Oldest' },
+            idMemberCreator: 'u1',
+            memberCreator: { id: 'u1', fullName: 'Alice', username: 'alice' },
+          },
+        ]);
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new TrelloProvider(baseTrelloConfig);
+    const comments = await provider.getComments('card1');
+
+    assert.equal(comments.length, 2);
+    assert.equal(comments[0].text, 'Oldest');
+    assert.equal(comments[1].text, 'Newest');
+  });
+});
+
+describe('TrelloProvider.updateStatus', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('PUTs card with idList for in progress', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/boards/board1/lists')) {
+        return jsonResponse([
+          { id: 'list-todo', name: 'To Do' },
+          { id: 'list-doing', name: 'Doing' },
+        ]);
+      }
+      if (url.includes('/cards/card1') && init?.method === 'PUT') {
+        assert.ok(url.includes('idList=list-doing'));
+        return jsonResponse({ id: 'card1', idList: 'list-doing' });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new TrelloProvider(baseTrelloConfig);
+    await provider.updateStatus('card1', 'in progress');
   });
 });
 
