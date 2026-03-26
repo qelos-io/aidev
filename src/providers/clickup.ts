@@ -115,6 +115,7 @@ export class ClickUpProvider implements TaskProvider {
       id: string;
       name: string;
       description?: string;
+      markdown_description?: string;
       status: { status: string };
       priority: { id: string } | null;
       url: string;
@@ -127,7 +128,7 @@ export class ClickUpProvider implements TaskProvider {
 
     const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
     const data = await this.request<TasksResponse>(
-      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false`
+      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false&include_markdown_description=true`
     );
 
     const pendingStatus = this.pendingStatus.toLowerCase();
@@ -150,7 +151,7 @@ export class ClickUpProvider implements TaskProvider {
       return {
         id: t.id,
         name: t.name,
-        description: appendAttachmentPaths(t.description || '', attachments),
+        description: appendAttachmentPaths(t.markdown_description || t.description || '', attachments),
         status: t.status.status.toLowerCase(),
         url: t.url,
         tags: t.tags.map((tag) => tag.name),
@@ -227,7 +228,7 @@ export class ClickUpProvider implements TaskProvider {
 
     const body: Record<string, unknown> = {
       name: params.title,
-      description: params.description,
+      markdown_description: params.description,
       tags: params.tags,
     };
     if (params.priority) body.priority = params.priority;

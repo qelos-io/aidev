@@ -226,7 +226,7 @@ export function markdownToClickupBlocks(markdown: string): ClickUpBlock[] {
 
     if (inCodeBlock) {
       blocks.push({ text: line });
-      blocks.push({ text: '\n', attributes: { 'code-block': codeLang } });
+      blocks.push({ text: '\n', attributes: { 'code-block': { 'code-block': codeLang } } });
       continue;
     }
 

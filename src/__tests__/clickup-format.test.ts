@@ -207,7 +207,7 @@ describe('markdownToClickupBlocks', () => {
     const blocks = markdownToClickupBlocks('```js\nconst x = 1;\n```');
     assert.deepEqual(blocks, [
       { text: 'const x = 1;' },
-      { text: '\n', attributes: { 'code-block': 'js' } },
+      { text: '\n', attributes: { 'code-block': { 'code-block': 'js' } } },
     ]);
   });
 
