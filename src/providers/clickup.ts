@@ -7,6 +7,11 @@ import {
   DownloadedAttachment,
   NativeAttachment,
 } from './assets';
+import {
+  ClickUpBlock,
+  clickupBlocksToMarkdown,
+  markdownToClickupBlocks,
+} from './clickup-format';
 
 export class ClickUpProvider implements TaskProvider {
   private apiKey: string;
@@ -110,6 +115,7 @@ export class ClickUpProvider implements TaskProvider {
       id: string;
       name: string;
       description?: string;
+      markdown_description?: string;
       status: { status: string };
       priority: { id: string } | null;
       url: string;
@@ -122,7 +128,7 @@ export class ClickUpProvider implements TaskProvider {
 
     const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
     const data = await this.request<TasksResponse>(
-      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false`
+      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false&include_markdown_description=true`
     );
 
     const pendingStatus = this.pendingStatus.toLowerCase();
@@ -145,7 +151,7 @@ export class ClickUpProvider implements TaskProvider {
       return {
         id: t.id,
         name: t.name,
-        description: appendAttachmentPaths(t.description || '', attachments),
+        description: appendAttachmentPaths(t.markdown_description || t.description || '', attachments),
         status: t.status.status.toLowerCase(),
         url: t.url,
         tags: t.tags.map((tag) => tag.name),
@@ -156,23 +162,20 @@ export class ClickUpProvider implements TaskProvider {
 
   async postComment(taskId: string, text: string): Promise<void> {
     logger.debug(`Posting comment to task ${taskId}`);
+    const blocks = markdownToClickupBlocks(text);
     await this.request(`/task/${taskId}/comment`, {
       method: 'POST',
-      body: JSON.stringify({ comment_text: text }),
+      body: JSON.stringify({ comment: blocks }),
     });
   }
 
   async getComments(taskId: string): Promise<Comment[]> {
     logger.debug(`Fetching comments for task ${taskId}`);
 
-    interface RawCommentBlock {
-      text?: string;
-    }
-
     interface RawComment {
       id: string;
-      comment_text: string | RawCommentBlock[];
-      comment?: RawCommentBlock[];
+      comment_text: string | ClickUpBlock[];
+      comment?: ClickUpBlock[];
       user: { username: string; id: number };
       date: string;
     }
@@ -191,9 +194,9 @@ export class ClickUpProvider implements TaskProvider {
       if (typeof c.comment_text === 'string' && c.comment_text) {
         text = c.comment_text;
       } else if (Array.isArray(c.comment_text) && c.comment_text.length > 0) {
-        text = c.comment_text.map((b) => b.text || '').join('');
+        text = clickupBlocksToMarkdown(c.comment_text);
       } else if (Array.isArray(c.comment) && c.comment.length > 0) {
-        text = c.comment.map((b) => b.text || '').join('');
+        text = clickupBlocksToMarkdown(c.comment);
       } else {
         text = '';
       }
@@ -225,7 +228,7 @@ export class ClickUpProvider implements TaskProvider {
 
     const body: Record<string, unknown> = {
       name: params.title,
-      description: params.description,
+      markdown_description: params.description,
       tags: params.tags,
     };
     if (params.priority) body.priority = params.priority;
