@@ -457,57 +457,55 @@ interface HookVM {
 
 // ─── Hooks (fill in — ask an AI: "implement beforeEachTask to append X to the prompt") ─
 
-module.exports = {
-  /** Once before any task. AI idea: log counts, or throw if CI env var is missing. */
-  async beforeRun(_context: RunContext, _vm: HookVM): Promise<RunContext | void> {
-    return;
-  },
+/** Once before any task. AI idea: log counts, or throw if CI env var is missing. */
+export async function beforeRun(_context: RunContext, _vm: HookVM): Promise<RunContext | void> {
+  return;
+}
 
-  /** After all tasks in this run. AI idea: post a summary comment or call an external webhook. */
-  async afterRun(_context: RunContext & { processed: number; skipped: number }, _vm: HookVM): Promise<void> {
-    return;
-  },
+/** After all tasks in this run. AI idea: post a summary comment or call an external webhook. */
+export async function afterRun(_context: RunContext & { processed: number; skipped: number }, _vm: HookVM): Promise<void> {
+  return;
+}
 
-  /** Before each code task AI run. AI idea: append coding standards or repo-specific rules to context.prompt. */
-  async beforeEachTask(_context: TaskContext, _vm: HookVM): Promise<TaskContext | void> {
-    return;
-  },
+/** Before each code task AI run. AI idea: append coding standards or repo-specific rules to context.prompt. */
+export async function beforeEachTask(_context: TaskContext, _vm: HookVM): Promise<TaskContext | void> {
+  return;
+}
 
-  /** After a code task completes the success path (push + review). */
-  async afterEachTask(_context: TaskContext & { success: boolean }, _vm: HookVM): Promise<void> {
-    return;
-  },
+/** After a code task completes the success path (push + review). */
+export async function afterEachTask(_context: TaskContext & { success: boolean }, _vm: HookVM): Promise<void> {
+  return;
+}
 
-  /** Before AI-driven merge conflict resolution. AI idea: tighten context.prompt for your stack. */
-  async beforeResolveConflicts(_context: ResolveConflictsContext, _vm: HookVM): Promise<ResolveConflictsContext | void> {
-    return;
-  },
+/** Before AI-driven merge conflict resolution. AI idea: tighten context.prompt for your stack. */
+export async function beforeResolveConflicts(_context: ResolveConflictsContext, _vm: HookVM): Promise<ResolveConflictsContext | void> {
+  return;
+}
 
-  /** After conflict resolution; context.resolved is false when all runners failed. */
-  async afterResolveConflicts(_context: ResolveConflictsContext & { resolved: boolean }, _vm: HookVM): Promise<void> {
-    return;
-  },
+/** After conflict resolution; context.resolved is false when all runners failed. */
+export async function afterResolveConflicts(_context: ResolveConflictsContext & { resolved: boolean }, _vm: HookVM): Promise<void> {
+  return;
+}
 
-  /** Before non-code task AI run. AI idea: format context.prompt for ticket-style replies. */
-  async beforeNonCodeTask(_context: NonCodeTaskContext, _vm: HookVM): Promise<NonCodeTaskContext | void> {
-    return;
-  },
+/** Before non-code task AI run. AI idea: format context.prompt for ticket-style replies. */
+export async function beforeNonCodeTask(_context: NonCodeTaskContext, _vm: HookVM): Promise<NonCodeTaskContext | void> {
+  return;
+}
 
-  /** After non-code task; context.output is the agent response text posted to the ticket. */
-  async afterNonCodeTask(_context: NonCodeTaskContext & { success: boolean; output: string }, _vm: HookVM): Promise<void> {
-    return;
-  },
+/** After non-code task; context.output is the agent response text posted to the ticket. */
+export async function afterNonCodeTask(_context: NonCodeTaskContext & { success: boolean; output: string }, _vm: HookVM): Promise<void> {
+  return;
+}
 
-  /** After the plan exists, before subtasks run. AI idea: rewrite subtask descriptions for clarity. */
-  async beforeThinkingTask(_context: ThinkingTaskContext, _vm: HookVM): Promise<ThinkingTaskContext | void> {
-    return;
-  },
+/** After the plan exists, before subtasks run. AI idea: rewrite subtask descriptions for clarity. */
+export async function beforeThinkingTask(_context: ThinkingTaskContext, _vm: HookVM): Promise<ThinkingTaskContext | void> {
+  return;
+}
 
-  /** After all thinking-task subtasks complete. AI idea: notify or archive artifacts. */
-  async afterThinkingTask(_context: ThinkingTaskContext & { success: boolean }, _vm: HookVM): Promise<void> {
-    return;
-  },
-};
+/** After all thinking-task subtasks complete. AI idea: notify or archive artifacts. */
+export async function afterThinkingTask(_context: ThinkingTaskContext & { success: boolean }, _vm: HookVM): Promise<void> {
+  return;
+}
 `;
 
 export function ensureHooksBoilerplate(dir = process.cwd()): void {

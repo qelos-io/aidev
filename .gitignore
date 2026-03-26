@@ -8,3 +8,5 @@ aidev.log
 *.aidev.task.json
 .aidev/assets/
 .claude/settings.local.json
+*.log
+aidev.tasks.json
