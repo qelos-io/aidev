@@ -108,4 +108,5 @@ export interface Config {
   triggerWord: string;
   thinkingTag: string;
   commentPrefix: string;
+  hooksPath: string;
 }

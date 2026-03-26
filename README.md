@@ -24,6 +24,7 @@ Task (ClickUp / Jira / Monday / Notion / Trello / local)  →  AI implements  �
 - [AI agents](#ai-agents)
 - [Dev notes mode](#dev-notes-mode)
 - [Scheduling](#scheduling)
+- [Hooks](#hooks)
 - [Logging](#logging)
 - [Providers](#providers)
 - [Contributing](#contributing)
@@ -188,6 +189,37 @@ CLICKUP_TAG=my-project
 | `DEV_NOTES_MODE` | `smart` | When to ask for clarification (`smart` or `always`) |
 | `AIDEV_TRIGGER_WORD` | `aidev-continue` | Comment containing this word re-triggers a skipped task |
 | `AIDEV_COMMENT_PREFIX` | `[aidev]` | Custom prefix for all aidev comments posted to task providers |
+| `AIDEV_HOOKS_PATH` | — | Path to a `.ts` or `.js` module that exports hook functions (see [Hooks](#hooks)) |
+
+---
+
+## Hooks
+
+Set `AIDEV_HOOKS_PATH` in `.env.aidev` to a path relative to the project directory or an absolute path. `aidev init` writes `.aidev/aidev.hooks.ts` and sets `AIDEV_HOOKS_PATH=.aidev/aidev.hooks.ts` by default.
+
+The module should export an object (or `export default`) whose properties are optional async functions. Only known hook names are used; anything else is ignored. If a hook throws, the current operation stops (for example the whole run after `beforeRun`, or conflict resolution after `beforeResolveConflicts`). If a hook returns an object, it replaces the context for that step (for example append to `context.prompt` in `beforeEachTask` and return the updated context).
+
+**Hook names**
+
+| Hook | When | Context notes |
+|---|---|---|
+| `beforeRun` / `afterRun` | Start / end of `aidev run` | `afterRun` includes `processed` and `skipped` counts |
+| `beforeEachTask` / `afterEachTask` | Around each code task implementation | `prompt`, `branchName`, `task`; `afterEachTask` has `success` |
+| `beforeResolveConflicts` / `afterResolveConflicts` | Merge conflict resolution with AI | `conflictFiles`, `prompt`; `afterResolveConflicts` has `resolved` |
+| `beforeNonCodeTask` / `afterNonCodeTask` | Non-code tasks | `afterNonCodeTask` includes agent `output` |
+| `beforeThinkingTask` / `afterThinkingTask` | Thinking-tag tasks (subtask plan) | `beforeThinkingTask` may adjust `subtasks` before steps run |
+
+**Second argument: `vm`**
+
+Each hook receives `(context, vm)`. The `vm` object exposes:
+
+- `runAI(prompt)` — runs the first available configured AI agent
+- `postComment(taskId, text)`, `updateStatus(taskId, status)`, `getComments(taskId)` — same family of operations as the task provider
+- `log.info` / `log.warn` / `log.error` — prefixed hook logging
+
+**TypeScript hooks**
+
+`.ts` hook files are loaded at runtime via [jiti](https://www.npmjs.com/package/jiti) — no TypeScript compiler or toolchain needed. Just write a plain `.ts` file with the hook functions and aidev handles the rest.
 
 ---
 
