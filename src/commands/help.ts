@@ -62,6 +62,11 @@ ${b('TRIGGER WORD')}
   containing the trigger word ${d('(default: aidev-continue)')} to re-trigger processing.
   The existing branch will be reused. Set ${c('AIDEV_TRIGGER_WORD')} to customise.
 
+${b('HOOKS')}
+  Set ${c('AIDEV_HOOKS_PATH')} to a ${d('.ts')} or ${d('.js')} file to run optional async hooks
+  ${d('(beforeRun, beforeEachTask, beforeResolveConflicts, …)')}. ${c('aidev init')} creates
+  ${d('.aidev/aidev.hooks.ts')} and points this variable at it. Throw from a hook to abort that step.
+
 ${b('LOCAL PROVIDER')}
   Set ${c('PROVIDER=local')} in ${d('.env.aidev')} to use file-based task management.
   Tasks live in ${d('.aidev/tasks/')} under status folders: ${c('open')}, ${c('pending')},
@@ -97,6 +102,7 @@ ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
   ${d('AGENTS')}               Agent order: ${c('claude,cursor')} ${d('| antigravity | cursor | windsurf | …')}
   ${d('DEV_NOTES_MODE')}       ${c('smart')} ${d('(default) | always')}
   ${d('AIDEV_TRIGGER_WORD')}   Trigger word to re-process a skipped task ${d('(default: aidev-continue)')}
+  ${d('AIDEV_HOOKS_PATH')}     Optional hooks module ${d('(default from init: .aidev/aidev.hooks.ts)')}
   ${d('NON_CODE_TAG')}         Tag for non-code tasks ${d('(default: <folder-name>-other)')}
   ${d('GIT_REMOTE')}           Remote name ${d('(auto-detected if unset)')}
   ${d('GITHUB_BASE_BRANCH')}   Base branch ${d('(default: main)')}

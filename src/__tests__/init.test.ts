@@ -1,10 +1,10 @@
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as dotenv from 'dotenv';
-import { envVal, renderEnv, ensureGitignore, getWindowsCursorInitMessage, Answers } from '../commands/init';
+import { envVal, renderEnv, ensureGitignore, ensureHooksBoilerplate, getWindowsCursorInitMessage, Answers } from '../commands/init';
 
 // ─── envVal ──────────────────────────────────────────────────────────────────
 
@@ -103,6 +103,11 @@ describe('renderEnv', () => {
   it('includes comment before AGENTS', () => {
     const out = renderEnv(baseAnswers);
     assert.ok(out.includes('# Agents to use'));
+  });
+
+  it('includes default AIDEV_HOOKS_PATH', () => {
+    const out = renderEnv(baseAnswers);
+    assert.ok(out.includes('AIDEV_HOOKS_PATH=.aidev/aidev.hooks.ts'));
   });
 
   it('omits GITHUB_REPO when empty', () => {
@@ -283,6 +288,7 @@ describe('existing env round-trip (edit flow)', () => {
     assert.equal(p.AGENTS, 'claude,cursor');
     assert.equal(p.DEV_NOTES_MODE, 'smart');
     assert.equal(p.AIDEV_TRIGGER_WORD, 'aidev-continue');
+    assert.equal(p.AIDEV_HOOKS_PATH, '.aidev/aidev.hooks.ts');
   });
 
   it('re-rendering ClickUp answers with parsed values produces identical output', () => {
@@ -509,6 +515,40 @@ describe('renderEnv Linear provider', () => {
     const first = renderEnv(linearAnswers);
     const second = renderEnv(answersFromParsed(dotenv.parse(first)));
     assert.equal(second, first);
+  });
+});
+
+// ─── ensureHooksBoilerplate ─────────────────────────────────────────────────
+
+describe('ensureHooksBoilerplate', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-init-hooks-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('creates .aidev/aidev.hooks.ts with interfaces and stub hooks', () => {
+    ensureHooksBoilerplate(tmp);
+    const p = path.join(tmp, '.aidev', 'aidev.hooks.ts');
+    assert.ok(fs.existsSync(p));
+    const body = fs.readFileSync(p, 'utf8');
+    assert.ok(body.includes('module.exports'));
+    assert.ok(body.includes('async beforeRun'));
+    assert.ok(body.includes('interface RunContext'));
+    assert.ok(body.includes('beforeResolveConflicts'));
+  });
+
+  it('does not overwrite an existing hooks file', () => {
+    const aidevDir = path.join(tmp, '.aidev');
+    fs.mkdirSync(aidevDir, { recursive: true });
+    const p = path.join(aidevDir, 'aidev.hooks.ts');
+    fs.writeFileSync(p, '// custom', 'utf8');
+    ensureHooksBoilerplate(tmp);
+    assert.equal(fs.readFileSync(p, 'utf8'), '// custom');
   });
 });
 

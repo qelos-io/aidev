@@ -364,6 +364,9 @@ export function renderEnv(a: Answers): string {
     line('NON_CODE_JIRA_PROJECT', a.nonCodeJiraProject),
     line('NON_CODE_LINEAR_TEAM_ID', a.nonCodeLinearTeamId),
     ``,
+    `# AIDEV_HOOKS_PATH: path to hooks file (.ts or .js) for customizing the AI pipeline`,
+    `AIDEV_HOOKS_PATH=.aidev/aidev.hooks.ts`,
+    ``,
   ];
   return lines.filter((l) => l !== null).join('\n');
 }
@@ -398,6 +401,131 @@ export function printGhSuggestion(remote: string): void {
   console.log();
 }
 
+const HOOKS_BOILERPLATE = `// aidev hooks — customize the AI task automation pipeline
+//
+// Each export below is an async (context, vm) hook. Return a new/updated context object to
+// change prompts, subtasks, etc.; return nothing to keep the incoming context. Throw to abort
+// the current step (whole run, single task, conflict resolution, etc., depending on the hook).
+//
+// vm: run AI (first available agent), postComment, updateStatus, getComments, log.info/warn/error
+//
+// .ts files are loaded via tsx or ts-node (same toolchain many projects use for TypeScript).
+
+// ─── Context types (mirror aidev's internal shapes — tweak here for editor hints) ─
+
+interface RunContext {
+  config: Record<string, unknown>;
+  filter: string;
+  taskCount: number;
+}
+
+interface TaskContext {
+  task: { id: string; name: string; description: string; status: string; url: string; tags: string[] };
+  config: Record<string, unknown>;
+  branchName: string;
+  prompt: string;
+}
+
+interface ResolveConflictsContext {
+  task: { id: string; name: string; description: string; status: string; url: string; tags: string[] };
+  config: Record<string, unknown>;
+  branchName: string;
+  conflictFiles: string[];
+  prompt: string;
+}
+
+interface NonCodeTaskContext {
+  task: { id: string; name: string; description: string; status: string; url: string; tags: string[] };
+  config: Record<string, unknown>;
+  prompt: string;
+}
+
+interface ThinkingTaskContext {
+  task: { id: string; name: string; description: string; status: string; url: string; tags: string[] };
+  config: Record<string, unknown>;
+  branchName: string;
+  subtasks: Array<{ id: number; title: string; description: string; status: string }>;
+}
+
+interface HookVM {
+  runAI(prompt: string): Promise<{ success: boolean; output: string; error: string }>;
+  postComment(taskId: string, text: string): Promise<void>;
+  updateStatus(taskId: string, status: string): Promise<void>;
+  getComments(taskId: string): Promise<Array<{ id: string; text: string; author: string }>>;
+  log: { info(msg: string): void; warn(msg: string): void; error(msg: string): void };
+}
+
+// ─── Hooks (fill in — ask an AI: "implement beforeEachTask to append X to the prompt") ─
+
+module.exports = {
+  /** Once before any task. AI idea: log counts, or throw if CI env var is missing. */
+  async beforeRun(_context: RunContext, _vm: HookVM): Promise<RunContext | void> {
+    return;
+  },
+
+  /** After all tasks in this run. AI idea: post a summary comment or call an external webhook. */
+  async afterRun(_context: RunContext & { processed: number; skipped: number }, _vm: HookVM): Promise<void> {
+    return;
+  },
+
+  /** Before each code task AI run. AI idea: append coding standards or repo-specific rules to context.prompt. */
+  async beforeEachTask(_context: TaskContext, _vm: HookVM): Promise<TaskContext | void> {
+    return;
+  },
+
+  /** After a code task completes the success path (push + review). */
+  async afterEachTask(_context: TaskContext & { success: boolean }, _vm: HookVM): Promise<void> {
+    return;
+  },
+
+  /** Before AI-driven merge conflict resolution. AI idea: tighten context.prompt for your stack. */
+  async beforeResolveConflicts(_context: ResolveConflictsContext, _vm: HookVM): Promise<ResolveConflictsContext | void> {
+    return;
+  },
+
+  /** After conflict resolution; context.resolved is false when all runners failed. */
+  async afterResolveConflicts(_context: ResolveConflictsContext & { resolved: boolean }, _vm: HookVM): Promise<void> {
+    return;
+  },
+
+  /** Before non-code task AI run. AI idea: format context.prompt for ticket-style replies. */
+  async beforeNonCodeTask(_context: NonCodeTaskContext, _vm: HookVM): Promise<NonCodeTaskContext | void> {
+    return;
+  },
+
+  /** After non-code task; context.output is the agent response text posted to the ticket. */
+  async afterNonCodeTask(_context: NonCodeTaskContext & { success: boolean; output: string }, _vm: HookVM): Promise<void> {
+    return;
+  },
+
+  /** After the plan exists, before subtasks run. AI idea: rewrite subtask descriptions for clarity. */
+  async beforeThinkingTask(_context: ThinkingTaskContext, _vm: HookVM): Promise<ThinkingTaskContext | void> {
+    return;
+  },
+
+  /** After all thinking-task subtasks complete. AI idea: notify or archive artifacts. */
+  async afterThinkingTask(_context: ThinkingTaskContext & { success: boolean }, _vm: HookVM): Promise<void> {
+    return;
+  },
+};
+`;
+
+export function ensureHooksBoilerplate(dir = process.cwd()): void {
+  const aidevDir = path.join(dir, '.aidev');
+  const hooksPath = path.join(aidevDir, 'aidev.hooks.ts');
+
+  if (fs.existsSync(hooksPath)) return;
+
+  if (!fs.existsSync(aidevDir)) {
+    fs.mkdirSync(aidevDir, { recursive: true });
+  }
+
+  fs.writeFileSync(hooksPath, HOOKS_BOILERPLATE, 'utf8');
+  if (dir === process.cwd()) {
+    logger.info('Created .aidev/aidev.hooks.ts — customize hooks to modify the AI pipeline');
+  }
+}
+
 export async function initCommand(): Promise<void> {
   const dest = path.join(process.cwd(), '.env.aidev');
 
@@ -410,6 +538,7 @@ export async function initCommand(): Promise<void> {
     rl0.close();
     if (overwrite.trim().toLowerCase() !== 'y') {
       logger.info('Keeping existing .env.aidev.');
+      ensureHooksBoilerplate();
       return;
     }
     existing = dotenv.parse(fs.readFileSync(dest, 'utf8'));
@@ -707,6 +836,7 @@ export async function initCommand(): Promise<void> {
     };
 
     ensureGitignore();
+    ensureHooksBoilerplate();
     fs.writeFileSync(dest, renderEnv(answers), 'utf8');
     console.log();
     logger.success(`.env.aidev written to ${dest}`);

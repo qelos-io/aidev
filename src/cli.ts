@@ -12,6 +12,7 @@ import { createRunners } from './ai';
 import { processLocalTasks } from './tasks';
 import { logger } from './logger';
 import { Config } from './types';
+import { loadHooks, createHookVM } from './hooks';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { version } = require('../package.json') as { version: string };
@@ -76,7 +77,9 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
 
     const resolvedFilter: RunFilter = (filter as RunFilter) || 'all';
     const runners = createRunners(config);
-    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider);
+    const hooks = loadHooks(config.hooksPath);
+    const hookVM = createHookVM(provider, runners);
+    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, hooks, hookVM);
   } catch (err) {
     logger.error(String(err));
     process.exit(1);

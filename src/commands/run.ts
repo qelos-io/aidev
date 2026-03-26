@@ -13,6 +13,10 @@ import {
 } from '../github';
 import { collectAndLogDiagnostics } from '../diagnostics';
 import { acquireLock, releaseLock, readLock } from '../lockfile';
+import {
+  AidevHooks, HookVM, executeHook,
+  RunContext, TaskContext, ResolveConflictsContext, NonCodeTaskContext, ThinkingTaskContext,
+} from '../hooks';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
 const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
@@ -143,7 +147,9 @@ export async function runCommand(
   config: Config,
   provider: TaskProvider,
   runners: AIRunner[],
-  nonCodeProvider?: TaskProvider
+  nonCodeProvider?: TaskProvider,
+  hooks: AidevHooks = {},
+  vm?: HookVM
 ): Promise<void> {
   const cwd = process.cwd();
   if (!acquireLock(cwd)) {
@@ -164,11 +170,17 @@ export async function runCommand(
     const tasks = sortTasksByPriority(await provider.fetchTasks());
     logger.info(`Found ${tasks.length} tagged task(s)`);
 
+    // beforeRun hook
+    if (vm) {
+      const runCtx: RunContext = { config, filter, taskCount: tasks.length };
+      await executeHook(hooks, 'beforeRun', runCtx, vm);
+    }
+
     let processed = 0;
     let skipped = 0;
 
     for (const task of tasks) {
-      const result = await processTask(task, filter, config, provider, runners, screenAvailable);
+      const result = await processTask(task, filter, config, provider, runners, screenAvailable, hooks, vm);
       if (result === 'processed') processed++;
       else skipped++;
     }
@@ -179,10 +191,18 @@ export async function runCommand(
       logger.info(`Found ${nonCodeTasks.length} non-code task(s)`);
 
       for (const task of nonCodeTasks) {
-        const result = await processNonCodeTask(task, filter, config, nonCodeProvider, runners, screenAvailable);
+        const result = await processNonCodeTask(task, filter, config, nonCodeProvider, runners, screenAvailable, hooks, vm);
         if (result === 'processed') processed++;
         else skipped++;
       }
+    }
+
+    // afterRun hook
+    if (vm) {
+      const afterCtx: RunContext & { processed: number; skipped: number } = {
+        config, filter, taskCount: tasks.length, processed, skipped,
+      };
+      await executeHook(hooks, 'afterRun', afterCtx, vm);
     }
 
     logger.success(`Done. Processed: ${processed}, Skipped: ${skipped}`);
@@ -197,7 +217,9 @@ async function processTask(
   config: Config,
   provider: TaskProvider,
   runners: AIRunner[],
-  screenAvailable: boolean
+  screenAvailable: boolean,
+  hooks: AidevHooks = {},
+  vm?: HookVM
 ): Promise<'processed' | 'skipped'> {
   const pendingStatus = getPendingStatus(config);
   const openStatus = getOpenStatus(config);
@@ -257,9 +279,9 @@ async function processTask(
   }
 
   if (isThinkingTask(task, config)) {
-    await implementThinkingTask(task, branchName, branchExists, config, provider, runners);
+    await implementThinkingTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
   } else {
-    await implementTask(task, branchName, branchExists, config, provider, runners);
+    await implementTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
   }
   return 'processed';
 }
@@ -397,6 +419,8 @@ async function resolveConflictsWithAI(
   provider: TaskProvider,
   runners: AIRunner[],
   context: string,
+  hooks: AidevHooks,
+  vm: HookVM | undefined,
   branchName: string
 ): Promise<boolean> {
   const check = git.checkConflictsWithBase(config.gitRemote, config.githubBaseBranch);
@@ -434,7 +458,14 @@ async function resolveConflictsWithAI(
   } catch { /* ignore */ }
 
   if (!git.mergeBaseBranch(config.gitRemote, config.githubBaseBranch)) {
-    const prompt = buildConflictResolutionPrompt(task, check.conflictFiles, context);
+    let prompt = buildConflictResolutionPrompt(task, check.conflictFiles, context);
+
+    // beforeResolveConflicts hook
+    if (vm) {
+      const conflictCtx: ResolveConflictsContext = { task, config, branchName, conflictFiles: check.conflictFiles, prompt };
+      const modified = await executeHook(hooks, 'beforeResolveConflicts', conflictCtx, vm);
+      prompt = modified.prompt;
+    }
 
     let resolved = false;
     let previousNotes = '';
@@ -462,7 +493,21 @@ async function resolveConflictsWithAI(
 
     if (!resolved) {
       logger.error('All AI runners failed to resolve merge conflicts');
-      git.abortMerge();
+      try {
+        if (vm) {
+          const afterFailCtx: ResolveConflictsContext & { resolved: boolean } = {
+            task,
+            config,
+            branchName,
+            conflictFiles: check.conflictFiles,
+            prompt,
+            resolved: false,
+          };
+          await executeHook(hooks, 'afterResolveConflicts', afterFailCtx, vm);
+        }
+      } finally {
+        git.abortMerge();
+      }
       try {
         await provider.postComment(
           task.id,
@@ -483,6 +528,15 @@ async function resolveConflictsWithAI(
     }
 
     logger.success('Merge conflicts resolved successfully');
+
+    // afterResolveConflicts hook
+    if (vm) {
+      const afterCtx: ResolveConflictsContext & { resolved: boolean } = {
+        task, config, branchName, conflictFiles: check.conflictFiles, prompt, resolved: true,
+      };
+      await executeHook(hooks, 'afterResolveConflicts', afterCtx, vm);
+    }
+
     try {
       await provider.postComment(task.id, `${config.commentPrefix} Merge conflicts resolved automatically.`);
     } catch { /* ignore */ }
@@ -545,7 +599,9 @@ async function implementTask(
   branchExists: boolean,
   config: Config,
   provider: TaskProvider,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  hooks: AidevHooks = {},
+  vm?: HookVM
 ): Promise<void> {
   logger.info(`Implementing task: ${task.name}`);
 
@@ -584,7 +640,7 @@ async function implementTask(
   }
 
   if (branchExists) {
-    const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, branchName);
+    const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, hooks, vm, branchName);
     if (!conflictsOk) {
       logger.error('Cannot proceed — merge conflicts could not be resolved');
       return;
@@ -600,7 +656,14 @@ async function implementTask(
     context += formatReviewComments(reviewThreads);
   }
 
-  const implementPrompt = buildImplementPrompt(task, context);
+  let implementPrompt = buildImplementPrompt(task, context);
+
+  // beforeEachTask hook — may modify context (e.g. improve the prompt)
+  if (vm) {
+    const taskCtx: TaskContext = { task, config, branchName, prompt: implementPrompt };
+    const modified = await executeHook(hooks, 'beforeEachTask', taskCtx, vm);
+    implementPrompt = modified.prompt;
+  }
 
   // Run AI runners in order with fallback
   let implemented = false;
@@ -673,6 +736,12 @@ async function implementTask(
     await provider.updateStatus(task.id, getInReviewStatus(config));
   } catch (err) {
     logger.warn(`Branch pushed but failed to update task: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // afterEachTask hook
+  if (vm) {
+    const afterCtx: TaskContext & { success: boolean } = { task, config, branchName, prompt: implementPrompt, success: true };
+    await executeHook(hooks, 'afterEachTask', afterCtx, vm);
   }
 
   logger.success(`Task implemented: branch ${branchName} pushed`);
@@ -839,7 +908,9 @@ async function implementThinkingTask(
   branchExists: boolean,
   config: Config,
   provider: TaskProvider,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  hooks: AidevHooks = {},
+  vm?: HookVM
 ): Promise<void> {
   logger.info(`Implementing thinking task: ${task.name}`);
 
@@ -879,7 +950,7 @@ async function implementThinkingTask(
   } catch { /* ignore */ }
 
   if (branchExists) {
-    const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, branchName);
+    const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, hooks, vm, branchName);
     if (!conflictsOk) {
       logger.error('Cannot proceed — merge conflicts could not be resolved');
       return;
@@ -922,6 +993,33 @@ async function implementThinkingTask(
     } catch (err) {
       logger.warn(`Failed to post breakdown comment: ${err}`);
     }
+  }
+
+  // beforeThinkingTask hook — may adjust subtask titles/descriptions before execution
+  if (vm) {
+    const thinkCtx: ThinkingTaskContext = {
+      task,
+      config,
+      branchName,
+      subtasks: plan.subtasks.map((s) => ({
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        status: s.status,
+      })),
+    };
+    const modified = await executeHook(hooks, 'beforeThinkingTask', thinkCtx, vm);
+    const prevById = new Map(plan.subtasks.map((s) => [s.id, s]));
+    plan.subtasks = modified.subtasks.map((s) => {
+      const prev = prevById.get(s.id);
+      return {
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        status: (prev?.status ?? s.status) as SubTask['status'],
+      };
+    });
+    writeTaskPlan(plan);
   }
 
   let allSucceeded = true;
@@ -1008,6 +1106,14 @@ async function implementThinkingTask(
     await provider.updateStatus(task.id, getInReviewStatus(config));
   } catch (err) {
     logger.warn(`Branch pushed but failed to update task: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // afterThinkingTask hook
+  if (vm) {
+    const afterCtx: ThinkingTaskContext & { success: boolean } = {
+      task, config, branchName, subtasks: plan.subtasks.map((s) => ({ ...s })), success: true,
+    };
+    await executeHook(hooks, 'afterThinkingTask', afterCtx, vm);
   }
 
   logger.success(`Thinking task implemented: branch ${branchName} pushed`);
@@ -1132,7 +1238,9 @@ async function processNonCodeTask(
   config: Config,
   provider: TaskProvider,
   runners: AIRunner[],
-  screenAvailable: boolean
+  screenAvailable: boolean,
+  hooks: AidevHooks = {},
+  vm?: HookVM
 ): Promise<'processed' | 'skipped'> {
   const pendingStatus = getPendingStatus(config);
   const openStatus = getOpenStatus(config);
@@ -1196,7 +1304,7 @@ async function processNonCodeTask(
     }
   }
 
-  await implementNonCodeTask(task, config, provider, runners);
+  await implementNonCodeTask(task, config, provider, runners, hooks, vm);
   return 'processed';
 }
 
@@ -1204,7 +1312,9 @@ async function implementNonCodeTask(
   task: Task,
   config: Config,
   provider: TaskProvider,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  hooks: AidevHooks = {},
+  vm?: HookVM
 ): Promise<void> {
   logger.info(`Implementing non-code task: ${task.name}`);
 
@@ -1226,7 +1336,14 @@ async function implementNonCodeTask(
     // ignore
   }
 
-  const nonCodePrompt = buildNonCodePrompt(task, context);
+  let nonCodePrompt = buildNonCodePrompt(task, context);
+
+  // beforeNonCodeTask hook
+  if (vm) {
+    const ncCtx: NonCodeTaskContext = { task, config, prompt: nonCodePrompt };
+    const modified = await executeHook(hooks, 'beforeNonCodeTask', ncCtx, vm);
+    nonCodePrompt = modified.prompt;
+  }
 
   let implemented = false;
   let agentOutput = '';
@@ -1267,6 +1384,14 @@ async function implementNonCodeTask(
     await provider.updateStatus(task.id, getInReviewStatus(config));
   } catch (err) {
     logger.warn(`Failed to update task: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // afterNonCodeTask hook
+  if (vm) {
+    const afterCtx: NonCodeTaskContext & { success: boolean; output: string } = {
+      task, config, prompt: nonCodePrompt, success: true, output: agentOutput,
+    };
+    await executeHook(hooks, 'afterNonCodeTask', afterCtx, vm);
   }
 
   logger.success(`Non-code task complete: ${task.name}`);
