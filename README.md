@@ -219,7 +219,7 @@ Each hook receives `(context, vm)`. The `vm` object exposes:
 
 **TypeScript hooks**
 
-For `.ts` files, Node must be able to compile them when the hook file is loaded. Typically `tsx` or `ts-node` is already available in dev environments (the aidev repo uses `tsx` for `npm run dev`).
+`.ts` hook files are loaded at runtime via [jiti](https://www.npmjs.com/package/jiti) — no TypeScript compiler or toolchain needed. Just write a plain `.ts` file with the hook functions and aidev handles the rest.
 
 ---
 
