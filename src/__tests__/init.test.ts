@@ -536,8 +536,8 @@ describe('ensureHooksBoilerplate', () => {
     const p = path.join(tmp, '.aidev', 'aidev.hooks.ts');
     assert.ok(fs.existsSync(p));
     const body = fs.readFileSync(p, 'utf8');
-    assert.ok(body.includes('module.exports'));
-    assert.ok(body.includes('async beforeRun'));
+    assert.ok(body.includes('export async function'));
+    assert.ok(body.includes('async function beforeRun'));
     assert.ok(body.includes('interface RunContext'));
     assert.ok(body.includes('beforeResolveConflicts'));
   });
