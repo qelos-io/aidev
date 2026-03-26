@@ -117,6 +117,42 @@ describe('loadHooks', () => {
     assert.equal(typeof hooks.beforeRun, 'function');
     assert.equal((hooks as Record<string, unknown>).notAHook, undefined);
   });
+
+  it('loads a TypeScript hooks file via jiti', () => {
+    const hooksFile = path.join(tmpDir, 'hooks.ts');
+    fs.writeFileSync(hooksFile, `
+      interface Ctx { config: Record<string, unknown>; filter: string; taskCount: number }
+      const hooks = {
+        beforeRun: async (ctx: Ctx) => ctx,
+        afterRun: async () => {},
+      };
+      module.exports = hooks;
+    `, 'utf8');
+
+    const hooks = loadHooks(hooksFile);
+    assert.equal(typeof hooks.beforeRun, 'function');
+    assert.equal(typeof hooks.afterRun, 'function');
+  });
+
+  it('loads a TypeScript hooks file with export default via jiti', () => {
+    const hooksFile = path.join(tmpDir, 'hooks-default.ts');
+    fs.writeFileSync(hooksFile, `
+      export default {
+        beforeEachTask: async (ctx: any) => ctx,
+      };
+    `, 'utf8');
+
+    const hooks = loadHooks(hooksFile);
+    assert.equal(typeof hooks.beforeEachTask, 'function');
+  });
+
+  it('returns empty object when TypeScript file has syntax errors', () => {
+    const hooksFile = path.join(tmpDir, 'bad.ts');
+    fs.writeFileSync(hooksFile, 'this is not valid typescript{{{', 'utf8');
+
+    const hooks = loadHooks(hooksFile);
+    assert.deepEqual(hooks, {});
+  });
 });
 
 // ─── executeHook ─────────────────────────────────────────────────────────────

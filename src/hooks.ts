@@ -89,7 +89,7 @@ export interface AidevHooks {
 
 /**
  * Loads hooks from the file path specified by AIDEV_HOOKS_PATH env var or
- * the config's hooksPath. Supports .ts (via tsx/ts-node) and .js files.
+ * the config's hooksPath. Supports .ts (via jiti) and .js files.
  * Returns an empty object if no hooks file is configured or found. Exports that are not
  * known hook names are stripped so the returned object only contains hook functions.
  */
@@ -106,15 +106,20 @@ export function loadHooks(hooksPath: string): AidevHooks {
   }
 
   try {
-    // For .ts files, require tsx or ts-node to be available
+    let mod: Record<string, unknown>;
+
     if (resolved.endsWith('.ts')) {
-      // Try to register tsx first, then ts-node
-      tryRegisterTypeScript();
+      // Use jiti to load TypeScript files at runtime — no compiler needed
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { createJiti } = require('jiti') as typeof import('jiti');
+      const jiti = createJiti(__filename, { interopDefault: true });
+      mod = jiti(resolved) as Record<string, unknown>;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      mod = require(resolved);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require(resolved);
-    const hooks: AidevHooks = mod.default || mod;
+    const hooks: AidevHooks = (mod.default || mod) as AidevHooks;
 
     const validKeys = new Set<string>([
       'beforeRun', 'afterRun',
@@ -149,23 +154,6 @@ export function loadHooks(hooksPath: string): AidevHooks {
     logger.error(`Failed to load hooks from ${resolved}: ${err}`);
     return {};
   }
-}
-
-let tsRegistered = false;
-
-function tryRegisterTypeScript(): void {
-  if (tsRegistered) return;
-  try {
-    require('tsx/cjs/api').register();
-    tsRegistered = true;
-    return;
-  } catch { /* tsx not available */ }
-  try {
-    require('ts-node').register({ transpileOnly: true });
-    tsRegistered = true;
-    return;
-  } catch { /* ts-node not available */ }
-  // If neither is available, require() will fail with a clear error
 }
 
 // ─── Executor ────────────────────────────────────────────────────────────────

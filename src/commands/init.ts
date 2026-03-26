@@ -409,7 +409,7 @@ const HOOKS_BOILERPLATE = `// aidev hooks — customize the AI task automation p
 //
 // vm: run AI (first available agent), postComment, updateStatus, getComments, log.info/warn/error
 //
-// .ts files are loaded via tsx or ts-node (same toolchain many projects use for TypeScript).
+// .ts files are loaded via jiti — no TypeScript compiler or toolchain needed.
 
 // ─── Context types (mirror aidev's internal shapes — tweak here for editor hints) ─
 
