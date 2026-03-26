@@ -7,6 +7,11 @@ import {
   DownloadedAttachment,
   NativeAttachment,
 } from './assets';
+import {
+  ClickUpBlock,
+  clickupBlocksToMarkdown,
+  markdownToClickupBlocks,
+} from './clickup-format';
 
 export class ClickUpProvider implements TaskProvider {
   private apiKey: string;
@@ -156,23 +161,20 @@ export class ClickUpProvider implements TaskProvider {
 
   async postComment(taskId: string, text: string): Promise<void> {
     logger.debug(`Posting comment to task ${taskId}`);
+    const blocks = markdownToClickupBlocks(text);
     await this.request(`/task/${taskId}/comment`, {
       method: 'POST',
-      body: JSON.stringify({ comment_text: text }),
+      body: JSON.stringify({ comment: blocks }),
     });
   }
 
   async getComments(taskId: string): Promise<Comment[]> {
     logger.debug(`Fetching comments for task ${taskId}`);
 
-    interface RawCommentBlock {
-      text?: string;
-    }
-
     interface RawComment {
       id: string;
-      comment_text: string | RawCommentBlock[];
-      comment?: RawCommentBlock[];
+      comment_text: string | ClickUpBlock[];
+      comment?: ClickUpBlock[];
       user: { username: string; id: number };
       date: string;
     }
@@ -191,9 +193,9 @@ export class ClickUpProvider implements TaskProvider {
       if (typeof c.comment_text === 'string' && c.comment_text) {
         text = c.comment_text;
       } else if (Array.isArray(c.comment_text) && c.comment_text.length > 0) {
-        text = c.comment_text.map((b) => b.text || '').join('');
+        text = clickupBlocksToMarkdown(c.comment_text);
       } else if (Array.isArray(c.comment) && c.comment.length > 0) {
-        text = c.comment.map((b) => b.text || '').join('');
+        text = clickupBlocksToMarkdown(c.comment);
       } else {
         text = '';
       }
