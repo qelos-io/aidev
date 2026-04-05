@@ -33,7 +33,7 @@ Task (ClickUp / Jira / Monday / Notion / Trello / local)  →  AI implements  �
 
 ## How it works
 
-1. **Fetch** — pulls all tasks tagged with your configured tag from ClickUp
+1. **Fetch** — pulls all tasks tagged with your configured tag from your task provider
 2. **Filter** — skips done/cancelled tasks and tasks that already have a branch
 3. **Clarify** — in `smart` mode, asks the AI if the task description is clear enough; if not, posts a question as a comment (prefixed with `[aidev]`) and marks the task `pending`
 4. **Wait** — pending tasks are re-checked on the next run; if a human replied or the trigger word is found, implementation proceeds with the conversation as context
@@ -55,7 +55,11 @@ cd my-project
 aidev init
 ```
 
-The wizard will ask for your ClickUp credentials, git settings, and preferred AI agents. Sensitive values (API keys) can be left blank if they are already set as environment variables in your shell.
+The wizard will ask for your task provider credentials, git settings, and preferred AI agents.
+
+> **Note:** `aidev init` currently supports **ClickUp, Jira, Linear, Local, and Monday.com**. For **Notion** and **Trello**, create `.env.aidev` manually using `.env.aidev.example` as a template (see [Configuration](#configuration)).
+>
+> For ClickUp, API keys can be left blank if they are already set as environment variables in your shell. For Jira, Linear, and Monday.com, the wizard requires credentials to be entered directly — to use shell env vars instead, edit `.env.aidev` after init and remove the values you want read from your environment.
 
 Once configured:
 
@@ -168,9 +172,68 @@ CLICKUP_TAG=my-project
 | `NON_CODE_TAG` | — | Tasks with this tag run without git branching (optional) |
 | `NON_CODE_CLICKUP_TEAM_ID` | same as `CLICKUP_TEAM_ID` | Different workspace for non-code tasks (optional) |
 
-> **Tip:** `CLICKUP_API_KEY` and `CLICKUP_TEAM_ID` are intentionally omitted from `.env.aidev` if you leave them blank during `aidev init` — they will be read from your shell environment instead.
+> **Tip:** For ClickUp, API keys and tokens are intentionally omitted from `.env.aidev` if you leave them blank during `aidev init` — they will be read from your shell environment instead. For Jira, Linear, and Monday.com, the wizard requires these values; to use shell env vars, remove the entries from `.env.aidev` after init.
 
-> **Wildcard tag (`*`):** Set `CLICKUP_TAG=*` (or `JIRA_LABEL=*` / `LINEAR_LABEL=*`) to match **all** tasks regardless of tags/labels. This is useful when the AI dev has its own dedicated user in the task provider and every task assigned to it should be processed.
+> **Wildcard tag (`*`):** Set `CLICKUP_TAG=*` (or `JIRA_LABEL=*` / `LINEAR_LABEL=*` / `TRELLO_LABEL=*`) to match **all** tasks regardless of tags/labels. This is useful when the AI dev has its own dedicated user in the task provider and every task assigned to it should be processed.
+
+### Jira
+
+| Variable | Default | Description |
+|---|---|---|
+| `JIRA_BASE_URL` | — | Jira instance URL (e.g. `https://mycompany.atlassian.net`) |
+| `JIRA_EMAIL` | — | Email for Jira authentication |
+| `JIRA_API_TOKEN` | — | API token — generate from [Atlassian account settings](https://id.atlassian.com/manage-profile/security/api-tokens) |
+| `JIRA_PROJECT` | — | Project key (e.g. `PROJ`) |
+| `JIRA_LABEL` | — | Issues with this label will be picked up (set to `*` to match all issues) |
+| `JIRA_PENDING_STATUS` | `To Do` | Status name for "waiting for reply" |
+| `JIRA_IN_REVIEW_STATUS` | `In Review` | Status set after implementation |
+| `NON_CODE_JIRA_PROJECT` | same as `JIRA_PROJECT` | Different project for non-code tasks (optional) |
+
+### Linear
+
+| Variable | Default | Description |
+|---|---|---|
+| `LINEAR_API_KEY` | — | Personal API key from Linear Settings → API |
+| `LINEAR_TEAM_ID` | — | Team UUID from your workspace |
+| `LINEAR_LABEL` | — | Issues with this label will be picked up (set to `*` to match all issues) |
+| `LINEAR_PENDING_STATUS` | `Backlog` | Status name for "waiting for reply" |
+| `LINEAR_IN_REVIEW_STATUS` | `In Review` | Status set after implementation |
+| `NON_CODE_LINEAR_TEAM_ID` | same as `LINEAR_TEAM_ID` | Different team for non-code tasks (optional) |
+
+### Monday.com
+
+| Variable | Default | Description |
+|---|---|---|
+| `MONDAY_API_TOKEN` | — | API token from monday.com Developer settings |
+| `MONDAY_BOARD_ID` | — | Board ID (from the board URL) |
+| `MONDAY_STATUS_COLUMN_ID` | `status` | Column ID for the status field |
+| `MONDAY_GROUP_ID` | — | Group ID to filter items (optional) |
+
+### Notion
+
+| Variable | Default | Description |
+|---|---|---|
+| `NOTION_API_KEY` | — | Integration token from Notion → Settings → My integrations |
+| `NOTION_DATABASE_ID` | — | Database ID from the database URL (32-char hex) |
+| `NOTION_STATUS_PROPERTY` | `Status` | Name of the status property in the database |
+| `NOTION_PENDING_STATUS` | `pending` | Status value for "waiting for reply" |
+| `NOTION_IN_REVIEW_STATUS` | `review` | Status value set after implementation |
+
+### Trello
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRELLO_API_KEY` | — | Developer API key from [trello.com/power-ups/admin](https://trello.com/power-ups/admin) |
+| `TRELLO_TOKEN` | — | Auth token generated via Trello's token flow |
+| `TRELLO_BOARD_ID` | — | Board ID from the board URL |
+| `TRELLO_LABEL` | — | Label name on cards to pick up (set to `*` to match all cards assigned to the token user) |
+| `TRELLO_OPEN_LIST` | `To Do` | List name for open/new cards |
+| `TRELLO_PENDING_LIST` | `Blocked` | List name for "waiting for reply" |
+| `TRELLO_IN_PROGRESS_LIST` | `Doing` | List name for cards being worked on |
+| `TRELLO_IN_REVIEW_LIST` | `In Review` | List name for completed cards awaiting review |
+| `TRELLO_OPEN_STATUS` | `open` | Semantic status mapped to the open list |
+| `TRELLO_PENDING_STATUS` | `pending` | Semantic status mapped to the pending list |
+| `TRELLO_IN_REVIEW_STATUS` | `review` | Semantic status mapped to the review list |
 
 ### Git & GitHub
 
@@ -325,14 +388,14 @@ If `NON_CODE_TAG` is not configured, non-code task processing is disabled entire
 
 ## Dev notes mode
 
-Controls when aidev asks ClickUp for clarification before implementing.
+Controls when aidev asks the task provider for clarification before implementing.
 
 | Mode | Behaviour |
 |---|---|
 | `smart` | Asks the AI whether the task description is clear enough. Only posts a clarification question if it's ambiguous. |
 | `always` | Always posts "any dev notes?" before implementing every task. |
 
-When a question is posted, the task is moved to `CLICKUP_PENDING_STATUS`. On the next run, aidev checks whether a human has replied and, if so, includes the reply as context for the AI.
+When a question is posted, the task is moved to the configured pending status (e.g. `CLICKUP_PENDING_STATUS`, `JIRA_PENDING_STATUS`, etc.). On the next run, aidev checks whether a human has replied and, if so, includes the reply as context for the AI.
 
 ---
 
@@ -396,15 +459,17 @@ ANSI colour codes are stripped so the file stays readable in any editor or `tail
 
 ## Providers
 
-| Provider | Status |
-|---|---|
-| ClickUp | ✅ Implemented |
-| Jira | ✅ Implemented |
-| Linear | ✅ Implemented |
-| Monday.com | ✅ Implemented |
-| Local | ✅ Implemented |
-| Notion | ✅ Implemented |
-| Trello | 🔜 Stub — contributions welcome |
+| Provider | Status | `aidev init` support |
+|---|---|---|
+| ClickUp | ✅ Implemented | ✅ Interactive wizard |
+| Jira | ✅ Implemented | ✅ Interactive wizard |
+| Linear | ✅ Implemented | ✅ Interactive wizard |
+| Monday.com | ✅ Implemented | ✅ Interactive wizard |
+| Local | ✅ Implemented | ✅ Interactive wizard |
+| Notion | ✅ Implemented | Manual `.env.aidev` config |
+| Trello | ✅ Implemented | Manual `.env.aidev` config |
+
+> **Notion & Trello:** These providers are fully functional but not yet included in the `aidev init` wizard. To use them, set `PROVIDER=notion` or `PROVIDER=trello` in `.env.aidev` and fill in the required variables from the [Configuration](#configuration) section above.
 
 The `TaskProvider` interface makes it straightforward to add new providers. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
