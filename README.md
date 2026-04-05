@@ -55,7 +55,11 @@ cd my-project
 aidev init
 ```
 
-The wizard will ask for your task provider credentials, git settings, and preferred AI agents. Sensitive values (API keys) can be left blank if they are already set as environment variables in your shell.
+The wizard will ask for your task provider credentials, git settings, and preferred AI agents.
+
+> **Note:** `aidev init` currently supports **ClickUp, Jira, Linear, Local, and Monday.com**. For **Notion** and **Trello**, create `.env.aidev` manually using `.env.aidev.example` as a template (see [Configuration](#configuration)).
+>
+> For ClickUp, API keys can be left blank if they are already set as environment variables in your shell. For Jira, Linear, and Monday.com, the wizard requires credentials to be entered directly — to use shell env vars instead, edit `.env.aidev` after init and remove the values you want read from your environment.
 
 Once configured:
 
@@ -168,7 +172,7 @@ CLICKUP_TAG=my-project
 | `NON_CODE_TAG` | — | Tasks with this tag run without git branching (optional) |
 | `NON_CODE_CLICKUP_TEAM_ID` | same as `CLICKUP_TEAM_ID` | Different workspace for non-code tasks (optional) |
 
-> **Tip:** API keys and tokens are intentionally omitted from `.env.aidev` if you leave them blank during `aidev init` — they will be read from your shell environment instead.
+> **Tip:** For ClickUp, API keys and tokens are intentionally omitted from `.env.aidev` if you leave them blank during `aidev init` — they will be read from your shell environment instead. For Jira, Linear, and Monday.com, the wizard requires these values; to use shell env vars, remove the entries from `.env.aidev` after init.
 
 > **Wildcard tag (`*`):** Set `CLICKUP_TAG=*` (or `JIRA_LABEL=*` / `LINEAR_LABEL=*` / `TRELLO_LABEL=*`) to match **all** tasks regardless of tags/labels. This is useful when the AI dev has its own dedicated user in the task provider and every task assigned to it should be processed.
 
@@ -455,15 +459,17 @@ ANSI colour codes are stripped so the file stays readable in any editor or `tail
 
 ## Providers
 
-| Provider | Status |
-|---|---|
-| ClickUp | ✅ Implemented |
-| Jira | ✅ Implemented |
-| Linear | ✅ Implemented |
-| Monday.com | ✅ Implemented |
-| Local | ✅ Implemented |
-| Notion | ✅ Implemented |
-| Trello | ✅ Implemented |
+| Provider | Status | `aidev init` support |
+|---|---|---|
+| ClickUp | ✅ Implemented | ✅ Interactive wizard |
+| Jira | ✅ Implemented | ✅ Interactive wizard |
+| Linear | ✅ Implemented | ✅ Interactive wizard |
+| Monday.com | ✅ Implemented | ✅ Interactive wizard |
+| Local | ✅ Implemented | ✅ Interactive wizard |
+| Notion | ✅ Implemented | Manual `.env.aidev` config |
+| Trello | ✅ Implemented | Manual `.env.aidev` config |
+
+> **Notion & Trello:** These providers are fully functional but not yet included in the `aidev init` wizard. To use them, set `PROVIDER=notion` or `PROVIDER=trello` in `.env.aidev` and fill in the required variables from the [Configuration](#configuration) section above.
 
 The `TaskProvider` interface makes it straightforward to add new providers. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
