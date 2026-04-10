@@ -73,6 +73,8 @@ const baseAnswers: Answers = {
   thinkingTag: '',
   commentPrefix: '[aidev]',
   aidevEnvExtend: '',
+  acceptedTag: '',
+  doneStatus: '',
 };
 
 describe('renderEnv', () => {
@@ -108,6 +110,12 @@ describe('renderEnv', () => {
   it('includes default AIDEV_HOOKS_PATH', () => {
     const out = renderEnv(baseAnswers);
     assert.ok(out.includes('AIDEV_HOOKS_PATH=.aidev/aidev.hooks.ts'));
+  });
+
+  it('includes ACCEPTED_TAG and DONE_STATUS when set', () => {
+    const out = renderEnv({ ...baseAnswers, acceptedTag: 'accepted', doneStatus: 'done' });
+    assert.ok(out.includes('ACCEPTED_TAG=accepted'));
+    assert.ok(out.includes('DONE_STATUS=done'));
   });
 
   it('omits GITHUB_REPO when empty', () => {
@@ -269,6 +277,8 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     triggerWord: p.AIDEV_TRIGGER_WORD || 'aidev-continue',
     thinkingTag: p.THINKING_TAG || '',
     commentPrefix: p.AIDEV_COMMENT_PREFIX || '[aidev]',
+    acceptedTag: p.ACCEPTED_TAG || '',
+    doneStatus: p.DONE_STATUS || '',
   };
 }
 

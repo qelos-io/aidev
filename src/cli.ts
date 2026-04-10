@@ -13,6 +13,8 @@ import { processLocalTasks } from './tasks';
 import { logger } from './logger';
 import { Config } from './types';
 import { loadHooks, createHookVM } from './hooks';
+import { acceptedCommand } from './commands/accepted';
+import { isGhInstalled } from './github';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { version } = require('../package.json') as { version: string };
@@ -40,10 +42,10 @@ program
   });
 
 async function runWithFilter(filter: string | undefined): Promise<void> {
-  const validFilters = ['all', 'open', 'pending', 'tasks'];
+  const validFilters = ['all', 'open', 'pending', 'tasks', 'accepted'];
 
   if (filter && !validFilters.includes(filter)) {
-    logger.error(`Unknown filter: ${filter}. Valid options: all, open, pending, tasks`);
+    logger.error(`Unknown filter: ${filter}. Valid options: all, open, pending, tasks, accepted`);
     process.exit(1);
   }
 
@@ -51,6 +53,12 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
     const { env } = program.opts<{ env?: string }>();
     const config = loadConfig(env);
     const provider = createProvider(config);
+
+    // Handle "accepted" filter separately — no AI, just merge accepted PRs
+    if (filter === 'accepted') {
+      await acceptedCommand(config, provider);
+      return;
+    }
 
     let nonCodeProvider: TaskProvider | undefined;
     if (config.nonCodeTag) {
@@ -80,6 +88,11 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
     const hooks = loadHooks(config.hooksPath);
     const hookVM = createHookVM(provider, runners);
     await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, hooks, hookVM);
+
+    // Auto-merge accepted PRs if configured (requires gh CLI)
+    if (config.acceptedTag && isGhInstalled()) {
+      await acceptedCommand(config, provider);
+    }
   } catch (err) {
     logger.error(String(err));
     process.exit(1);
@@ -88,7 +101,7 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
 
 program
   .command('run [filter]', { isDefault: true })
-  .description('Process tasks: all (default), open, or pending')
+  .description('Process tasks: all (default), open, pending, tasks, or accepted')
   .action(async (filter?: string) => {
     await runWithFilter(filter);
   });

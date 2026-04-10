@@ -237,6 +237,49 @@ export class TrelloProvider implements TaskProvider {
     );
   }
 
+  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+    const normalized = statuses.map((s) => s.toLowerCase());
+
+    const [lists, myId] = await Promise.all([this.fetchLists(), this.fetchMyMemberId()]);
+
+    // Build a map from list ID to semantic status for the requested statuses
+    const listIdToStatus = new Map<string, string>();
+    for (const status of normalized) {
+      let listName: string | null = null;
+      if (status === this.openSemantic.toLowerCase()) listName = this.openListName;
+      else if (status === this.pendingSemantic.toLowerCase()) listName = this.pendingListName;
+      else if (status === this.inReviewSemantic.toLowerCase()) listName = this.inReviewListName;
+      else if (status === 'in progress') listName = this.inProgressListName;
+      if (listName) {
+        try {
+          const listId = this.findListId(lists, listName);
+          listIdToStatus.set(listId, status);
+        } catch {
+          // List not found — skip this status
+        }
+      }
+    }
+
+    const cards = await this.request<TrelloCard[]>(
+      `/boards/${encodeURIComponent(this.boardId)}/cards?fields=id,name,desc,url,idList,idMembers,labels&labels=true`,
+    );
+
+    const eligible = cards.filter((c) => {
+      if (!c.idMembers.includes(myId)) return false;
+      if (!this.cardHasLabel(c)) return false;
+      return listIdToStatus.has(c.idList);
+    });
+
+    return eligible.map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.desc || '',
+      status: listIdToStatus.get(c.idList)!,
+      url: c.url,
+      tags: c.labels.map((l) => l.name),
+    }));
+  }
+
   async postComment(taskId: string, text: string): Promise<void> {
     logger.debug(`Posting comment to Trello card ${taskId}`);
     const path =

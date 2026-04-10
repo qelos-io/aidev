@@ -191,6 +191,12 @@ export class NotionProvider implements TaskProvider {
     return tasks;
   }
 
+  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+    const normalized = statuses.map((s) => s.toLowerCase());
+    const all = await this.fetchTasks();
+    return all.filter((t) => normalized.includes(t.status.toLowerCase()));
+  }
+
   async postComment(taskId: string, text: string): Promise<void> {
     logger.debug(`Posting comment to Notion page ${taskId}`);
     const pageId = taskId.length === 32 ? `${taskId.slice(0, 8)}-${taskId.slice(8, 12)}-${taskId.slice(12, 16)}-${taskId.slice(16, 20)}-${taskId.slice(20, 32)}` : taskId;

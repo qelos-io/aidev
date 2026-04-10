@@ -158,6 +158,8 @@ export interface Answers {
   thinkingTag: string;
   commentPrefix: string;
   aidevEnvExtend: string;
+  acceptedTag: string;
+  doneStatus: string;
 }
 
 function dim(s: string) {
@@ -366,6 +368,11 @@ export function renderEnv(a: Answers): string {
     ``,
     `# AIDEV_HOOKS_PATH: path to hooks file (.ts or .js) for customizing the AI pipeline`,
     `AIDEV_HOOKS_PATH=.aidev/aidev.hooks.ts`,
+    ``,
+    `# ACCEPTED_TAG: tasks in review with this tag are auto-merged (squash + delete branch)`,
+    line('ACCEPTED_TAG', a.acceptedTag),
+    `# DONE_STATUS: status to set after auto-merging an accepted PR`,
+    a.doneStatus ? `DONE_STATUS=${envVal(a.doneStatus)}` : `# DONE_STATUS=done`,
     ``,
   ];
   return lines.filter((l) => l !== null).join('\n');
@@ -773,6 +780,34 @@ export async function initCommand(): Promise<void> {
       }
     }
 
+    // ── Accepted (auto-merge) — prompts only when gh is installed ─────────────
+    let acceptedTag = existing.ACCEPTED_TAG || '';
+    let doneStatus = existing.DONE_STATUS || '';
+
+    if (isGhInstalled()) {
+      section('Auto-merge accepted PRs');
+      console.log(
+        chalk.dim(
+          `  Tasks in review with an "accepted" tag will be auto-merged via gh CLI\n` +
+          `  (squash + delete branch) and moved to a "done" status. Leave blank to disable.`
+        )
+      );
+      acceptedTag = await ask(
+        rl,
+        `Accepted tag ${hint('tag marking a reviewed PR as approved — leave blank to disable')}`,
+        existing.ACCEPTED_TAG || ''
+      );
+      if (acceptedTag) {
+        doneStatus = await ask(
+          rl,
+          `Done status ${hint('status to set after merging')}`,
+          existing.DONE_STATUS || 'done'
+        );
+      } else {
+        doneStatus = '';
+      }
+    }
+
     // ── Assignee ─────────────────────────────────────────────
     section('Assignee');
     const effectiveClickUpApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
@@ -831,6 +866,8 @@ export async function initCommand(): Promise<void> {
       triggerWord,
       thinkingTag,
       commentPrefix,
+      acceptedTag,
+      doneStatus,
     };
 
     ensureGitignore();

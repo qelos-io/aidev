@@ -167,6 +167,8 @@ export function loadConfig(customEnvPath?: string): Config {
   const commentPrefix = process.env.AIDEV_COMMENT_PREFIX || '[aidev]';
   const nonCodeTag = process.env.NON_CODE_TAG || `${folderName}-other`;
   const hooksPath = process.env.AIDEV_HOOKS_PATH || '';
+  const acceptedTag = process.env.ACCEPTED_TAG || '';
+  const doneStatus = process.env.DONE_STATUS || '';
 
   return {
     provider,
@@ -223,5 +225,7 @@ export function loadConfig(customEnvPath?: string): Config {
     thinkingTag,
     commentPrefix,
     hooksPath,
+    acceptedTag,
+    doneStatus,
   };
 }

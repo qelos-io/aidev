@@ -22,6 +22,7 @@ Task (ClickUp / Jira / Monday / Notion / Trello / local)  →  AI implements  �
 - [Concurrency lock](#concurrency-lock)
 - [Configuration](#configuration)
 - [AI agents](#ai-agents)
+- [Auto-merge accepted PRs](#auto-merge-accepted-prs)
 - [Dev notes mode](#dev-notes-mode)
 - [Scheduling](#scheduling)
 - [Hooks](#hooks)
@@ -77,6 +78,7 @@ aidev run
 | `aidev run` | Process all open + pending-with-replies tasks |
 | `aidev run open` | Only open (non-pending) tasks |
 | `aidev run pending` | Only pending tasks — check for human replies |
+| `aidev run accepted` | Auto-merge PRs for tasks in review with the accepted tag |
 | `aidev stop` | Stop any running aidev process in the current directory |
 | `aidev schedule set` | Interactive cron picker for this directory |
 | `aidev schedule set "<expr>"` | Set a specific cron expression |
@@ -253,6 +255,8 @@ CLICKUP_TAG=my-project
 | `AIDEV_TRIGGER_WORD` | `aidev-continue` | Comment containing this word re-triggers a skipped task |
 | `AIDEV_COMMENT_PREFIX` | `[aidev]` | Custom prefix for all aidev comments posted to task providers |
 | `AIDEV_HOOKS_PATH` | — | Path to a `.ts` or `.js` module that exports hook functions (see [Hooks](#hooks)) |
+| `ACCEPTED_TAG` | — | Tasks in review with this tag are auto-merged (see [Auto-merge accepted PRs](#auto-merge-accepted-prs)) |
+| `DONE_STATUS` | — | Status to set after auto-merging an accepted PR (e.g. `done`) |
 
 ---
 
@@ -383,6 +387,37 @@ NON_CODE_JIRA_PROJECT=OPS
 Non-code tasks follow the same lifecycle as regular tasks (clarification → implementation → review), except the implementation step skips all git operations. After completion, the task status is moved to your configured "in review" status.
 
 If `NON_CODE_TAG` is not configured, non-code task processing is disabled entirely.
+
+---
+
+## Auto-merge accepted PRs
+
+When a task has been reviewed and is ready to merge, tag it with your configured `ACCEPTED_TAG`. On the next run, aidev will automatically merge the PR via the GitHub CLI (`gh`), update the task status, and sync your local main branch.
+
+This feature is **optional** — it only activates when both `ACCEPTED_TAG` is configured and the `gh` CLI is installed and authenticated.
+
+```bash
+# In .env.aidev
+ACCEPTED_TAG=accepted
+DONE_STATUS=done
+```
+
+**How it works:**
+
+1. Finds all tasks in your "in review" status that have the accepted tag
+2. For each task: merges the PR with squash and deletes the remote branch (`gh pr merge --squash --delete-branch`)
+3. Updates the task status to `DONE_STATUS` (if configured)
+4. Checks out the base branch and pulls the latest changes
+
+**Run it manually:**
+
+```bash
+aidev run accepted
+```
+
+**Automatic mode:** When `ACCEPTED_TAG` is set and `gh` is available, accepted PRs are also auto-merged at the end of every `aidev run`.
+
+> **Prerequisites:** The [GitHub CLI](https://cli.github.com/) must be installed and authenticated (`gh auth login`). `aidev init` will prompt you for these settings if it detects `gh` on your PATH.
 
 ---
 
