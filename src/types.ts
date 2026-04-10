@@ -109,4 +109,6 @@ export interface Config {
   thinkingTag: string;
   commentPrefix: string;
   hooksPath: string;
+  acceptedTag: string;
+  doneStatus: string;
 }

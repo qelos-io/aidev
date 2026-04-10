@@ -184,6 +184,26 @@ export function fetchUnresolvedReviewThreads(
   }
 }
 
+export interface MergeResult {
+  success: boolean;
+  error: string;
+}
+
+export function mergePullRequest(branch: string): MergeResult {
+  logger.debug(`Merging PR for branch: ${branch} (squash + delete branch)`);
+  const result = gh([
+    'pr', 'merge', branch,
+    '--squash',
+    '--delete-branch',
+  ]);
+
+  if (result.status !== 0) {
+    return { success: false, error: result.stderr.trim() };
+  }
+
+  return { success: true, error: '' };
+}
+
 export function resolveReviewThread(threadId: string): boolean {
   const mutation = `mutation($threadId: ID!) {
     resolveReviewThread(input: { threadId: $threadId }) {

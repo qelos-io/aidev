@@ -227,6 +227,7 @@ const clarificationConfig = {
 
 const mockProvider = {
   fetchTasks: async () => [],
+  fetchTasksByStatus: async () => [],
   getComments: async () => [],
   postComment: async () => {},
   updateStatus: async () => {},

@@ -160,6 +160,44 @@ export class ClickUpProvider implements TaskProvider {
     }));
   }
 
+  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+    const normalized = statuses.map((s) => s.toLowerCase());
+
+    interface RawTask {
+      id: string;
+      name: string;
+      description?: string;
+      markdown_description?: string;
+      status: { status: string };
+      priority: { id: string } | null;
+      url: string;
+      tags: Array<{ name: string }>;
+    }
+
+    interface TasksResponse {
+      tasks: RawTask[];
+    }
+
+    const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
+    const data = await this.request<TasksResponse>(
+      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false&include_markdown_description=true`
+    );
+
+    const eligibleTasks = data.tasks.filter((t) =>
+      normalized.includes(t.status.status.toLowerCase())
+    );
+
+    return eligibleTasks.map((t) => ({
+      id: t.id,
+      name: t.name,
+      description: t.markdown_description || t.description || '',
+      status: t.status.status.toLowerCase(),
+      url: t.url,
+      tags: t.tags.map((tag) => tag.name),
+      priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
+    }));
+  }
+
   async postComment(taskId: string, text: string): Promise<void> {
     logger.debug(`Posting comment to task ${taskId}`);
     const blocks = markdownToClickupBlocks(text);

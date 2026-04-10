@@ -264,6 +264,12 @@ export class JiraProvider implements TaskProvider {
     }));
   }
 
+  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+    const normalized = statuses.map((s) => s.toLowerCase());
+    const all = await this.fetchTasks();
+    return all.filter((t) => normalized.includes(t.status.toLowerCase()));
+  }
+
   async postComment(taskId: string, text: string): Promise<void> {
     logger.debug(`Posting comment to Jira issue ${taskId}`);
     await this.request(`/issue/${taskId}/comment`, {
