@@ -148,8 +148,8 @@ export function createBranchFromRemote(remote: string, baseBranch: string, branc
   logger.debug(`git checkout -b ${branch} ${startPoint}`);
   const result = git(['checkout', '-b', branch, startPoint]);
   if (result.status !== 0) {
-    logger.error(`git checkout -b ${branch} ${startPoint} failed: ${result.stderr}`);
-    return false;
+    logger.warn(`git checkout -b ${branch} ${startPoint} failed: ${result.stderr} — trying existing branch`);
+    return fetchAndCheckoutBranch(remote, branch);
   }
   return true;
 }
