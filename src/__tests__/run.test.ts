@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason } from '../commands/run';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -31,6 +31,53 @@ describe('buildPRUrl', () => {
   it('returns empty string when githubRepo is not set', () => {
     const url = buildPRUrl({ ...baseConfig, githubRepo: '' }, 'abc/branch');
     assert.equal(url, '');
+  });
+});
+
+// ─── buildPRBody ─────────────────────────────────────────────────────────────
+
+describe('buildPRBody', () => {
+  const task: Task = {
+    id: 'abc123',
+    name: 'Fix bug',
+    description: 'Fix the login bug',
+    status: 'open',
+    url: 'https://app.clickup.com/t/abc123',
+    tags: ['myproject'],
+  };
+
+  it('includes the task URL', () => {
+    const body = buildPRBody(task);
+    assert.ok(body.includes('https://app.clickup.com/t/abc123'));
+  });
+
+  it('uses default signature when PR_SIGNATURE is not set', () => {
+    const original = process.env.PR_SIGNATURE;
+    delete process.env.PR_SIGNATURE;
+    const body = buildPRBody(task);
+    assert.ok(body.includes('Automated PR by aidev.'));
+    if (original !== undefined) process.env.PR_SIGNATURE = original;
+  });
+
+  it('uses PR_SIGNATURE env var when set', () => {
+    const original = process.env.PR_SIGNATURE;
+    process.env.PR_SIGNATURE = 'Custom signature from CI';
+    const body = buildPRBody(task);
+    assert.ok(body.includes('Custom signature from CI'));
+    assert.ok(!body.includes('Automated PR by aidev.'));
+    if (original !== undefined) {
+      process.env.PR_SIGNATURE = original;
+    } else {
+      delete process.env.PR_SIGNATURE;
+    }
+  });
+
+  it('formats as "Implements: <url>\\n\\n<signature>"', () => {
+    const original = process.env.PR_SIGNATURE;
+    delete process.env.PR_SIGNATURE;
+    const body = buildPRBody(task);
+    assert.equal(body, 'Implements: https://app.clickup.com/t/abc123\n\nAutomated PR by aidev.');
+    if (original !== undefined) process.env.PR_SIGNATURE = original;
   });
 });
 
