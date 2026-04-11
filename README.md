@@ -257,6 +257,7 @@ CLICKUP_TAG=my-project
 | `AIDEV_HOOKS_PATH` | — | Path to a `.ts` or `.js` module that exports hook functions (see [Hooks](#hooks)) |
 | `ACCEPTED_TAG` | — | Tasks in review with this tag are auto-merged (see [Auto-merge accepted PRs](#auto-merge-accepted-prs)) |
 | `DONE_STATUS` | — | Status to set after auto-merging an accepted PR (e.g. `done`) |
+| `PR_SIGNATURE` | `Automated PR by aidev.` | Custom signature line appended to the PR body |
 
 ---
 

@@ -1123,13 +1123,18 @@ async function implementThinkingTask(
  * Attempts to create a PR via `gh` CLI. Falls back to a compare URL if gh is
  * unavailable or PR creation fails.
  */
+export function buildPRBody(task: Task): string {
+  const signature = process.env.PR_SIGNATURE || 'Automated PR by aidev.';
+  return `Implements: ${task.url}\n\n${signature}`;
+}
+
 export function tryCreatePR(config: Config, branch: string, task: Task): string {
   if (isGitHubRemote(config.gitRemote) && isGhAuthenticated()) {
     const result = createPullRequest(
       config.githubBaseBranch,
       branch,
       task.name,
-      `Implements: ${task.url}\n\nAutomated PR by aidev.`,
+      buildPRBody(task),
     );
     if (result.success) return result.url;
     logger.warn('Falling back to compare URL');
