@@ -249,6 +249,61 @@ describe('createBranchFromRemote (integration)', () => {
   it('fails when the remote base branch does not exist', () => {
     assert.equal(createBranchFromRemote('origin', 'nonexistent', 'task000/bad'), false);
   });
+
+  it('falls back to checking out existing branch when checkout -b fails (pending task follow-up)', () => {
+    // Simulate the pending-task scenario: branch already exists on the remote
+    // because a previous run created it. A follow-up comment triggers another run
+    // which calls createBranchFromRemote again — checkout -b fails because
+    // the branch already exists, so it should fallback to fetchAndCheckoutBranch.
+    gitCmd(['checkout', '-b', 'task123/existing-branch'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'work.txt'), 'previous work');
+    gitCmd(['add', '.'], tmpDir);
+    gitCmd(['commit', '-m', 'work on existing branch'], tmpDir);
+    gitCmd(['push', 'origin', 'task123/existing-branch'], tmpDir);
+
+    // Switch back to main so we're not already on the target branch
+    gitCmd(['checkout', 'main'], tmpDir);
+
+    // Now createBranchFromRemote should fail on checkout -b (branch exists)
+    // but succeed by falling back to checking out the existing branch
+    assert.equal(createBranchFromRemote('origin', 'main', 'task123/existing-branch'), true);
+    assert.equal(getCurrentBranch(), 'task123/existing-branch');
+    // Should have the file from the existing branch
+    assert.ok(fs.existsSync(path.join(tmpDir, 'work.txt')));
+  });
+
+  it('falls back and picks up new remote commits on existing branch', () => {
+    // Create the branch, push it, then switch away — keep local branch alive
+    // so checkout -b will fail and trigger the fallback path
+    gitCmd(['checkout', '-b', 'task456/followup'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'v1.txt'), 'first version');
+    gitCmd(['add', '.'], tmpDir);
+    gitCmd(['commit', '-m', 'v1'], tmpDir);
+    gitCmd(['push', 'origin', 'task456/followup'], tmpDir);
+    gitCmd(['checkout', 'main'], tmpDir);
+
+    // Push a new commit to that branch from a separate clone
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-clone-'));
+    try {
+      gitCmd(['clone', bareDir, cloneDir], cloneDir);
+      gitCmd(['config', 'user.email', 'other@test.com'], cloneDir);
+      gitCmd(['config', 'user.name', 'Other'], cloneDir);
+      gitCmd(['checkout', 'task456/followup'], cloneDir);
+      fs.writeFileSync(path.join(cloneDir, 'v2.txt'), 'second version');
+      gitCmd(['add', '.'], cloneDir);
+      gitCmd(['commit', '-m', 'v2'], cloneDir);
+      gitCmd(['push', 'origin', 'task456/followup'], cloneDir);
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+
+    // checkout -b fails (branch exists locally), fallback checks out + pulls
+    assert.equal(createBranchFromRemote('origin', 'main', 'task456/followup'), true);
+    assert.equal(getCurrentBranch(), 'task456/followup');
+    // Should have both the original and the new remote commit's files
+    assert.ok(fs.existsSync(path.join(tmpDir, 'v1.txt')));
+    assert.ok(fs.existsSync(path.join(tmpDir, 'v2.txt')));
+  });
 });
 
 describe('commit with expectedBranch (integration)', () => {
