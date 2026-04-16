@@ -7,8 +7,9 @@ import { logger, logRunStart } from '../logger';
 import { isScreenAvailable } from '../platform';
 import * as git from '../git';
 import {
-  isGhAuthenticated, isGitHubRemote, createPullRequest,
+  isGhAuthenticated, isGhInstalled, isGitHubRemote, createPullRequest,
   getPrNumberForBranch, fetchUnresolvedReviewThreads, resolveReviewThread,
+  replyToReviewThread, filterUnresolvedByNonAidev,
   ReviewThread,
 } from '../github';
 import { collectAndLogDiagnostics } from '../diagnostics';
@@ -16,6 +17,7 @@ import { acquireLock, releaseLock, readLock } from '../lockfile';
 import {
   AidevHooks, HookVM, executeHook,
   RunContext, TaskContext, ResolveConflictsContext, NonCodeTaskContext, ThinkingTaskContext,
+  ReviewTaskContext,
 } from '../hooks';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
@@ -194,6 +196,41 @@ export async function runCommand(
         const result = await processNonCodeTask(task, filter, config, nonCodeProvider, runners, screenAvailable, hooks, vm);
         if (result === 'processed') processed++;
         else skipped++;
+      }
+    }
+
+    // Review task phase: check tasks in review status for unresolved code review comments
+    if (isGitHubRemote(config.gitRemote) && isGhInstalled() && isGhAuthenticated() && config.githubRepo) {
+      const reviewStatus = getInReviewStatus(config);
+      logger.info(`Fetching tasks in "${reviewStatus}" status for code review checks...`);
+      try {
+        const reviewTasks = await provider.fetchTasksByStatus([reviewStatus]);
+        const mainTag = (config.clickupTag || '').toLowerCase();
+        const reviewCandidates = mainTag
+          ? reviewTasks.filter((t) => t.tags.some((tag) => tag.toLowerCase() === mainTag))
+          : reviewTasks;
+
+        if (reviewCandidates.length > 0) {
+          logger.info(`Found ${reviewCandidates.length} task(s) in review — checking for unresolved code reviews`);
+
+          for (const task of reviewCandidates) {
+            if (!screenAvailable) {
+              logger.info(`[${task.id}] Skipping review check — screen not available`);
+              break;
+            }
+            const result = await processReviewTask(task, config, provider, runners, screenAvailable, hooks, vm);
+            if (result === 'processed') processed++;
+          }
+        }
+      } catch (err) {
+        logger.warn(`Failed to fetch review tasks: ${err instanceof Error ? err.message : err}`);
+      }
+
+      // Checkout back to base branch after processing review tasks
+      git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch);
+    } else {
+      if (!isGhInstalled() || !isGhAuthenticated()) {
+        logger.debug('gh CLI not available — skipping review task checks');
       }
     }
 
@@ -1400,4 +1437,240 @@ async function implementNonCodeTask(
   }
 
   logger.success(`Non-code task complete: ${task.name}`);
+}
+
+// ─── Review task processing ─────────────────────────────────────────────────
+
+const REPLY_REGEX = /<!-- AIDEV-REPLY ([\w=+/]+) -->([\s\S]*?)<!-- \/AIDEV-REPLY -->/g;
+
+export function parseReplyDirectives(output: string): Array<{ threadId: string; body: string }> {
+  const replies: Array<{ threadId: string; body: string }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = REPLY_REGEX.exec(output)) !== null) {
+    replies.push({ threadId: match[1], body: match[2].trim() });
+  }
+  return replies;
+}
+
+async function processReviewTask(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[],
+  screenAvailable: boolean,
+  hooks: AidevHooks = {},
+  vm?: HookVM
+): Promise<'processed' | 'skipped'> {
+  const branchName = `${task.id}/${git.slugify(task.name)}`;
+
+  logger.task(`[${task.id}] "${task.name}" [review] — checking code reviews`);
+
+  if (!config.githubRepo) {
+    logger.debug(`[${task.id}] No githubRepo configured — skipping review check`);
+    return 'skipped';
+  }
+
+  const prNumber = getPrNumberForBranch(branchName);
+  if (!prNumber) {
+    logger.debug(`[${task.id}] No PR found for branch ${branchName} — skipping`);
+    return 'skipped';
+  }
+
+  const parts = config.githubRepo.split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    logger.debug(`[${task.id}] Invalid githubRepo format — skipping`);
+    return 'skipped';
+  }
+
+  const allThreads = fetchUnresolvedReviewThreads(parts[0], parts[1], prNumber);
+  if (allThreads.length === 0) {
+    logger.debug(`[${task.id}] No unresolved review threads — skipping`);
+    return 'skipped';
+  }
+
+  const actionableThreads = filterUnresolvedByNonAidev(allThreads, config.commentPrefix);
+  if (actionableThreads.length === 0) {
+    logger.debug(`[${task.id}] All unresolved threads are from aidev — skipping`);
+    return 'skipped';
+  }
+
+  if (!screenAvailable) {
+    await notifySleeping(task, provider, config.commentPrefix);
+    return 'skipped';
+  }
+
+  logger.info(`[${task.id}] Found ${actionableThreads.length} actionable review thread(s) — resolving`);
+  await implementReviewTask(task, branchName, config, provider, runners, actionableThreads, hooks, vm);
+  return 'processed';
+}
+
+async function implementReviewTask(
+  task: Task,
+  branchName: string,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[],
+  threads: ReviewThread[],
+  hooks: AidevHooks = {},
+  vm?: HookVM
+): Promise<void> {
+  logger.info(`Resolving review comments for: ${task.name}`);
+
+  if (!git.fetchAndCheckoutBranch(config.gitRemote, branchName)) {
+    logger.error(`[${task.id}] Failed to checkout branch ${branchName}`);
+    return;
+  }
+
+  let reviewPrompt = buildReviewPrompt(task, threads);
+
+  // beforeReviewTask hook
+  if (vm) {
+    const reviewCtx: ReviewTaskContext = { task, config, branchName, threads, prompt: reviewPrompt };
+    const modified = await executeHook(hooks, 'beforeReviewTask', reviewCtx, vm);
+    reviewPrompt = modified.prompt;
+  }
+
+  let success = false;
+  let agentOutput = '';
+  let previousNotes = '';
+
+  for (const runner of runners) {
+    if (!runner.isAvailable()) continue;
+
+    logger.info(`Running ${runner.name} to address review comments...`);
+    const result = await runner.run(reviewPrompt, previousNotes || undefined);
+
+    if (result.success) {
+      success = true;
+      agentOutput = result.output;
+      break;
+    }
+
+    logger.warn(`${runner.name} failed — trying next runner`);
+    previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
+  }
+
+  if (!success) {
+    logger.error(`[${task.id}] All AI runners failed to address review comments`);
+    const diagnostics = collectAndLogDiagnostics();
+    try {
+      await provider.postComment(
+        task.id,
+        `${config.commentPrefix} Failed to address code review comments automatically.\n\n${diagnostics}`
+      );
+    } catch { /* ignore */ }
+
+    // afterReviewTask hook — failure
+    if (vm) {
+      const afterCtx: ReviewTaskContext & { success: boolean; resolvedCount: number } = {
+        task, config, branchName, threads, prompt: reviewPrompt, success: false, resolvedCount: 0,
+      };
+      await executeHook(hooks, 'afterReviewTask', afterCtx, vm);
+    }
+    return;
+  }
+
+  let resolvedCount = 0;
+  let repliedCount = 0;
+
+  // Handle code fixes: commit and push if agent made changes
+  if (git.hasChanges()) {
+    if (git.addAll() && git.commit(`${config.commentPrefix} Address code review comments\n\nTask: ${task.url}`, branchName)) {
+      if (git.push(config.gitRemote, branchName)) {
+        // Resolve threads that were addressed via code changes
+        resolveHandledThreads(threads);
+        resolvedCount = threads.length;
+        logger.info(`Pushed code fixes and resolved ${resolvedCount} thread(s)`);
+      } else {
+        logger.error(`[${task.id}] Failed to push review fixes`);
+      }
+    } else {
+      logger.error(`[${task.id}] Failed to commit review fixes`);
+    }
+  }
+
+  // Handle reply directives from agent output
+  const replies = parseReplyDirectives(agentOutput);
+  for (const reply of replies) {
+    const prefixedBody = `${config.commentPrefix} ${reply.body}`;
+    if (replyToReviewThread(reply.threadId, prefixedBody)) {
+      repliedCount++;
+    }
+  }
+
+  if (repliedCount > 0) {
+    logger.info(`Posted ${repliedCount} reply(ies) to review threads`);
+  }
+
+  // Post completion comment on task provider
+  if (resolvedCount > 0 || repliedCount > 0) {
+    try {
+      const comment = buildReviewCompletionComment(config, resolvedCount, repliedCount);
+      await provider.postComment(task.id, comment);
+    } catch { /* ignore */ }
+  }
+
+  // afterReviewTask hook
+  if (vm) {
+    const afterCtx: ReviewTaskContext & { success: boolean; resolvedCount: number } = {
+      task, config, branchName, threads, prompt: reviewPrompt, success: true, resolvedCount,
+    };
+    await executeHook(hooks, 'afterReviewTask', afterCtx, vm);
+  }
+
+  logger.success(`Review comments addressed for: ${task.name}`);
+}
+
+export function buildReviewPrompt(task: Task, threads: ReviewThread[]): string {
+  let prompt = `You are addressing code review comments on a pull request for a software development task.
+
+Task: ${task.name}
+
+Description:
+${task.description || '(no description provided)'}
+
+## Unresolved Code Review Threads
+
+The following review threads need to be addressed. For each thread, either:
+- Fix the code as requested (make the changes directly in the files)
+- Or, if it's a discussion/question that doesn't require code changes, output a REPLY block:
+  <!-- AIDEV-REPLY thread_id -->Your reply here<!-- /AIDEV-REPLY -->
+
+Replace "thread_id" with the actual thread ID shown below.
+
+`;
+
+  for (const thread of threads) {
+    const location = thread.line
+      ? `\`${thread.path}\` (line ${thread.line})`
+      : `\`${thread.path}\``;
+    prompt += `### Thread ${thread.id} — ${location}\n`;
+    for (const comment of thread.comments) {
+      prompt += `> **${comment.author}**: ${comment.body}\n`;
+    }
+    prompt += '\n';
+  }
+
+  prompt += `## Instructions
+
+1. Read each review thread carefully
+2. For code change requests: make the fix directly in the relevant file(s)
+3. For questions or discussions: output a REPLY block with a clear, helpful response
+4. You may handle multiple threads — some with code fixes, others with replies
+5. Focus on correctness and follow the existing code style`;
+
+  return prompt;
+}
+
+export function buildReviewCompletionComment(config: Config, resolvedCount: number, repliedCount: number): string {
+  const parts: string[] = [`${config.commentPrefix} Code review comments addressed!`];
+
+  if (resolvedCount > 0) {
+    parts.push(`Resolved ${resolvedCount} thread(s) with code fixes.`);
+  }
+  if (repliedCount > 0) {
+    parts.push(`Replied to ${repliedCount} thread(s).`);
+  }
+
+  return parts.join('\n');
 }
