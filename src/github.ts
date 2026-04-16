@@ -204,6 +204,38 @@ export function mergePullRequest(branch: string): MergeResult {
   return { success: true, error: '' };
 }
 
+export function replyToReviewThread(threadId: string, body: string): boolean {
+  const mutation = `mutation($threadId: ID!, $body: String!) {
+    addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
+      comment { id }
+    }
+  }`;
+
+  const result = gh([
+    'api', 'graphql',
+    '-f', `query=${mutation}`,
+    '-F', `threadId=${threadId}`,
+    '-F', `body=${body}`,
+  ]);
+
+  if (result.status !== 0) {
+    logger.debug(`Failed to reply to thread ${threadId}: ${result.stderr.trim()}`);
+    return false;
+  }
+  return true;
+}
+
+export function filterUnresolvedByNonAidev(
+  threads: ReviewThread[],
+  commentPrefix: string
+): ReviewThread[] {
+  return threads.filter((thread) => {
+    if (thread.comments.length === 0) return true;
+    const lastComment = thread.comments[thread.comments.length - 1];
+    return !lastComment.body.startsWith(commentPrefix);
+  });
+}
+
 export function resolveReviewThread(threadId: string): boolean {
   const mutation = `mutation($threadId: ID!) {
     resolveReviewThread(input: { threadId: $threadId }) {
