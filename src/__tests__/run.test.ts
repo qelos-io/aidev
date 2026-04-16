@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives } from '../commands/run';
+import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -627,5 +628,278 @@ describe('buildConflictResolutionPrompt', () => {
   it('handles missing description gracefully', () => {
     const prompt = buildConflictResolutionPrompt({ ...task, description: '' }, ['a.ts'], '');
     assert.ok(prompt.includes('no description provided'));
+  });
+});
+
+// ─── buildReviewPrompt ──────────────────────────────────────────────────────
+
+describe('buildReviewPrompt', () => {
+  const reviewTask: Task = {
+    id: 'rev1',
+    name: 'Add caching layer',
+    description: 'Add Redis caching to the API endpoints.',
+    status: 'review',
+    url: 'https://app.clickup.com/t/rev1',
+    tags: ['myproject'],
+  };
+
+  const sampleThreads: ReviewThread[] = [
+    {
+      id: 'thread_1',
+      path: 'src/cache.ts',
+      line: 42,
+      comments: [
+        { author: 'alice', body: 'This TTL should be configurable' },
+        { author: 'bob', body: 'Agreed, hardcoded values are fragile' },
+      ],
+    },
+    {
+      id: 'thread_2',
+      path: 'src/api.ts',
+      line: 10,
+      comments: [
+        { author: 'alice', body: 'Missing error handling for cache miss' },
+      ],
+    },
+  ];
+
+  it('includes task name and description', () => {
+    const prompt = buildReviewPrompt(reviewTask, sampleThreads);
+    assert.ok(prompt.includes('Add caching layer'));
+    assert.ok(prompt.includes('Add Redis caching to the API endpoints.'));
+  });
+
+  it('includes all thread file paths and line numbers', () => {
+    const prompt = buildReviewPrompt(reviewTask, sampleThreads);
+    assert.ok(prompt.includes('`src/cache.ts` (line 42)'));
+    assert.ok(prompt.includes('`src/api.ts` (line 10)'));
+  });
+
+  it('includes all comment bodies', () => {
+    const prompt = buildReviewPrompt(reviewTask, sampleThreads);
+    assert.ok(prompt.includes('This TTL should be configurable'));
+    assert.ok(prompt.includes('Agreed, hardcoded values are fragile'));
+    assert.ok(prompt.includes('Missing error handling for cache miss'));
+  });
+
+  it('includes comment authors', () => {
+    const prompt = buildReviewPrompt(reviewTask, sampleThreads);
+    assert.ok(prompt.includes('**alice**'));
+    assert.ok(prompt.includes('**bob**'));
+  });
+
+  it('includes thread IDs', () => {
+    const prompt = buildReviewPrompt(reviewTask, sampleThreads);
+    assert.ok(prompt.includes('Thread thread_1'));
+    assert.ok(prompt.includes('Thread thread_2'));
+  });
+
+  it('handles threads with no line number', () => {
+    const threads: ReviewThread[] = [
+      {
+        id: 'thread_no_line',
+        path: 'README.md',
+        line: null,
+        comments: [{ author: 'alice', body: 'Update the docs' }],
+      },
+    ];
+    const prompt = buildReviewPrompt(reviewTask, threads);
+    assert.ok(prompt.includes('`README.md`'));
+    assert.ok(!prompt.includes('(line'));
+  });
+
+  it('handles empty threads array', () => {
+    const prompt = buildReviewPrompt(reviewTask, []);
+    assert.ok(prompt.includes('Add caching layer'));
+    // Should still produce a valid prompt, just with no thread sections
+    assert.ok(!prompt.includes('Thread '));
+  });
+
+  it('handles missing description gracefully', () => {
+    const prompt = buildReviewPrompt({ ...reviewTask, description: '' }, sampleThreads);
+    assert.ok(prompt.includes('no description provided'));
+  });
+
+  it('includes AIDEV-REPLY instruction', () => {
+    const prompt = buildReviewPrompt(reviewTask, sampleThreads);
+    assert.ok(prompt.includes('AIDEV-REPLY'));
+  });
+});
+
+// ─── buildReviewCompletionComment ───────────────────────────────────────────
+
+describe('buildReviewCompletionComment', () => {
+  it('includes resolved count', () => {
+    const comment = buildReviewCompletionComment(baseConfig, 3, 0);
+    assert.ok(comment.includes('Resolved 3 thread(s)'));
+  });
+
+  it('includes replied count', () => {
+    const comment = buildReviewCompletionComment(baseConfig, 0, 2);
+    assert.ok(comment.includes('Replied to 2 thread(s)'));
+  });
+
+  it('includes both resolved and replied counts', () => {
+    const comment = buildReviewCompletionComment(baseConfig, 2, 1);
+    assert.ok(comment.includes('Resolved 2 thread(s)'));
+    assert.ok(comment.includes('Replied to 1 thread(s)'));
+  });
+
+  it('uses correct commentPrefix', () => {
+    const comment = buildReviewCompletionComment(baseConfig, 1, 0);
+    assert.ok(comment.startsWith('[aidev]'));
+  });
+
+  it('uses custom commentPrefix', () => {
+    const customConfig = { ...baseConfig, commentPrefix: '[mybot]' } as Config;
+    const comment = buildReviewCompletionComment(customConfig, 1, 1);
+    assert.ok(comment.startsWith('[mybot]'));
+    assert.ok(!comment.includes('[aidev]'));
+  });
+
+  it('mentions code review in the message', () => {
+    const comment = buildReviewCompletionComment(baseConfig, 1, 0);
+    assert.ok(comment.includes('Code review comments addressed'));
+  });
+
+  it('omits resolved line when count is zero', () => {
+    const comment = buildReviewCompletionComment(baseConfig, 0, 2);
+    assert.ok(!comment.includes('Resolved'));
+  });
+
+  it('omits replied line when count is zero', () => {
+    const comment = buildReviewCompletionComment(baseConfig, 3, 0);
+    assert.ok(!comment.includes('Replied'));
+  });
+});
+
+// ─── parseReplyDirectives ───────────────────────────────────────────────────
+
+describe('parseReplyDirectives', () => {
+  it('extracts a single AIDEV-REPLY block', () => {
+    const output = 'Some text\n<!-- AIDEV-REPLY thread_abc -->This is my reply<!-- /AIDEV-REPLY -->\nMore text';
+    const replies = parseReplyDirectives(output);
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0].threadId, 'thread_abc');
+    assert.equal(replies[0].body, 'This is my reply');
+  });
+
+  it('extracts multiple AIDEV-REPLY blocks', () => {
+    const output = `<!-- AIDEV-REPLY id1 -->Reply one<!-- /AIDEV-REPLY -->
+Some middle text
+<!-- AIDEV-REPLY id2 -->Reply two<!-- /AIDEV-REPLY -->`;
+    const replies = parseReplyDirectives(output);
+    assert.equal(replies.length, 2);
+    assert.equal(replies[0].threadId, 'id1');
+    assert.equal(replies[0].body, 'Reply one');
+    assert.equal(replies[1].threadId, 'id2');
+    assert.equal(replies[1].body, 'Reply two');
+  });
+
+  it('returns empty array when no AIDEV-REPLY blocks present', () => {
+    const output = 'Just regular agent output with no reply directives';
+    const replies = parseReplyDirectives(output);
+    assert.equal(replies.length, 0);
+  });
+
+  it('trims whitespace from reply body', () => {
+    const output = '<!-- AIDEV-REPLY thread_x -->\n  This has whitespace  \n<!-- /AIDEV-REPLY -->';
+    const replies = parseReplyDirectives(output);
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0].body, 'This has whitespace');
+  });
+
+  it('handles multiline reply bodies', () => {
+    const output = '<!-- AIDEV-REPLY thread_y -->Line one\nLine two\nLine three<!-- /AIDEV-REPLY -->';
+    const replies = parseReplyDirectives(output);
+    assert.equal(replies.length, 1);
+    assert.ok(replies[0].body.includes('Line one'));
+    assert.ok(replies[0].body.includes('Line three'));
+  });
+
+  it('handles thread IDs with base64 characters', () => {
+    const output = '<!-- AIDEV-REPLY abc+/def= -->Reply<!-- /AIDEV-REPLY -->';
+    const replies = parseReplyDirectives(output);
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0].threadId, 'abc+/def=');
+  });
+});
+
+// ─── filterUnresolvedByNonAidev ─────────────────────────────────────────────
+
+describe('filterUnresolvedByNonAidev', () => {
+  function makeThread(id: string, comments: Array<{ author: string; body: string }>): ReviewThread {
+    return { id, path: 'src/file.ts', line: 1, comments };
+  }
+
+  it('includes thread where last comment is from a human', () => {
+    const threads = [
+      makeThread('t1', [
+        { author: 'alice', body: 'Fix this bug' },
+      ]),
+    ];
+    const result = filterUnresolvedByNonAidev(threads, '[aidev]');
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, 't1');
+  });
+
+  it('filters out thread where last comment is from aidev', () => {
+    const threads = [
+      makeThread('t1', [
+        { author: 'alice', body: 'Fix this bug' },
+        { author: 'bot', body: '[aidev] I have addressed this issue' },
+      ]),
+    ];
+    const result = filterUnresolvedByNonAidev(threads, '[aidev]');
+    assert.equal(result.length, 0);
+  });
+
+  it('handles mixed threads — keeps human-last, filters aidev-last', () => {
+    const threads = [
+      makeThread('t1', [
+        { author: 'alice', body: 'Please refactor this' },
+      ]),
+      makeThread('t2', [
+        { author: 'alice', body: 'Fix the typo' },
+        { author: 'bot', body: '[aidev] Fixed the typo' },
+      ]),
+      makeThread('t3', [
+        { author: 'bot', body: '[aidev] Done' },
+        { author: 'bob', body: 'Actually, this is still wrong' },
+      ]),
+    ];
+    const result = filterUnresolvedByNonAidev(threads, '[aidev]');
+    assert.equal(result.length, 2);
+    assert.deepEqual(result.map((t) => t.id), ['t1', 't3']);
+  });
+
+  it('includes thread with empty comments array', () => {
+    const threads = [makeThread('t1', [])];
+    const result = filterUnresolvedByNonAidev(threads, '[aidev]');
+    assert.equal(result.length, 1);
+  });
+
+  it('works with custom comment prefix', () => {
+    const threads = [
+      makeThread('t1', [
+        { author: 'bot', body: '[mybot] I fixed this' },
+      ]),
+      makeThread('t2', [
+        { author: 'alice', body: 'Needs work' },
+      ]),
+    ];
+    const result = filterUnresolvedByNonAidev(threads, '[mybot]');
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, 't2');
+  });
+
+  it('does not filter when aidev prefix appears mid-comment (not at start)', () => {
+    const threads = [
+      makeThread('t1', [
+        { author: 'alice', body: 'The [aidev] tool did something wrong' },
+      ]),
+    ];
+    const result = filterUnresolvedByNonAidev(threads, '[aidev]');
+    assert.equal(result.length, 1);
   });
 });
