@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { Config, Task } from './types';
 import { TaskProvider } from './providers/base';
 import { AIRunner, AIRunResult } from './ai/base';
+import { ReviewThread } from './github';
 import { logger } from './logger';
 
 // ─── Hook context types ──────────────────────────────────────────────────────
@@ -39,6 +40,14 @@ export interface ThinkingTaskContext {
   config: Config;
   branchName: string;
   subtasks: Array<{ id: number; title: string; description: string; status: string }>;
+}
+
+export interface ReviewTaskContext {
+  task: Task;
+  config: Config;
+  branchName: string;
+  threads: ReviewThread[];
+  prompt: string;
 }
 
 // ─── VM — abilities available to hook functions ──────────────────────────────
@@ -83,6 +92,10 @@ export interface AidevHooks {
   beforeThinkingTask?(context: ThinkingTaskContext, vm: HookVM): Promise<ThinkingTaskContext | void>;
   /** Called after all sub-tasks of a thinking task complete */
   afterThinkingTask?(context: ThinkingTaskContext & { success: boolean }, vm: HookVM): Promise<void>;
+  /** Called before a review task's unresolved threads are processed */
+  beforeReviewTask?(context: ReviewTaskContext, vm: HookVM): Promise<ReviewTaskContext | void>;
+  /** Called after a review task's threads have been processed */
+  afterReviewTask?(context: ReviewTaskContext & { success: boolean; resolvedCount: number }, vm: HookVM): Promise<void>;
 }
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
@@ -127,6 +140,7 @@ export function loadHooks(hooksPath: string): AidevHooks {
       'beforeResolveConflicts', 'afterResolveConflicts',
       'beforeNonCodeTask', 'afterNonCodeTask',
       'beforeThinkingTask', 'afterThinkingTask',
+      'beforeReviewTask', 'afterReviewTask',
     ]);
 
     // Keep only known hook names; drop unknown keys and non-functions
