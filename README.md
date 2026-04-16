@@ -9,7 +9,7 @@
 It polls your task manager (ClickUp, Jira, Linear, Monday.com, Notion, Trello, or local markdown files), checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
 
 ```
-Task (ClickUp / Jira / Monday / Notion / Trello / local)  →  AI implements  →  git push  →  "in review"
+Task  →  AI implements  →  git push  →  "in review"  →  AI resolves code review comments
 ```
 
 ---
@@ -22,6 +22,7 @@ Task (ClickUp / Jira / Monday / Notion / Trello / local)  →  AI implements  �
 - [Concurrency lock](#concurrency-lock)
 - [Configuration](#configuration)
 - [AI agents](#ai-agents)
+- [Code review resolution](#code-review-resolution)
 - [Auto-merge accepted PRs](#auto-merge-accepted-prs)
 - [Dev notes mode](#dev-notes-mode)
 - [Scheduling](#scheduling)
@@ -40,6 +41,7 @@ Task (ClickUp / Jira / Monday / Notion / Trello / local)  →  AI implements  �
 4. **Wait** — pending tasks are re-checked on the next run; if a human replied or the trigger word is found, implementation proceeds with the conversation as context
 5. **Implement** — checks out a fresh branch (or reuses an existing one), runs your configured AI agent(s), falls back to the next agent if one fails
 6. **Ship** — commits all changes, pushes the branch, posts a comment with the branch name and a PR link, moves the task to your "in review" status
+7. **Review** — checks tasks already in review for unresolved PR code review comments; if found, runs an AI agent to fix code or reply to discussion threads
 
 ---
 
@@ -75,7 +77,7 @@ aidev run
 | Command | Description |
 |---|---|
 | `aidev init` | Interactive setup — creates `.env.aidev` |
-| `aidev run` | Process all open + pending-with-replies tasks |
+| `aidev run` | Process open + pending tasks, then check review tasks for unresolved PR comments |
 | `aidev run open` | Only open (non-pending) tasks |
 | `aidev run pending` | Only pending tasks — check for human replies |
 | `aidev run accepted` | Auto-merge PRs for tasks in review with the accepted tag |
@@ -276,6 +278,7 @@ The module should export an object (or `export default`) whose properties are op
 | `beforeResolveConflicts` / `afterResolveConflicts` | Merge conflict resolution with AI | `conflictFiles`, `prompt`; `afterResolveConflicts` has `resolved` |
 | `beforeNonCodeTask` / `afterNonCodeTask` | Non-code tasks | `afterNonCodeTask` includes agent `output` |
 | `beforeThinkingTask` / `afterThinkingTask` | Thinking-tag tasks (subtask plan) | `beforeThinkingTask` may adjust `subtasks` before steps run |
+| `beforeReviewTask` / `afterReviewTask` | Review tasks with unresolved PR comments | `threads`, `prompt`, `branchName`; `afterReviewTask` has `success`, `resolvedCount` |
 
 **Second argument: `vm`**
 
@@ -388,6 +391,25 @@ NON_CODE_JIRA_PROJECT=OPS
 Non-code tasks follow the same lifecycle as regular tasks (clarification → implementation → review), except the implementation step skips all git operations. After completion, the task status is moved to your configured "in review" status.
 
 If `NON_CODE_TAG` is not configured, non-code task processing is disabled entirely.
+
+---
+
+## Code review resolution
+
+When `aidev run` executes, it also checks tasks in **review** status for unresolved PR code review comments. If any actionable threads are found, an AI agent is run to address them — either by fixing the code or replying to discussion comments.
+
+**How it works:**
+
+1. Fetches all tasks in your configured "in review" status
+2. For each task, finds the associated PR by branch name (via `gh` CLI)
+3. Fetches unresolved review threads from the PR
+4. Filters out threads where the last comment is from aidev itself (to avoid re-processing)
+5. Runs an AI agent to address the remaining threads — code fixes are committed and pushed, discussion replies are posted directly on the thread
+6. Resolved threads are marked as resolved on GitHub
+
+This runs automatically as part of every `aidev run` (after processing open/pending tasks). No additional configuration is needed beyond having `gh` CLI installed and authenticated.
+
+> **Prerequisites:** The [GitHub CLI](https://cli.github.com/) must be installed and authenticated (`gh auth login`). If `gh` is not available, review task processing is silently skipped.
 
 ---
 

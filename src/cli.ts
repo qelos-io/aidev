@@ -101,7 +101,7 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
 
 program
   .command('run [filter]', { isDefault: true })
-  .description('Process tasks: all (default), open, pending, tasks, or accepted')
+  .description('Process tasks: all (default), open, pending, tasks, or accepted. Also checks review tasks for unresolved PR comments.')
   .action(async (filter?: string) => {
     await runWithFilter(filter);
   });
