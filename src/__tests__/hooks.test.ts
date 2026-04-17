@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { loadHooks, createHookVM, executeHook, AidevHooks, HookVM } from '../hooks';
+import { loadHooks, createHookVM, executeHook, AidevHooks, HookVM, ReviewTaskContext } from '../hooks';
 import type { TaskProvider } from '../providers/base';
 import type { AIRunner } from '../ai/base';
 import type { Config } from '../types';
@@ -118,6 +118,20 @@ describe('loadHooks', () => {
     assert.equal((hooks as Record<string, unknown>).notAHook, undefined);
   });
 
+  it('loads beforeReviewTask and afterReviewTask hooks', () => {
+    const hooksFile = path.join(tmpDir, 'hooks.js');
+    fs.writeFileSync(hooksFile, `
+      module.exports = {
+        beforeReviewTask: async (ctx) => ctx,
+        afterReviewTask: async () => {},
+      };
+    `, 'utf8');
+
+    const hooks = loadHooks(hooksFile);
+    assert.equal(typeof hooks.beforeReviewTask, 'function');
+    assert.equal(typeof hooks.afterReviewTask, 'function');
+  });
+
   it('loads a TypeScript hooks file via jiti', () => {
     const hooksFile = path.join(tmpDir, 'hooks.ts');
     fs.writeFileSync(hooksFile, `
@@ -228,6 +242,44 @@ describe('executeHook', () => {
     const result = await executeHook(hooks, 'beforeEachTask', ctx, mockVM);
     assert.ok(result.prompt.includes('Extra instructions'));
     assert.ok(result.prompt.includes('Original prompt'));
+  });
+
+  it('allows beforeReviewTask to modify prompt', async () => {
+    const hooks: AidevHooks = {
+      beforeReviewTask: async (ctx) => {
+        return { ...ctx, prompt: ctx.prompt + '\nReview extra instructions' };
+      },
+    };
+    const ctx: ReviewTaskContext = {
+      task: { id: '1', name: 'review-task', description: '', status: 'in review', url: '', tags: [] },
+      config: stubConfig(),
+      branchName: 'review-branch',
+      threads: [{ id: 'thread-1', path: 'src/foo.ts', line: 10, comments: [{ body: 'fix this', author: 'reviewer' }] }],
+      prompt: 'Original review prompt',
+    };
+    const result = await executeHook(hooks, 'beforeReviewTask', ctx, mockVM);
+    assert.ok(result.prompt.includes('Review extra instructions'));
+    assert.ok(result.prompt.includes('Original review prompt'));
+    assert.equal(result.threads.length, 1);
+  });
+
+  it('passes success and resolvedCount to afterReviewTask', async () => {
+    let captured: { success: boolean; resolvedCount: number } | undefined;
+    const hooks: AidevHooks = {
+      afterReviewTask: async (ctx) => { captured = { success: ctx.success, resolvedCount: ctx.resolvedCount }; },
+    };
+    const ctx = {
+      task: { id: '1', name: 'review-task', description: '', status: 'in review', url: '', tags: [] as string[] },
+      config: stubConfig(),
+      branchName: 'review-branch',
+      threads: [] as ReviewTaskContext['threads'],
+      prompt: 'prompt',
+      success: true,
+      resolvedCount: 3,
+    };
+    await executeHook(hooks, 'afterReviewTask', ctx, mockVM);
+    assert.equal(captured?.success, true);
+    assert.equal(captured?.resolvedCount, 3);
   });
 
   it('allows beforeThinkingTask to adjust subtasks', async () => {
