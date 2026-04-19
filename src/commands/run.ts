@@ -19,6 +19,7 @@ import {
   RunContext, TaskContext, ResolveConflictsContext, NonCodeTaskContext, ThinkingTaskContext,
   ReviewTaskContext,
 } from '../hooks';
+import { buildCompressedContext } from '../sessions';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
 const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
@@ -668,10 +669,7 @@ async function implementTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    const humanComments = filterAutomatedComments(comments, config.commentPrefix);
-    if (humanComments.length > 0) {
-      context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
-    }
+    context = await buildConversationContext(task.id, comments, config, runners);
   } catch {
     // ignore
   }
@@ -980,10 +978,7 @@ async function implementThinkingTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    const humanComments = filterAutomatedComments(comments, config.commentPrefix);
-    if (humanComments.length > 0) {
-      context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
-    }
+    context = await buildConversationContext(task.id, comments, config, runners);
   } catch { /* ignore */ }
 
   if (branchExists) {
@@ -1274,6 +1269,35 @@ export function filterAutomatedComments(comments: Comment[], commentPrefix: stri
   return comments.filter((c) => !c.text.includes(commentPrefix));
 }
 
+async function buildConversationContext(
+  taskId: string,
+  comments: Comment[],
+  config: Config,
+  runners: AIRunner[]
+): Promise<string> {
+  const humanComments = filterAutomatedComments(comments, config.commentPrefix);
+  if (humanComments.length === 0) return '';
+
+  const rawLength =
+    '\n\nConversation context:\n'.length +
+    humanComments.reduce((n, c, i) => n + c.author.length + 2 + c.text.length + (i > 0 ? 1 : 0), 0);
+
+  const context = await buildCompressedContext(humanComments, taskId, runners, config);
+
+  if (
+    config.autoCompress &&
+    humanComments.length > 1 &&
+    rawLength > config.compressThreshold &&
+    context.startsWith('\n\nSummary of earlier conversation')
+  ) {
+    logger.info(
+      `[${taskId}] Auto-compressed conversation context: ${rawLength} → ${context.length} chars`
+    );
+  }
+
+  return context;
+}
+
 async function processNonCodeTask(
   task: Task,
   filter: RunFilter,
@@ -1370,10 +1394,7 @@ async function implementNonCodeTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    const humanComments = filterAutomatedComments(comments, config.commentPrefix);
-    if (humanComments.length > 0) {
-      context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
-    }
+    context = await buildConversationContext(task.id, comments, config, runners);
   } catch {
     // ignore
   }
