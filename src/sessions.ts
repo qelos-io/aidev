@@ -104,6 +104,12 @@ export async function summarizeWithRunner(
   return null;
 }
 
+export function truncateFallback(comments: Comment[]): string {
+  const text = comments.map((c) => `${c.author}: ${c.text}`).join('\n');
+  if (text.length <= 3000) return text;
+  return text.slice(0, 1500) + '\n…\n' + text.slice(-1500);
+}
+
 export async function buildCompressedContext(
   comments: Comment[],
   taskId: string,
@@ -123,24 +129,25 @@ export async function buildCompressedContext(
   const earlier = comments.slice(0, -1);
   const fingerprint = fingerprintComments(earlier);
 
-  let summary: string | null = null;
+  let summary: string;
   const cached = readSession(taskId);
   if (cached && cached.fingerprint === fingerprint && cached.summary) {
     summary = cached.summary;
   } else {
-    summary = await summarizeWithRunner(earlier, runners);
-    if (summary) {
-      writeSession(taskId, {
-        taskId,
-        updatedAt: Date.now(),
-        fingerprint,
-        summary,
-        lastCommentId: lastComment.id,
-      });
+    const runnerSummary = await summarizeWithRunner(earlier, runners);
+    if (runnerSummary) {
+      summary = runnerSummary;
     } else {
-      logger.warn('Auto-compress: no runner produced a summary; using raw conversation context');
-      return raw;
+      logger.warn('Auto-compress: no runner produced a summary; using deterministic truncation');
+      summary = truncateFallback(earlier);
     }
+    writeSession(taskId, {
+      taskId,
+      updatedAt: Date.now(),
+      fingerprint,
+      summary,
+      lastCommentId: lastComment.id,
+    });
   }
 
   return (
