@@ -321,6 +321,7 @@ describe('loadConfig tag defaults', () => {
   const envKeys = [
     'CLICKUP_API_KEY', 'CLICKUP_TEAM_ID', 'CLICKUP_TAG',
     'NON_CODE_TAG', 'JIRA_LABEL', 'PROVIDER',
+    'AUTO_COMPRESS', 'AUTO_COMPRESS_MAX_CHARS', 'AUTO_COMPRESS_THRESHOLD',
   ];
   const saved: Record<string, string | undefined> = {};
   let tmpDir: string;
@@ -384,6 +385,54 @@ describe('loadConfig tag defaults', () => {
 
   it('does not require CLICKUP_TAG in env', () => {
     assert.doesNotThrow(() => loadConfig());
+  });
+
+  it('defaults autoCompress on with 200k max and 0.8 threshold', () => {
+    const config = loadConfig();
+    assert.equal(config.autoCompress, true);
+    assert.equal(config.autoCompressMaxChars, 200000);
+    assert.equal(config.autoCompressThreshold, 0.8);
+  });
+
+  it('disables autoCompress when AUTO_COMPRESS=0', () => {
+    process.env.AUTO_COMPRESS = '0';
+    const config = loadConfig();
+    assert.equal(config.autoCompress, false);
+    delete process.env.AUTO_COMPRESS;
+  });
+
+  it('disables autoCompress for other falsey boolean spellings', () => {
+    for (const v of ['false', 'no', 'off']) {
+      process.env.AUTO_COMPRESS = v;
+      assert.equal(loadConfig().autoCompress, false, v);
+    }
+    delete process.env.AUTO_COMPRESS;
+  });
+
+  it('parses AUTO_COMPRESS_MAX_CHARS and AUTO_COMPRESS_THRESHOLD from env', () => {
+    process.env.AUTO_COMPRESS_MAX_CHARS = '50000';
+    process.env.AUTO_COMPRESS_THRESHOLD = '0.75';
+    const config = loadConfig();
+    assert.equal(config.autoCompressMaxChars, 50000);
+    assert.equal(config.autoCompressThreshold, 0.75);
+    delete process.env.AUTO_COMPRESS_MAX_CHARS;
+    delete process.env.AUTO_COMPRESS_THRESHOLD;
+  });
+
+  it('falls back when AUTO_COMPRESS_THRESHOLD is outside (0, 1]', () => {
+    process.env.AUTO_COMPRESS_THRESHOLD = '0';
+    assert.equal(loadConfig().autoCompressThreshold, 0.8);
+    process.env.AUTO_COMPRESS_THRESHOLD = '1.5';
+    assert.equal(loadConfig().autoCompressThreshold, 0.8);
+    delete process.env.AUTO_COMPRESS_THRESHOLD;
+  });
+
+  it('falls back when AUTO_COMPRESS_MAX_CHARS is too small or invalid', () => {
+    process.env.AUTO_COMPRESS_MAX_CHARS = '100';
+    assert.equal(loadConfig().autoCompressMaxChars, 200000);
+    process.env.AUTO_COMPRESS_MAX_CHARS = 'not-a-number';
+    assert.equal(loadConfig().autoCompressMaxChars, 200000);
+    delete process.env.AUTO_COMPRESS_MAX_CHARS;
   });
 });
 

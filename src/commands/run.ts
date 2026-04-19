@@ -19,6 +19,11 @@ import {
   RunContext, TaskContext, ResolveConflictsContext, NonCodeTaskContext, ThinkingTaskContext,
   ReviewTaskContext,
 } from '../hooks';
+import {
+  maybeCompressHumanComments,
+  fullPromptCharCount,
+  buildTaskContextSuffix,
+} from '../autoCompress';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
 const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
@@ -665,32 +670,50 @@ async function implementTask(
     }
   }
 
-  let context = '';
+  let humanComments: Comment[] = [];
   try {
     const comments = await provider.getComments(task.id);
-    const humanComments = filterAutomatedComments(comments, config.commentPrefix);
-    if (humanComments.length > 0) {
-      context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
-    }
+    humanComments = filterAutomatedComments(comments, config.commentPrefix);
   } catch {
     // ignore
   }
 
+  const reviewThreads = branchExists ? fetchPrReviewComments(config, branchName) : [];
+  const reviewSection = formatReviewComments(reviewThreads);
+
+  humanComments = await maybeCompressHumanComments(
+    task.id,
+    config,
+    humanComments,
+    runners,
+    (hc) =>
+      fullPromptCharCount(
+        buildImplementPrompt(task, buildTaskContextSuffix(hc, reviewSection))
+      )
+  );
+
+  const contextForConflicts = buildTaskContextSuffix(humanComments, '');
+  let context = contextForConflicts + reviewSection;
+
   if (branchExists) {
-    const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, hooks, vm, branchName);
+    const conflictsOk = await resolveConflictsWithAI(
+      task,
+      config,
+      provider,
+      runners,
+      contextForConflicts,
+      hooks,
+      vm,
+      branchName
+    );
     if (!conflictsOk) {
       logger.error('Cannot proceed — merge conflicts could not be resolved');
       return;
     }
   }
 
-  // Fetch unresolved PR review comments for existing branches
-  const reviewThreads = branchExists
-    ? fetchPrReviewComments(config, branchName)
-    : [];
   if (reviewThreads.length > 0) {
     logger.info(`Found ${reviewThreads.length} unresolved review comment(s) to address`);
-    context += formatReviewComments(reviewThreads);
   }
 
   let implementPrompt = buildImplementPrompt(task, context);
@@ -796,18 +819,8 @@ ${context}
 Please implement the required changes. Focus on correctness and follow the existing code style in the project.`;
 }
 
-async function analyzeAndPlan(
-  task: Task,
-  context: string,
-  runners: AIRunner[]
-): Promise<ThinkingTaskPlan | null> {
-  const runner = runners.find((r) => r.isAvailable());
-  if (!runner) {
-    logger.error('No AI runner available for task analysis');
-    return null;
-  }
-
-  const analysisPrompt = `You are a senior software architect breaking down a development task into smaller, sequential implementation steps.
+export function buildAnalysisPlanPrompt(task: Task, context: string): string {
+  return `You are a senior software architect breaking down a development task into smaller, sequential implementation steps.
 
 Task name: ${task.name}
 
@@ -830,6 +843,20 @@ Respond with valid JSON only — no markdown fences, no extra text:
 }
 
 Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (foundation first).`;
+}
+
+async function analyzeAndPlan(
+  task: Task,
+  context: string,
+  runners: AIRunner[]
+): Promise<ThinkingTaskPlan | null> {
+  const runner = runners.find((r) => r.isAvailable());
+  if (!runner) {
+    logger.error('No AI runner available for task analysis');
+    return null;
+  }
+
+  const analysisPrompt = buildAnalysisPlanPrompt(task, context);
 
   logger.info('Analyzing task and creating implementation plan...');
   const result = await runner.run(analysisPrompt);
@@ -977,33 +1004,52 @@ async function implementThinkingTask(
     }
   }
 
-  let context = '';
+  let humanComments: Comment[] = [];
   try {
     const comments = await provider.getComments(task.id);
-    const humanComments = filterAutomatedComments(comments, config.commentPrefix);
-    if (humanComments.length > 0) {
-      context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
-    }
+    humanComments = filterAutomatedComments(comments, config.commentPrefix);
   } catch { /* ignore */ }
 
+  const reviewThreads = branchExists ? fetchPrReviewComments(config, branchName) : [];
+  const reviewSection = formatReviewComments(reviewThreads);
+  const reviewContext = reviewSection.length > 0 ? reviewSection : undefined;
+
+  humanComments = await maybeCompressHumanComments(
+    task.id,
+    config,
+    humanComments,
+    runners,
+    (hc) => {
+      const suffix = buildTaskContextSuffix(hc, reviewSection);
+      return Math.max(
+        fullPromptCharCount(buildImplementPrompt(task, suffix)),
+        fullPromptCharCount(buildAnalysisPlanPrompt(task, suffix))
+      );
+    }
+  );
+
+  const contextForConflicts = buildTaskContextSuffix(humanComments, '');
+  let context = contextForConflicts + reviewSection;
+
   if (branchExists) {
-    const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, hooks, vm, branchName);
+    const conflictsOk = await resolveConflictsWithAI(
+      task,
+      config,
+      provider,
+      runners,
+      contextForConflicts,
+      hooks,
+      vm,
+      branchName
+    );
     if (!conflictsOk) {
       logger.error('Cannot proceed — merge conflicts could not be resolved');
       return;
     }
   }
 
-  // Fetch unresolved PR review comments for existing branches
-  const reviewThreads = branchExists
-    ? fetchPrReviewComments(config, branchName)
-    : [];
-  const reviewContext = reviewThreads.length > 0
-    ? formatReviewComments(reviewThreads)
-    : undefined;
   if (reviewThreads.length > 0) {
     logger.info(`Found ${reviewThreads.length} unresolved review comment(s) to address`);
-    context += reviewContext;
   }
 
   // Check for an existing plan (resume scenario)
@@ -1367,16 +1413,24 @@ async function implementNonCodeTask(
     logger.warn(`Could not update task status: ${err}`);
   }
 
-  let context = '';
+  let humanComments: Comment[] = [];
   try {
     const comments = await provider.getComments(task.id);
-    const humanComments = filterAutomatedComments(comments, config.commentPrefix);
-    if (humanComments.length > 0) {
-      context = '\n\nConversation context:\n' + humanComments.map((c) => `${c.author}: ${c.text}`).join('\n');
-    }
+    humanComments = filterAutomatedComments(comments, config.commentPrefix);
   } catch {
     // ignore
   }
+
+  humanComments = await maybeCompressHumanComments(
+    task.id,
+    config,
+    humanComments,
+    runners,
+    (hc) =>
+      fullPromptCharCount(buildNonCodePrompt(task, buildTaskContextSuffix(hc, '')))
+  );
+
+  const context = buildTaskContextSuffix(humanComments, '');
 
   let nonCodePrompt = buildNonCodePrompt(task, context);
 

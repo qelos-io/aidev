@@ -254,6 +254,9 @@ CLICKUP_TAG=my-project
 | `AIDEV_ENV_EXTEND` | — | Path to a global env file loaded as the base for this project (see above) |
 | `AGENTS` | `claude,cursor` | Comma-separated list of agents in priority order |
 | `DEV_NOTES_MODE` | `smart` | When to ask for clarification (`smart` or `always`) |
+| `AUTO_COMPRESS` | on | When the full prompt exceeds the size budget, compress older human comments. Opt out with `0`, `false`, `no`, or `off` |
+| `AUTO_COMPRESS_THRESHOLD` | `0.8` | Compress when measured length exceeds `AUTO_COMPRESS_MAX_CHARS ×` this value; must be in `(0, 1]` |
+| `AUTO_COMPRESS_MAX_CHARS` | `200000` | Character budget for the full prompt (used with the threshold; invalid values fall back to the default) |
 | `AIDEV_TRIGGER_WORD` | `aidev-continue` | Comment containing this word re-triggers a skipped task |
 | `AIDEV_COMMENT_PREFIX` | `[aidev]` | Custom prefix for all aidev comments posted to task providers |
 | `AIDEV_HOOKS_PATH` | — | Path to a `.ts` or `.js` module that exports hook functions (see [Hooks](#hooks)) |

@@ -111,4 +111,10 @@ export interface Config {
   hooksPath: string;
   acceptedTag: string;
   doneStatus: string;
+  /** When true, summarize older ticket comments if the prompt exceeds the size budget. Opt out with AUTO_COMPRESS=0. */
+  autoCompress: boolean;
+  /** Character budget for full prompt+notes; used with autoCompressThreshold. */
+  autoCompressMaxChars: number;
+  /** Compress when measured length exceeds maxChars * threshold (default 0.8). */
+  autoCompressThreshold: number;
 }

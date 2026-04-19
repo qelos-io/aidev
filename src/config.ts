@@ -6,6 +6,14 @@ import { spawnSync } from 'node:child_process';
 import { Config, AgentName } from './types';
 import { detectRemote } from './git';
 
+function parseEnvBool(raw: string | undefined, defaultValue: boolean): boolean {
+  if (raw === undefined || raw === '') return defaultValue;
+  const v = raw.trim().toLowerCase();
+  if (['0', 'false', 'no', 'off'].includes(v)) return false;
+  if (['1', 'true', 'yes', 'on'].includes(v)) return true;
+  return defaultValue;
+}
+
 export function mergeNullDelimited(stdout: string): void {
   for (const entry of stdout.split('\0')) {
     const eq = entry.indexOf('=');
@@ -170,6 +178,13 @@ export function loadConfig(customEnvPath?: string): Config {
   const acceptedTag = process.env.ACCEPTED_TAG || '';
   const doneStatus = process.env.DONE_STATUS || '';
 
+  const autoCompress = parseEnvBool(process.env.AUTO_COMPRESS, true);
+  const rawAutoMax = parseInt(process.env.AUTO_COMPRESS_MAX_CHARS || '200000', 10);
+  const autoCompressMaxChars = Number.isFinite(rawAutoMax) && rawAutoMax >= 4000 ? rawAutoMax : 200000;
+  const rawAutoThresh = parseFloat(process.env.AUTO_COMPRESS_THRESHOLD || '0.8');
+  const autoCompressThreshold =
+    Number.isFinite(rawAutoThresh) && rawAutoThresh > 0 && rawAutoThresh <= 1 ? rawAutoThresh : 0.8;
+
   return {
     provider,
     clickupApiKey: process.env.CLICKUP_API_KEY || '',
@@ -227,5 +242,8 @@ export function loadConfig(customEnvPath?: string): Config {
     hooksPath,
     acceptedTag,
     doneStatus,
+    autoCompress,
+    autoCompressMaxChars,
+    autoCompressThreshold,
   };
 }
