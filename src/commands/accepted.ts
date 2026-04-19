@@ -6,9 +6,17 @@ import * as git from '../git';
 import { getInReviewStatus } from './run';
 
 /**
+ * Comment posted on the task immediately before merging an accepted PR (so the
+ * ticket records that aidev is performing the merge).
+ */
+export function buildAcceptedMergeComment(config: Config, branchName: string): string {
+  return `${config.commentPrefix} Merging the accepted pull request for branch \`${branchName}\`.`;
+}
+
+/**
  * Process "accepted" tasks: find tasks in review status with the accepted tag,
- * merge their PRs via gh CLI (squash + delete branch), update status to done,
- * then checkout main and pull.
+ * post a short merge notice on each ticket, merge their PRs via gh CLI (squash +
+ * delete branch), update status to done, then checkout main and pull.
  */
 export async function acceptedCommand(
   config: Config,
@@ -49,6 +57,15 @@ export async function acceptedCommand(
   for (const task of acceptedTasks) {
     const branchName = `${task.id}/${git.slugify(task.name)}`;
     logger.task(`[${task.id}] "${task.name}" — merging branch ${branchName}`);
+
+    try {
+      await provider.postComment(task.id, buildAcceptedMergeComment(config, branchName));
+    } catch (err) {
+      logger.warn(
+        `[${task.id}] Failed to post merge notice: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      continue;
+    }
 
     const result = mergePullRequest(branchName);
     if (!result.success) {
