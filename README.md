@@ -260,6 +260,8 @@ CLICKUP_TAG=my-project
 | `ACCEPTED_TAG` | — | Tasks in review with this tag are auto-merged (see [Auto-merge accepted PRs](#auto-merge-accepted-prs)) |
 | `DONE_STATUS` | — | Status to set after auto-merging an accepted PR (e.g. `done`) |
 | `PR_SIGNATURE` | `Automated PR by aidev.` | Custom signature line appended to the PR body |
+| `AIDEV_AUTO_COMPRESS` | `true` | Auto-compress older comments when the prompt grows large. Set to `false` / `0` / `no` to opt out |
+| `AIDEV_COMPRESS_THRESHOLD` | `12000` | Char-length threshold that triggers compression |
 
 ---
 
@@ -363,6 +365,24 @@ For pending tasks, a regular human reply (any comment without the configured pre
 ```bash
 # Customise the comment prefix in .env.aidev
 AIDEV_COMMENT_PREFIX=[mybot]
+```
+
+---
+
+## Auto-compress
+
+For long-running tasks with many comments, the combined prompt (description + conversation history + review threads) can grow past the AI agent's effective context window. When the assembled context exceeds `AIDEV_COMPRESS_THRESHOLD` characters (default `12000`), aidev summarises the older comments via the configured AI agent and keeps only the **latest comment verbatim** — so the agent always sees the user's most recent intent without ambiguity.
+
+Compressed summaries are cached under `.aidev/sessions/<taskId>.json` and reused across runs; new comments invalidate the cache and trigger a re-summarisation of the delta. The directory is added to `.gitignore` automatically.
+
+This is **on by default**. To opt out:
+
+```bash
+# In .env.aidev
+AIDEV_AUTO_COMPRESS=false
+
+# Or raise the threshold instead of disabling
+AIDEV_COMPRESS_THRESHOLD=24000
 ```
 
 ---

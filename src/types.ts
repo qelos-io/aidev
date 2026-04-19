@@ -111,4 +111,6 @@ export interface Config {
   hooksPath: string;
   acceptedTag: string;
   doneStatus: string;
+  autoCompress: boolean;
+  compressThreshold: number;
 }
