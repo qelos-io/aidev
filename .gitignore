@@ -7,6 +7,7 @@ aidev.log
 *.aidev.instructions.md
 *.aidev.task.json
 .aidev/assets/
+.aidev/sessions/
 .claude/settings.local.json
 *.log
 aidev.tasks.json

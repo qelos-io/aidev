@@ -170,6 +170,11 @@ export function loadConfig(customEnvPath?: string): Config {
   const acceptedTag = process.env.ACCEPTED_TAG || '';
   const doneStatus = process.env.DONE_STATUS || '';
 
+  const autoCompressRaw = (process.env.AIDEV_AUTO_COMPRESS || '').trim().toLowerCase();
+  const autoCompress = !['false', '0', 'no'].includes(autoCompressRaw);
+  const thresholdParsed = parseInt(process.env.AIDEV_COMPRESS_THRESHOLD || '', 10);
+  const compressThreshold = Number.isFinite(thresholdParsed) ? thresholdParsed : 12000;
+
   return {
     provider,
     clickupApiKey: process.env.CLICKUP_API_KEY || '',
@@ -227,5 +232,7 @@ export function loadConfig(customEnvPath?: string): Config {
     hooksPath,
     acceptedTag,
     doneStatus,
+    autoCompress,
+    compressThreshold,
   };
 }
