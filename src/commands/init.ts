@@ -22,6 +22,7 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
   ['aidev.tasks.json',        /^aidev\.tasks\.json/m],
   ['.aidev/assets/',          /^\/?\.aidev\/assets\/?$/m],
+  ['.aidev/sessions/',        /^\/?\.aidev\/sessions\/?$/m],
 ];
 
 /**
@@ -83,6 +84,7 @@ function normalizeGitignore(content: string): string {
 
   const normalizedLines: string[] = [];
   let hasAssetsRule = false;
+  let hasSessionsRule = false;
 
   for (const line of content.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -91,6 +93,10 @@ function normalizeGitignore(content: string): string {
         normalizedLines.push('.aidev/assets/');
         hasAssetsRule = true;
       }
+      if (!hasSessionsRule) {
+        normalizedLines.push('.aidev/sessions/');
+        hasSessionsRule = true;
+      }
       continue;
     }
 
@@ -98,6 +104,14 @@ function normalizeGitignore(content: string): string {
       if (!hasAssetsRule) {
         normalizedLines.push('.aidev/assets/');
         hasAssetsRule = true;
+      }
+      continue;
+    }
+
+    if (trimmed === '.aidev/sessions/' || trimmed === '/.aidev/sessions/') {
+      if (!hasSessionsRule) {
+        normalizedLines.push('.aidev/sessions/');
+        hasSessionsRule = true;
       }
       continue;
     }
@@ -350,6 +364,11 @@ export function renderEnv(a: Answers): string {
     ``,
     `# DEV_NOTES_MODE: smart (only ask when unclear) | always (ask before every task)`,
     `DEV_NOTES_MODE=${a.devNotesMode}`,
+    ``,
+    `# AUTO_COMPRESS: 1 (default) — summarize older ticket comments when the prompt is large; set 0 to disable`,
+    `# AUTO_COMPRESS_MAX_CHARS=200000`,
+    `# AUTO_COMPRESS_THRESHOLD=0.8`,
+    `# Compress session data: .aidev/sessions/ (gitignored, local-only)`,
     ``,
     `# AIDEV_TRIGGER_WORD: comment containing this word re-triggers task processing (default: aidev-continue)`,
     `AIDEV_TRIGGER_WORD=${envVal(a.triggerWord)}`,

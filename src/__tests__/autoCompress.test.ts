@@ -10,7 +10,17 @@ import {
   fullPromptCharCount,
   maybeCompressHumanComments,
 } from '../autoCompress';
-import type { Comment, Config } from '../types';
+import { buildImplementPrompt } from '../commands/run';
+import type { Comment, Config, Task } from '../types';
+
+const stubTask: Task = {
+  id: 't1',
+  name: 'Example task',
+  description: 'Do something',
+  status: 'open',
+  url: 'https://example.com/t',
+  tags: [],
+};
 
 const baseCompressConfig = {
   autoCompress: true,
@@ -106,7 +116,10 @@ describe('maybeCompressHumanComments', () => {
       baseCompressConfig,
       c,
       [runner],
-      () => 90000
+      (comments) =>
+        fullPromptCharCount(
+          buildImplementPrompt(stubTask, buildTaskContextSuffix(comments, ''))
+        )
     );
 
     assert.equal(out.length, 2);

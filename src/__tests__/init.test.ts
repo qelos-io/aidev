@@ -581,6 +581,7 @@ describe('ensureGitignore', () => {
       assert.ok(content.includes('.env.*'));
       assert.ok(content.includes('*.log'));
       assert.ok(content.includes('.aidev/assets/'));
+      assert.ok(content.includes('.aidev/sessions/'));
       assert.ok(!content.includes('.aidev/\n'));
     });
   });
@@ -594,6 +595,7 @@ describe('ensureGitignore', () => {
       assert.ok(content.includes('.env.*'));
       assert.ok(content.includes('*.log'));
       assert.ok(content.includes('.aidev/assets/'));
+      assert.ok(content.includes('.aidev/sessions/'));
     });
   });
 
@@ -616,12 +618,13 @@ describe('ensureGitignore', () => {
     });
   });
 
-  it('replaces the legacy .aidev ignore rule with .aidev/assets/', () => {
+  it('replaces the legacy .aidev ignore rule with .aidev/assets/ and .aidev/sessions/', () => {
     withTmpDir((dir) => {
       fs.writeFileSync(path.join(dir, '.gitignore'), '.aidev/\n');
       ensureGitignore(dir);
       const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
       assert.ok(content.includes('.aidev/assets/'));
+      assert.ok(content.includes('.aidev/sessions/'));
       assert.ok(!content.includes('.aidev/\n'));
     });
   });
