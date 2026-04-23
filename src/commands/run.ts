@@ -121,7 +121,7 @@ function cleanupThinkingFiles(taskId: string): void {
   }
 }
 
-function writeTaskPlan(plan: ThinkingTaskPlan): void {
+export function writeTaskPlan(plan: ThinkingTaskPlan): void {
   fs.writeFileSync(taskPlanPath(plan.taskId), JSON.stringify(plan, null, 2), 'utf8');
 }
 
@@ -131,7 +131,7 @@ function truncateError(msg: string): string {
   return msg.slice(0, MAX_LEN) + '\n... (truncated)';
 }
 
-function readTaskPlan(taskId: string): ThinkingTaskPlan | null {
+export function readTaskPlan(taskId: string): ThinkingTaskPlan | null {
   const p = taskPlanPath(taskId);
   if (!fs.existsSync(p)) return null;
   try {
@@ -151,18 +151,18 @@ function readTaskPlan(taskId: string): ThinkingTaskPlan | null {
   }
 }
 
-function formatSubtaskId(id: number | string): string {
+export function formatSubtaskId(id: number | string): string {
   // Decimal string IDs like "3.1" already contain a dot; plain numeric IDs get
   // a trailing dot so the list reads "1. Title", "2. Title", "3.1 Title".
   return typeof id === 'string' ? id : `${id}.`;
 }
 
-function subtaskDepth(id: number | string): number {
+export function subtaskDepth(id: number | string): number {
   if (typeof id === 'number') return 0;
   return (id.match(/\./g) || []).length;
 }
 
-function formatSubtaskList(plan: ThinkingTaskPlan): string {
+export function formatSubtaskList(plan: ThinkingTaskPlan): string {
   const icons: Record<SubTask['status'], string> = {
     pending: '⬜',
     running: '🔄',
@@ -907,7 +907,7 @@ Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (founda
   }
 }
 
-async function splitFailedSubtask(
+export async function splitFailedSubtask(
   parentTask: Task,
   plan: ThinkingTaskPlan,
   failedSubtask: SubTask,
