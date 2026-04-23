@@ -55,10 +55,12 @@ export function getInReviewStatus(config: Config): string {
 export type RunFilter = 'all' | 'open' | 'pending';
 
 export interface SubTask {
-  id: number;
+  id: number | string;
   title: string;
   description: string;
   status: 'pending' | 'running' | 'done' | 'failed';
+  attempts: number;
+  lastError?: string;
 }
 
 export interface ThinkingTaskPlan {
@@ -127,10 +129,26 @@ function readTaskPlan(taskId: string): ThinkingTaskPlan | null {
   const p = taskPlanPath(taskId);
   if (!fs.existsSync(p)) return null;
   try {
-    return JSON.parse(fs.readFileSync(p, 'utf8')) as ThinkingTaskPlan;
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as ThinkingTaskPlan;
+    // Backward compat: older plans may be missing `attempts` / `lastError`.
+    raw.subtasks = (raw.subtasks || []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      status: s.status,
+      attempts: typeof s.attempts === 'number' ? s.attempts : 0,
+      lastError: s.lastError,
+    }));
+    return raw;
   } catch {
     return null;
   }
+}
+
+function formatSubtaskId(id: number | string): string {
+  // Decimal string IDs like "3.1" already contain a dot; plain numeric IDs get
+  // a trailing dot so the list reads "1. Title", "2. Title", "3.1 Title".
+  return typeof id === 'string' ? id : `${id}.`;
 }
 
 function formatSubtaskList(plan: ThinkingTaskPlan): string {
@@ -141,7 +159,7 @@ function formatSubtaskList(plan: ThinkingTaskPlan): string {
     failed: '❌',
   };
   return plan.subtasks
-    .map((s) => `${icons[s.status]} **${s.id}.** ${s.title} — _${s.status}_`)
+    .map((s) => `${icons[s.status]} **${formatSubtaskId(s.id)}** ${s.title} — _${s.status}_`)
     .join('\n');
 }
 
@@ -844,7 +862,7 @@ Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (founda
     }
     const parsed = JSON.parse(jsonMatch[0]) as {
       instructions: string;
-      subtasks: Array<{ id: number; title: string; description: string }>;
+      subtasks: Array<{ id: number | string; title: string; description: string }>;
     };
 
     if (!parsed.subtasks || parsed.subtasks.length === 0) {
@@ -860,6 +878,7 @@ Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (founda
         title: s.title,
         description: s.description,
         status: 'pending' as const,
+        attempts: 0,
       })),
     };
 
@@ -1049,6 +1068,8 @@ async function implementThinkingTask(
         title: s.title,
         description: s.description,
         status: (prev?.status ?? s.status) as SubTask['status'],
+        attempts: prev?.attempts ?? 0,
+        lastError: prev?.lastError,
       };
     });
     writeTaskPlan(plan);
