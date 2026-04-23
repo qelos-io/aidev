@@ -157,6 +157,11 @@ function formatSubtaskId(id: number | string): string {
   return typeof id === 'string' ? id : `${id}.`;
 }
 
+function subtaskDepth(id: number | string): number {
+  if (typeof id === 'number') return 0;
+  return (id.match(/\./g) || []).length;
+}
+
 function formatSubtaskList(plan: ThinkingTaskPlan): string {
   const icons: Record<SubTask['status'], string> = {
     pending: '⬜',
@@ -1183,10 +1188,55 @@ async function implementThinkingTask(
 
   let allSucceeded = true;
 
-  for (const subtask of plan.subtasks) {
+  for (let i = 0; i < plan.subtasks.length; i++) {
+    const subtask = plan.subtasks[i];
+
     if (subtask.status === 'done') {
       logger.info(`  Step ${subtask.id} already done — skipping`);
       continue;
+    }
+
+    // Failure recovery on resume: a sub-task that ended in 'failed' on a prior run
+    // gets a chance to be split into two smaller steps before we retry it.
+    if (subtask.status === 'failed') {
+      const isGitFailure = subtask.lastError === '__git__';
+      const depth = subtaskDepth(subtask.id);
+      const attempts = subtask.attempts ?? 0;
+      const shouldSplit = !isGitFailure && attempts >= 2 && depth < 2;
+
+      if (shouldSplit) {
+        const failedId = subtask.id;
+        const newSubtasks = await splitFailedSubtask(task, plan, subtask, runners);
+        if (newSubtasks) {
+          plan.subtasks.splice(i, 1, ...newSubtasks);
+          writeTaskPlan(plan);
+          const newIds = newSubtasks.map((s) => s.id).join(', ');
+          logger.info(`  Step ${failedId} was split into ${newIds}`);
+          try {
+            await provider.postComment(
+              task.id,
+              `${config.commentPrefix} Step ${failedId} was split into ${newIds}:\n\n${formatSubtaskList(plan)}`
+            );
+          } catch { /* ignore */ }
+          i--; // re-process this index — it now points at the first new sub-task
+          continue;
+        }
+        logger.warn(`  Could not split failed step ${failedId} — falling back to plain retry`);
+        try {
+          await provider.postComment(
+            task.id,
+            `${config.commentPrefix} Failed to automatically split step ${failedId}. Retrying as-is.`
+          );
+        } catch { /* ignore */ }
+      } else if (!isGitFailure && attempts >= 2 && depth >= 2) {
+        logger.warn(`  Step ${subtask.id} has reached the split-depth cap — manual intervention may be needed`);
+        try {
+          await provider.postComment(
+            task.id,
+            `${config.commentPrefix} Step ${subtask.id} has already been split twice and is still failing. Retrying as-is — please consider manual intervention.`
+          );
+        } catch { /* ignore */ }
+      }
     }
 
     const previousError = subtask.lastError;
