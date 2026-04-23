@@ -902,6 +902,101 @@ Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (founda
   }
 }
 
+async function splitFailedSubtask(
+  parentTask: Task,
+  plan: ThinkingTaskPlan,
+  failedSubtask: SubTask,
+  runners: AIRunner[]
+): Promise<SubTask[] | null> {
+  const runner = runners.find((r) => r.isAvailable());
+  if (!runner) {
+    logger.error('No AI runner available for sub-task split');
+    return null;
+  }
+
+  const siblings = plan.subtasks
+    .filter((s) => s.id !== failedSubtask.id)
+    .map((s) => `  - [${s.status}] ${formatSubtaskId(s.id)} ${s.title}`)
+    .join('\n');
+
+  const diagnostics = failedSubtask.lastError && failedSubtask.lastError !== '__git__'
+    ? failedSubtask.lastError
+    : '(no diagnostics captured)';
+
+  const splitPrompt = `You are a senior software architect helping recover a stalled implementation step by splitting it into exactly two smaller, sequential sub-tasks.
+
+Overall task: ${parentTask.name}
+${parentTask.description ? `\nTask description:\n${parentTask.description}\n` : ''}
+## Surrounding plan
+${siblings || '(no sibling sub-tasks)'}
+
+## Failed sub-task
+ID: ${formatSubtaskId(failedSubtask.id)}
+Title: ${failedSubtask.title}
+Description: ${failedSubtask.description}
+
+## Previous failure diagnostics
+${diagnostics}
+
+Split the failed sub-task above into exactly two smaller, independently implementable sub-tasks that together achieve the original goal. Each new sub-task should be a coherent unit of work that can be committed separately, ordered by dependency (foundation first). Take the diagnostics into account so the split actually addresses what broke.
+
+Respond with valid JSON only — no markdown fences, no extra text:
+{
+  "subtasks": [
+    { "title": "Short title for the first new sub-task", "description": "Detailed description of what to implement in this step" },
+    { "title": "Short title for the second new sub-task", "description": "Detailed description of what to implement in this step" }
+  ]
+}
+
+Exactly two entries — no more, no fewer.`;
+
+  logger.info(`Splitting failed sub-task ${formatSubtaskId(failedSubtask.id)} into two smaller steps...`);
+  const result = await runner.run(splitPrompt);
+  if (!result.success) {
+    logger.error('Sub-task split failed');
+    return null;
+  }
+
+  try {
+    const jsonMatch = result.output.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      logger.error('Could not parse split response — no JSON found');
+      return null;
+    }
+    const parsed = JSON.parse(jsonMatch[0]) as {
+      subtasks: Array<{ title?: string; description?: string }>;
+    };
+
+    if (!parsed.subtasks || parsed.subtasks.length !== 2) {
+      logger.error(`Split response must contain exactly 2 sub-tasks (got ${parsed.subtasks?.length ?? 0})`);
+      return null;
+    }
+
+    const newSubtasks: SubTask[] = [];
+    for (let i = 0; i < 2; i++) {
+      const entry = parsed.subtasks[i];
+      const title = (entry?.title || '').trim();
+      const description = (entry?.description || '').trim();
+      if (!title || !description) {
+        logger.error(`Split response sub-task ${i + 1} has empty title or description`);
+        return null;
+      }
+      newSubtasks.push({
+        id: `${failedSubtask.id}.${i + 1}`,
+        title,
+        description,
+        status: 'pending',
+        attempts: 0,
+      });
+    }
+
+    return newSubtasks;
+  } catch (err) {
+    logger.error(`Failed to parse split response: ${err}`);
+    return null;
+  }
+}
+
 async function executeSubTask(
   subtask: SubTask,
   task: Task,
