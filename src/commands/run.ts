@@ -55,10 +55,12 @@ export function getInReviewStatus(config: Config): string {
 export type RunFilter = 'all' | 'open' | 'pending';
 
 export interface SubTask {
-  id: number;
+  id: number | string;
   title: string;
   description: string;
   status: 'pending' | 'running' | 'done' | 'failed';
+  attempts: number;
+  lastError?: string;
 }
 
 export interface ThinkingTaskPlan {
@@ -119,21 +121,48 @@ function cleanupThinkingFiles(taskId: string): void {
   }
 }
 
-function writeTaskPlan(plan: ThinkingTaskPlan): void {
+export function writeTaskPlan(plan: ThinkingTaskPlan): void {
   fs.writeFileSync(taskPlanPath(plan.taskId), JSON.stringify(plan, null, 2), 'utf8');
 }
 
-function readTaskPlan(taskId: string): ThinkingTaskPlan | null {
+function truncateError(msg: string): string {
+  const MAX_LEN = 4096;
+  if (msg.length <= MAX_LEN) return msg;
+  return msg.slice(0, MAX_LEN) + '\n... (truncated)';
+}
+
+export function readTaskPlan(taskId: string): ThinkingTaskPlan | null {
   const p = taskPlanPath(taskId);
   if (!fs.existsSync(p)) return null;
   try {
-    return JSON.parse(fs.readFileSync(p, 'utf8')) as ThinkingTaskPlan;
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as ThinkingTaskPlan;
+    // Backward compat: older plans may be missing `attempts` / `lastError`.
+    raw.subtasks = (raw.subtasks || []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      status: s.status,
+      attempts: typeof s.attempts === 'number' ? s.attempts : 0,
+      lastError: s.lastError,
+    }));
+    return raw;
   } catch {
     return null;
   }
 }
 
-function formatSubtaskList(plan: ThinkingTaskPlan): string {
+export function formatSubtaskId(id: number | string): string {
+  // Decimal string IDs like "3.1" already contain a dot; plain numeric IDs get
+  // a trailing dot so the list reads "1. Title", "2. Title", "3.1 Title".
+  return typeof id === 'string' ? id : `${id}.`;
+}
+
+export function subtaskDepth(id: number | string): number {
+  if (typeof id === 'number') return 0;
+  return (id.match(/\./g) || []).length;
+}
+
+export function formatSubtaskList(plan: ThinkingTaskPlan): string {
   const icons: Record<SubTask['status'], string> = {
     pending: '⬜',
     running: '🔄',
@@ -141,7 +170,7 @@ function formatSubtaskList(plan: ThinkingTaskPlan): string {
     failed: '❌',
   };
   return plan.subtasks
-    .map((s) => `${icons[s.status]} **${s.id}.** ${s.title} — _${s.status}_`)
+    .map((s) => `${icons[s.status]} **${formatSubtaskId(s.id)}** ${s.title} — _${s.status}_`)
     .join('\n');
 }
 
@@ -844,7 +873,7 @@ Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (founda
     }
     const parsed = JSON.parse(jsonMatch[0]) as {
       instructions: string;
-      subtasks: Array<{ id: number; title: string; description: string }>;
+      subtasks: Array<{ id: number | string; title: string; description: string }>;
     };
 
     if (!parsed.subtasks || parsed.subtasks.length === 0) {
@@ -860,6 +889,7 @@ Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (founda
         title: s.title,
         description: s.description,
         status: 'pending' as const,
+        attempts: 0,
       })),
     };
 
@@ -877,13 +907,109 @@ Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (founda
   }
 }
 
+export async function splitFailedSubtask(
+  parentTask: Task,
+  plan: ThinkingTaskPlan,
+  failedSubtask: SubTask,
+  runners: AIRunner[]
+): Promise<SubTask[] | null> {
+  const runner = runners.find((r) => r.isAvailable());
+  if (!runner) {
+    logger.error('No AI runner available for sub-task split');
+    return null;
+  }
+
+  const siblings = plan.subtasks
+    .filter((s) => s.id !== failedSubtask.id)
+    .map((s) => `  - [${s.status}] ${formatSubtaskId(s.id)} ${s.title}`)
+    .join('\n');
+
+  const diagnostics = failedSubtask.lastError && failedSubtask.lastError !== '__git__'
+    ? failedSubtask.lastError
+    : '(no diagnostics captured)';
+
+  const splitPrompt = `You are a senior software architect helping recover a stalled implementation step by splitting it into exactly two smaller, sequential sub-tasks.
+
+Overall task: ${parentTask.name}
+${parentTask.description ? `\nTask description:\n${parentTask.description}\n` : ''}
+## Surrounding plan
+${siblings || '(no sibling sub-tasks)'}
+
+## Failed sub-task
+ID: ${formatSubtaskId(failedSubtask.id)}
+Title: ${failedSubtask.title}
+Description: ${failedSubtask.description}
+
+## Previous failure diagnostics
+${diagnostics}
+
+Split the failed sub-task above into exactly two smaller, independently implementable sub-tasks that together achieve the original goal. Each new sub-task should be a coherent unit of work that can be committed separately, ordered by dependency (foundation first). Take the diagnostics into account so the split actually addresses what broke.
+
+Respond with valid JSON only — no markdown fences, no extra text:
+{
+  "subtasks": [
+    { "title": "Short title for the first new sub-task", "description": "Detailed description of what to implement in this step" },
+    { "title": "Short title for the second new sub-task", "description": "Detailed description of what to implement in this step" }
+  ]
+}
+
+Exactly two entries — no more, no fewer.`;
+
+  logger.info(`Splitting failed sub-task ${formatSubtaskId(failedSubtask.id)} into two smaller steps...`);
+  const result = await runner.run(splitPrompt);
+  if (!result.success) {
+    logger.error('Sub-task split failed');
+    return null;
+  }
+
+  try {
+    const jsonMatch = result.output.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      logger.error('Could not parse split response — no JSON found');
+      return null;
+    }
+    const parsed = JSON.parse(jsonMatch[0]) as {
+      subtasks: Array<{ title?: string; description?: string }>;
+    };
+
+    if (!parsed.subtasks || parsed.subtasks.length !== 2) {
+      logger.error(`Split response must contain exactly 2 sub-tasks (got ${parsed.subtasks?.length ?? 0})`);
+      return null;
+    }
+
+    const newSubtasks: SubTask[] = [];
+    for (let i = 0; i < 2; i++) {
+      const entry = parsed.subtasks[i];
+      const title = (entry?.title || '').trim();
+      const description = (entry?.description || '').trim();
+      if (!title || !description) {
+        logger.error(`Split response sub-task ${i + 1} has empty title or description`);
+        return null;
+      }
+      newSubtasks.push({
+        id: `${failedSubtask.id}.${i + 1}`,
+        title,
+        description,
+        status: 'pending',
+        attempts: 0,
+      });
+    }
+
+    return newSubtasks;
+  } catch (err) {
+    logger.error(`Failed to parse split response: ${err}`);
+    return null;
+  }
+}
+
 async function executeSubTask(
   subtask: SubTask,
   task: Task,
   plan: ThinkingTaskPlan,
   config: Config,
   runners: AIRunner[],
-  reviewContext?: string
+  reviewContext?: string,
+  previousError?: string
 ): Promise<boolean> {
   const instructionsPath = taskInstructionsPath(task.id);
   const instructions = fs.existsSync(instructionsPath)
@@ -895,6 +1021,10 @@ async function executeSubTask(
     .map((s) => `  - [done] ${s.id}. ${s.title}`)
     .join('\n');
 
+  const retrySection = previousError && previousError !== '__git__'
+    ? `\n## Previous attempt failure diagnostics\nThis step failed on a previous attempt. Diagnostics below — please take them into account and avoid repeating the same failure.\n\n${previousError}\n`
+    : '';
+
   const prompt = `You are implementing step ${subtask.id} of a multi-step task.
 
 Overall task: ${task.name}
@@ -902,7 +1032,7 @@ ${task.description ? `\nTask description:\n${task.description}` : ''}
 
 ## Full implementation instructions
 ${instructions}
-${reviewContext || ''}
+${reviewContext || ''}${retrySection}
 ## Progress
 ${completedSteps || '(no steps completed yet)'}
 
@@ -1049,6 +1179,8 @@ async function implementThinkingTask(
         title: s.title,
         description: s.description,
         status: (prev?.status ?? s.status) as SubTask['status'],
+        attempts: prev?.attempts ?? 0,
+        lastError: prev?.lastError,
       };
     });
     writeTaskPlan(plan);
@@ -1056,24 +1188,72 @@ async function implementThinkingTask(
 
   let allSucceeded = true;
 
-  for (const subtask of plan.subtasks) {
+  for (let i = 0; i < plan.subtasks.length; i++) {
+    const subtask = plan.subtasks[i];
+
     if (subtask.status === 'done') {
       logger.info(`  Step ${subtask.id} already done — skipping`);
       continue;
     }
 
+    // Failure recovery on resume: a sub-task that ended in 'failed' on a prior run
+    // gets a chance to be split into two smaller steps before we retry it.
+    if (subtask.status === 'failed') {
+      const isGitFailure = subtask.lastError === '__git__';
+      const depth = subtaskDepth(subtask.id);
+      const attempts = subtask.attempts ?? 0;
+      const shouldSplit = !isGitFailure && attempts >= 2 && depth < 2;
+
+      if (shouldSplit) {
+        const failedId = subtask.id;
+        const newSubtasks = await splitFailedSubtask(task, plan, subtask, runners);
+        if (newSubtasks) {
+          plan.subtasks.splice(i, 1, ...newSubtasks);
+          writeTaskPlan(plan);
+          const newIds = newSubtasks.map((s) => s.id).join(', ');
+          logger.info(`  Step ${failedId} was split into ${newIds}`);
+          try {
+            await provider.postComment(
+              task.id,
+              `${config.commentPrefix} Step ${failedId} was split into ${newIds}:\n\n${formatSubtaskList(plan)}`
+            );
+          } catch { /* ignore */ }
+          i--; // re-process this index — it now points at the first new sub-task
+          continue;
+        }
+        logger.warn(`  Could not split failed step ${failedId} — falling back to plain retry`);
+        try {
+          await provider.postComment(
+            task.id,
+            `${config.commentPrefix} Failed to automatically split step ${failedId}. Retrying as-is.`
+          );
+        } catch { /* ignore */ }
+      } else if (!isGitFailure && attempts >= 2 && depth >= 2) {
+        logger.warn(`  Step ${subtask.id} has reached the split-depth cap — manual intervention may be needed`);
+        try {
+          await provider.postComment(
+            task.id,
+            `${config.commentPrefix} Step ${subtask.id} has already been split twice and is still failing. Retrying as-is — please consider manual intervention.`
+          );
+        } catch { /* ignore */ }
+      }
+    }
+
+    const previousError = subtask.lastError;
     subtask.status = 'running';
+    subtask.attempts = (subtask.attempts ?? 0) + 1;
     writeTaskPlan(plan);
 
-    logger.info(`  Starting step ${subtask.id}: ${subtask.title}`);
-    const success = await executeSubTask(subtask, task, plan, config, runners, reviewContext);
+    logger.info(`  Starting step ${subtask.id}: ${subtask.title} (attempt ${subtask.attempts})`);
+    const success = await executeSubTask(subtask, task, plan, config, runners, reviewContext, previousError);
 
     if (!success) {
+      const diagnostics = collectAndLogDiagnostics();
       subtask.status = 'failed';
+      subtask.lastError = truncateError(diagnostics);
       writeTaskPlan(plan);
       allSucceeded = false;
       logger.error(`  Step ${subtask.id} failed: ${subtask.title}`);
-      const diagnostics = collectAndLogDiagnostics();
 
       try {
         await provider.postComment(
@@ -1087,6 +1267,7 @@ async function implementThinkingTask(
 
     if (!git.addAll() || !git.commit(`${config.commentPrefix} Step ${subtask.id}: ${subtask.title}\n\nTask: ${task.url}`, branchName)) {
       subtask.status = 'failed';
+      subtask.lastError = '__git__';
       writeTaskPlan(plan);
       allSucceeded = false;
       logger.error(`  Failed to commit step ${subtask.id}`);
@@ -1095,6 +1276,7 @@ async function implementThinkingTask(
 
     if (!git.push(config.gitRemote, branchName)) {
       subtask.status = 'failed';
+      subtask.lastError = '__git__';
       writeTaskPlan(plan);
       allSucceeded = false;
       logger.error(`  Failed to push step ${subtask.id}`);

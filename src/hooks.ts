@@ -39,7 +39,7 @@ export interface ThinkingTaskContext {
   task: Task;
   config: Config;
   branchName: string;
-  subtasks: Array<{ id: number; title: string; description: string; status: string }>;
+  subtasks: Array<{ id: number | string; title: string; description: string; status: string }>;
 }
 
 export interface ReviewTaskContext {
