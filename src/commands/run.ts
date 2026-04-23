@@ -125,6 +125,12 @@ function writeTaskPlan(plan: ThinkingTaskPlan): void {
   fs.writeFileSync(taskPlanPath(plan.taskId), JSON.stringify(plan, null, 2), 'utf8');
 }
 
+function truncateError(msg: string): string {
+  const MAX_LEN = 4096;
+  if (msg.length <= MAX_LEN) return msg;
+  return msg.slice(0, MAX_LEN) + '\n... (truncated)';
+}
+
 function readTaskPlan(taskId: string): ThinkingTaskPlan | null {
   const p = taskPlanPath(taskId);
   if (!fs.existsSync(p)) return null;
@@ -902,7 +908,8 @@ async function executeSubTask(
   plan: ThinkingTaskPlan,
   config: Config,
   runners: AIRunner[],
-  reviewContext?: string
+  reviewContext?: string,
+  previousError?: string
 ): Promise<boolean> {
   const instructionsPath = taskInstructionsPath(task.id);
   const instructions = fs.existsSync(instructionsPath)
@@ -914,6 +921,10 @@ async function executeSubTask(
     .map((s) => `  - [done] ${s.id}. ${s.title}`)
     .join('\n');
 
+  const retrySection = previousError && previousError !== '__git__'
+    ? `\n## Previous attempt failure diagnostics\nThis step failed on a previous attempt. Diagnostics below — please take them into account and avoid repeating the same failure.\n\n${previousError}\n`
+    : '';
+
   const prompt = `You are implementing step ${subtask.id} of a multi-step task.
 
 Overall task: ${task.name}
@@ -921,7 +932,7 @@ ${task.description ? `\nTask description:\n${task.description}` : ''}
 
 ## Full implementation instructions
 ${instructions}
-${reviewContext || ''}
+${reviewContext || ''}${retrySection}
 ## Progress
 ${completedSteps || '(no steps completed yet)'}
 
@@ -1083,18 +1094,21 @@ async function implementThinkingTask(
       continue;
     }
 
+    const previousError = subtask.lastError;
     subtask.status = 'running';
+    subtask.attempts = (subtask.attempts ?? 0) + 1;
     writeTaskPlan(plan);
 
-    logger.info(`  Starting step ${subtask.id}: ${subtask.title}`);
-    const success = await executeSubTask(subtask, task, plan, config, runners, reviewContext);
+    logger.info(`  Starting step ${subtask.id}: ${subtask.title} (attempt ${subtask.attempts})`);
+    const success = await executeSubTask(subtask, task, plan, config, runners, reviewContext, previousError);
 
     if (!success) {
+      const diagnostics = collectAndLogDiagnostics();
       subtask.status = 'failed';
+      subtask.lastError = truncateError(diagnostics);
       writeTaskPlan(plan);
       allSucceeded = false;
       logger.error(`  Step ${subtask.id} failed: ${subtask.title}`);
-      const diagnostics = collectAndLogDiagnostics();
 
       try {
         await provider.postComment(
@@ -1108,6 +1122,7 @@ async function implementThinkingTask(
 
     if (!git.addAll() || !git.commit(`${config.commentPrefix} Step ${subtask.id}: ${subtask.title}\n\nTask: ${task.url}`, branchName)) {
       subtask.status = 'failed';
+      subtask.lastError = '__git__';
       writeTaskPlan(plan);
       allSucceeded = false;
       logger.error(`  Failed to commit step ${subtask.id}`);
@@ -1116,6 +1131,7 @@ async function implementThinkingTask(
 
     if (!git.push(config.gitRemote, branchName)) {
       subtask.status = 'failed';
+      subtask.lastError = '__git__';
       writeTaskPlan(plan);
       allSucceeded = false;
       logger.error(`  Failed to push step ${subtask.id}`);
