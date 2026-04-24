@@ -2,10 +2,12 @@ import * as crypto from 'node:crypto';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import chalk from 'chalk';
-import { LocalTask } from '../types';
-import { readTasksFile, writeTasksFile } from '../tasks';
+import { Config, LocalTask } from '../types';
+import { processLocalTasks, readTasksFile, writeTasksFile } from '../tasks';
 import { parseCron } from '../cron';
 import { logger } from '../logger';
+import { loadConfig } from '../config';
+import { createProvider, TaskProvider } from '../providers';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -244,6 +246,36 @@ export async function tasksLsCommand(): Promise<void> {
   console.log();
   printTasksTable(tasks);
   console.log();
+}
+
+export async function tasksPushCommand(envPath?: string): Promise<void> {
+  const tasks = readTasksFile();
+  if (tasks.length === 0) {
+    logger.warn('No local tasks found in aidev.tasks.json');
+    logger.info('Use "aidev tasks add" to create one.');
+    return;
+  }
+
+  const config = loadConfig(envPath);
+  const provider = createProvider(config);
+
+  let nonCodeProvider: TaskProvider | undefined;
+  if (config.nonCodeTag) {
+    const nonCodeConfig: Config = {
+      ...config,
+      clickupTag: config.nonCodeTag,
+      clickupTeamId: config.nonCodeClickupTeamId || config.clickupTeamId,
+      jiraLabel: config.nonCodeTag,
+      jiraProject: config.nonCodeJiraProject || config.jiraProject,
+      linearLabel: config.nonCodeTag,
+      linearTeamId: config.nonCodeLinearTeamId || config.linearTeamId,
+      trelloLabel: config.nonCodeTag,
+    };
+    nonCodeProvider = createProvider(nonCodeConfig, 'non-code');
+  }
+
+  const result = await processLocalTasks(config, provider, nonCodeProvider);
+  logger.info(`Local tasks: ${result.pushed} pushed, ${result.skipped} skipped`);
 }
 
 export async function tasksUpdateCommand(id?: string): Promise<void> {

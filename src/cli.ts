@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { initCommand } from './commands/init';
 import { runCommand, RunFilter } from './commands/run';
 import { scheduleSetCommand, scheduleGetCommand, scheduleRemoveCommand, scheduleFixCommand } from './commands/schedule';
-import { tasksAddCommand, tasksRemoveCommand, tasksLsCommand, tasksUpdateCommand } from './commands/tasks';
+import { tasksAddCommand, tasksRemoveCommand, tasksLsCommand, tasksPushCommand, tasksUpdateCommand } from './commands/tasks';
 import { helpCommand } from './commands/help';
 import { stopCommand } from './commands/stop';
 import { loadConfig } from './config';
@@ -175,6 +175,19 @@ tasksCmd
   .description('Update a local task by table ID (interactive if omitted)')
   .action(async (id?: string) => {
     await tasksUpdateCommand(id);
+  });
+
+tasksCmd
+  .command('push')
+  .description('Publish all tasks from aidev.tasks.json to the configured provider')
+  .action(async () => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      await tasksPushCommand(env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
   });
 
 program.parse(process.argv);

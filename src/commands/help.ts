@@ -53,6 +53,12 @@ ${b('COMMANDS')}
   ${c('run')}                         Process all open + pending-with-replies tasks
   ${c('run open')}                    Only open (non-pending) tasks
   ${c('run pending')}                 Only pending tasks — check for human replies
+  ${c('run tasks')}                   Publish queued ${d('aidev.tasks.json')} entries and exit
+  ${c('tasks add')}                   Queue a new task in ${d('aidev.tasks.json')} (interactive)
+  ${c('tasks ls')}                    List queued tasks
+  ${c('tasks update')} ${d('[id]')}           Edit a queued task
+  ${c('tasks remove')} ${d('[id]')}           Delete a queued task
+  ${c('tasks push')}                  Publish all queued tasks now (same as ${c('run tasks')})
   ${c('schedule set')} ${d('<cron>')}         Set cron schedule for this directory
   ${c('schedule get')}                Show current cron schedule
   ${c('help')}                        Show this help message
@@ -77,6 +83,13 @@ ${b('LOCAL PROVIDER')}
   To add a comment, append a ${d('## your-name')} section to the session file.
   Add ${c('type: non-code')} to frontmatter for tasks that skip git branching.
   Run ${c('aidev init')} with provider ${c('local')} to create the folder structure.
+
+${b('LOCAL TASKS FILE')}
+  ${d('aidev.tasks.json')} queues tasks to publish to your remote provider. Each entry
+  has a title, description, type (${c('code')} | ${c('non-code')}), optional priority, tags, and cron.
+  Every ${c('aidev run')} publishes pending entries; one-shot entries are removed after
+  publishing, cron entries stay and re-publish on schedule. Manage with ${c('aidev tasks')}
+  ${d('(add / ls / update / remove / push)')} or edit the JSON file directly.
 
 ${b('NON-CODE TASKS')}
   Tasks tagged with the ${c('NON_CODE_TAG')} are executed without git branching —

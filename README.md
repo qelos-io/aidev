@@ -25,6 +25,7 @@ Task  →  AI implements  →  git push  →  "in review"  →  AI resolves code
 - [Code review resolution](#code-review-resolution)
 - [Auto-merge accepted PRs](#auto-merge-accepted-prs)
 - [Dev notes mode](#dev-notes-mode)
+- [Local tasks file (`aidev.tasks.json`)](#local-tasks-file-aidevtasksjson)
 - [Scheduling](#scheduling)
 - [Hooks](#hooks)
 - [Logging](#logging)
@@ -81,6 +82,12 @@ aidev run
 | `aidev run open` | Only open (non-pending) tasks |
 | `aidev run pending` | Only pending tasks — check for human replies |
 | `aidev run accepted` | Auto-merge PRs for tasks in review with the accepted tag |
+| `aidev run tasks` | Publish all entries in `aidev.tasks.json` and exit (no AI run) |
+| `aidev tasks add` | Add a new entry to `aidev.tasks.json` (interactive) |
+| `aidev tasks ls` | List entries currently queued in `aidev.tasks.json` |
+| `aidev tasks update [id]` | Edit a queued entry (interactive if `id` omitted) |
+| `aidev tasks remove [id]` | Delete a queued entry (interactive if `id` omitted) |
+| `aidev tasks push` | Same as `aidev run tasks` — publish all queued entries and exit |
 | `aidev stop` | Stop any running aidev process in the current directory |
 | `aidev schedule set` | Interactive cron picker for this directory |
 | `aidev schedule set "<expr>"` | Set a specific cron expression |
@@ -474,6 +481,92 @@ Controls when aidev asks the task provider for clarification before implementing
 | `always` | Always posts "any dev notes?" before implementing every task. |
 
 When a question is posted, the task is moved to the configured pending status (e.g. `CLICKUP_PENDING_STATUS`, `JIRA_PENDING_STATUS`, etc.). On the next run, aidev checks whether a human has replied and, if so, includes the reply as context for the AI.
+
+---
+
+## Local tasks file (`aidev.tasks.json`)
+
+`aidev.tasks.json` is an **outbound queue** — a JSON file that sits at the root of your project and holds task templates that aidev will publish to your configured provider (ClickUp, Jira, Linear, etc.). It is the opposite direction from the [Local provider](#local-provider): the local provider **stores** tasks on disk, while `aidev.tasks.json` **pushes** tasks to a remote provider.
+
+Typical uses:
+
+- **Recurring tasks** — with a `cron` expression, an entry publishes a fresh task on every matching tick (daily standup reminders, weekly reviews, monthly housekeeping).
+- **Staged work** — queue a batch of tasks in a commit so they appear in the provider together when `aidev` next runs.
+- **AI-authored tasks** — another AI agent or script can append entries to the file; `aidev` will pick them up and create real tickets.
+
+The file is added to `.gitignore` by `aidev init` — each developer or automation environment maintains their own queue.
+
+### File format
+
+`aidev.tasks.json` is a JSON array of task entries. Each entry has the shape:
+
+```ts
+interface LocalTask {
+  id: string;              // UUID — generated automatically by "aidev tasks add"
+  title: string;           // required — task title on the remote provider
+  description: string;     // task body / description
+  type: 'code' | 'non-code'; // routes to the non-code provider when set to 'non-code'
+  priority?: number;       // 1=urgent, 2=high, 3=normal, 4=low
+  assignee?: string;       // currently informational (reserved for future use)
+  dueDate?: string;        // ISO date, e.g. "2026-05-01"
+  tags?: string[];         // extra tags appended to the provider-configured tag
+  listId?: string;         // override provider list / project ID for this task only
+  cron?: string;           // 5-field cron — if set, the task is re-published on every tick
+  lastPushedAt?: number;   // epoch ms of the last successful push (managed by aidev for cron entries)
+}
+```
+
+**Example** (`aidev.tasks.json`):
+
+```json
+[
+  {
+    "id": "7f3a9c2d-5b1e-4a6f-9d8c-1e2f3a4b5c6d",
+    "title": "Daily standup notes",
+    "description": "Post yesterday / today / blockers to the team channel.",
+    "type": "non-code",
+    "priority": 3,
+    "tags": ["standup"],
+    "cron": "0 9 * * 1-5"
+  },
+  {
+    "id": "2b8e1f7a-4c9d-4e5a-8b6c-9f1e2d3c4b5a",
+    "title": "Upgrade dependencies",
+    "description": "Run `npm outdated`, bump minor/patch versions, verify tests pass.",
+    "type": "code",
+    "priority": 2,
+    "tags": ["maintenance"]
+  }
+]
+```
+
+### Lifecycle
+
+1. **Every `aidev run`** (regardless of filter) begins by reading `aidev.tasks.json` and attempting to publish each entry via the configured provider's `createTask` API.
+2. **One-shot entries** (no `cron` field) are **removed from the file** after a successful push — they become a real ticket and won't be duplicated on the next run.
+3. **Cron entries** remain in the file. `lastPushedAt` is updated on each successful push; on the next run, aidev checks whether the cron has fired at least once since `lastPushedAt` before republishing. A fresh entry with a cron fires on the first run that matches.
+4. **Failures** are logged and the entry is kept — the next run retries.
+
+### Routing
+
+- `type: 'code'` → published with the code tag (`CLICKUP_TAG` / `JIRA_LABEL` / `LINEAR_LABEL`, etc.) to the primary provider.
+- `type: 'non-code'` → published with `NON_CODE_TAG` to the non-code provider (a separate team / project if `NON_CODE_CLICKUP_TEAM_ID`, `NON_CODE_JIRA_PROJECT`, or `NON_CODE_LINEAR_TEAM_ID` is configured, otherwise the primary).
+- Per-task `tags` are appended to the resolved default tag.
+- Per-task `listId` overrides the provider-default list / project for that single task.
+
+### Managing entries
+
+Use the built-in commands rather than hand-editing JSON (although hand-editing is fine — the file is plain JSON):
+
+```bash
+aidev tasks add              # interactive prompt: title, description, type, priority, due date, tags, list, cron
+aidev tasks ls               # table of queued entries
+aidev tasks update [id]      # edit an entry by table ID (interactive picker if no id)
+aidev tasks remove [id]      # delete an entry by table ID (interactive picker if no id)
+aidev tasks push             # publish everything now (same as "aidev run tasks") — useful for dry-running or in scripts
+```
+
+`aidev tasks push` and `aidev run tasks` do the same thing: they only process `aidev.tasks.json` and exit without pulling tasks from the provider or invoking the AI. This is useful when you want to decouple queue publishing from the main AI loop — for example, running `aidev tasks push` from a separate cron entry or CI job.
 
 ---
 
