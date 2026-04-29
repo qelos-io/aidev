@@ -30,7 +30,7 @@ export class LinearProvider implements TaskProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: this.apiKey.startsWith('lin_api_') ? this.apiKey : `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify({ query, variables }),
     });
