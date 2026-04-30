@@ -223,6 +223,31 @@ export class MondayProvider implements TaskProvider {
     return comments;
   }
 
+  async fetchAvailableStatuses(): Promise<string[]> {
+    interface ColumnsResponse {
+      boards: Array<{
+        columns: Array<{ id: string; settings_str?: string }>;
+      }>;
+    }
+
+    const query = `
+      query ($boardId: ID!) {
+        boards(ids: [$boardId]) {
+          columns { id settings_str }
+        }
+      }
+    `;
+    const data = await this.graphql<ColumnsResponse>(query, { boardId: this.boardId });
+    const col = data.boards?.[0]?.columns?.find((c) => c.id === this.statusColumnId);
+    if (!col?.settings_str) return [];
+    try {
+      const parsed = JSON.parse(col.settings_str) as { labels?: Record<string, string> };
+      return Object.values(parsed.labels || {});
+    } catch {
+      return [];
+    }
+  }
+
   async updateStatus(taskId: string, status: string): Promise<void> {
     logger.debug(`Updating Monday item ${taskId} status to "${status}"`);
     const mutation = `

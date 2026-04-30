@@ -310,6 +310,11 @@ export class TrelloProvider implements TaskProvider {
     }));
   }
 
+  async fetchAvailableStatuses(): Promise<string[]> {
+    const lists = await this.fetchLists();
+    return lists.map((l) => l.name);
+  }
+
   async updateStatus(taskId: string, status: string): Promise<void> {
     logger.debug(`Moving Trello card ${taskId} for status "${status}"`);
     const lists = await this.fetchLists();

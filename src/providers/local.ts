@@ -247,6 +247,10 @@ export class LocalProvider implements TaskProvider {
     return parseSession(content);
   }
 
+  async fetchAvailableStatuses(): Promise<string[]> {
+    return Object.values(FOLDER_TO_STATUS);
+  }
+
   async updateStatus(taskId: string, status: string): Promise<void> {
     const targetFolder = STATUS_TO_FOLDER[status.toLowerCase()];
     if (!targetFolder) {

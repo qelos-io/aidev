@@ -788,20 +788,20 @@ export async function initCommand(): Promise<void> {
       section('Auto-merge accepted PRs');
       console.log(
         chalk.dim(
-          `  Tasks in review with an "accepted" tag will be auto-merged via gh CLI\n` +
-          `  (squash + delete branch) and moved to a "done" status. Leave blank to disable.`
+          `  Tasks in review with the accepted tag will be auto-merged via gh CLI\n` +
+          `  (squash + delete branch) and moved to a "done" status.`
         )
       );
       acceptedTag = await ask(
         rl,
-        `Accepted tag ${hint('tag marking a reviewed PR as approved — leave blank to disable')}`,
-        existing.ACCEPTED_TAG || ''
+        `Accepted tag ${hint('tag marking a reviewed PR as approved')}`,
+        existing.ACCEPTED_TAG || 'accepted'
       );
       if (acceptedTag) {
         doneStatus = await ask(
           rl,
-          `Done status ${hint('status to set after merging')}`,
-          existing.DONE_STATUS || 'done'
+          `Done status ${hint('leave blank to auto-detect from board statuses')}`,
+          existing.DONE_STATUS || ''
         );
       } else {
         doneStatus = '';
