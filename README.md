@@ -626,6 +626,14 @@ Every run appends to `aidev.log` in your project directory:
 
 ANSI colour codes are stripped so the file stays readable in any editor or `tail -f`. `aidev.log` is added to `.gitignore` automatically by `aidev init`.
 
+To write the log somewhere else, set `AIDEV_LOG_PATH` to an absolute, relative, or `~/`-prefixed path that includes the **file name** (not just the folder). Relative paths are resolved against the project cwd and missing parent directories are created on first write.
+
+```bash
+AIDEV_LOG_PATH=logs/aidev.log         # → <cwd>/logs/aidev.log
+AIDEV_LOG_PATH=/var/log/aidev.log     # absolute
+AIDEV_LOG_PATH=~/aidev/run.log        # under your home directory
+```
+
 ---
 
 ## Providers

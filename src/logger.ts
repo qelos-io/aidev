@@ -1,8 +1,28 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import chalk from 'chalk';
 
-const LOG_FILE = path.join(process.cwd(), 'aidev.log');
+const DEFAULT_LOG_FILENAME = 'aidev.log';
+
+function resolveLogFile(): string {
+  const raw = (process.env.AIDEV_LOG_PATH || '').trim();
+  if (!raw) return path.join(process.cwd(), DEFAULT_LOG_FILENAME);
+  if (raw.startsWith('~/') || raw === '~') {
+    return path.join(os.homedir(), raw.slice(2));
+  }
+  if (path.isAbsolute(raw)) return raw;
+  return path.resolve(process.cwd(), raw);
+}
+
+function getLogFile(): string {
+  const file = resolveLogFile();
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return file;
+}
 
 // Strip ANSI escape codes for clean file output
 function strip(s: string): string {
@@ -15,12 +35,12 @@ function timestamp(): string {
 
 function writeLog(level: string, msg: string): void {
   const line = `${timestamp()} [${level}] ${strip(msg)}\n`;
-  fs.appendFileSync(LOG_FILE, line, 'utf8');
+  fs.appendFileSync(getLogFile(), line, 'utf8');
 }
 
 export function logRunStart(): void {
   const sep = '─'.repeat(60);
-  fs.appendFileSync(LOG_FILE, `\n${sep}\n${timestamp()} [run] started\n${sep}\n`, 'utf8');
+  fs.appendFileSync(getLogFile(), `\n${sep}\n${timestamp()} [run] started\n${sep}\n`, 'utf8');
 }
 
 export const logger = {
