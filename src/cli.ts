@@ -120,8 +120,11 @@ const scheduleCmd = program
 scheduleCmd
   .command('set [cron]')
   .description('Set cron schedule — interactive picker if no cron given')
-  .action(async (cron?: string) => {
-    await scheduleSetCommand(cron);
+  .option('-e, --env <path>', 'env file path passed to scheduled "aidev run" (-e <path>)')
+  .action(async (cron: string | undefined, options: { env?: string }) => {
+    const extraArgs: string[] = [];
+    if (options.env) extraArgs.push('-e', options.env);
+    await scheduleSetCommand(cron, extraArgs);
   });
 
 scheduleCmd

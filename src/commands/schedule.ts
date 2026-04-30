@@ -44,6 +44,43 @@ function getAidevBin(): string {
   return findBin('aidev') ?? 'aidev';
 }
 
+const SAFE_SHELL_ARG_RE = /^[a-zA-Z0-9_\-+=:.,\/@%]+$/;
+
+/**
+ * Quotes an arg for embedding inside a single-quoted shell command
+ * (e.g. inside `zsh -c '…'`). Inside the outer single quotes the inner
+ * string is parsed as shell, so we use double quotes and escape `\ $ ` "`.
+ * Single quotes are not supported (would close the outer quote).
+ */
+export function shQuoteForCron(s: string): string {
+  if (s.includes("'")) {
+    throw new Error(`Single quotes are not supported in scheduled args: ${s}`);
+  }
+  if (SAFE_SHELL_ARG_RE.test(s)) return s;
+  return `"${s.replace(/([\\$`"])/g, '\\$1')}"`;
+}
+
+/** Tokenises a shell-style arg string we generated (unquoted or double-quoted). */
+export function tokenizeShellArgs(s: string): string[] {
+  const tokens: string[] = [];
+  const re = /"((?:\\.|[^"\\])*)"|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    if (m[1] !== undefined) {
+      tokens.push(m[1].replace(/\\(.)/g, '$1'));
+    } else {
+      tokens.push(m[2]!);
+    }
+  }
+  return tokens;
+}
+
+/** Quotes an arg for embedding into a Windows schtasks /tr command string. */
+export function cmdQuoteForSchtasks(s: string): string {
+  if (/^[a-zA-Z0-9_\-+=:.,\/@%\\]+$/.test(s)) return s;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
 // ─── Unix (crontab) ───────────────────────────────────────────────────────────
 
 const UNIX_MARKER_PREFIX = '# aidev-cwd:';
@@ -58,18 +95,39 @@ function setCrontab(content: string): boolean {
   return result.status === 0;
 }
 
-export function buildUnixCronLine(cronExpr: string, cwd: string, nodeBin: string, aidevBin: string): string {
+export function buildUnixCronLine(
+  cronExpr: string,
+  cwd: string,
+  nodeBin: string,
+  aidevBin: string,
+  extraArgs: string[] = [],
+): string {
   const marker = `${UNIX_MARKER_PREFIX}${cwd}`;
-  return `${cronExpr} zsh -i -l -c 'cd ${cwd} && ${nodeBin} ${aidevBin} run' ${marker}`;
+  const argsStr = extraArgs.length > 0 ? ' ' + extraArgs.map(shQuoteForCron).join(' ') : '';
+  return `${cronExpr} zsh -i -l -c 'cd ${cwd} && ${nodeBin} ${aidevBin} run${argsStr}' ${marker}`;
 }
 
-function scheduleSetUnix(cronExpr: string): void {
+/** Extracts the extra args (after `aidev run`) from an existing cron line. */
+export function extractUnixCronArgs(line: string): string[] {
+  // Capture the segment after "aidev run" up to the closing single quote of `zsh -c '…'`.
+  const m = line.match(/\baidev\s+run\b([^']*)/);
+  if (!m) return [];
+  const seg = m[1].trim();
+  return seg ? tokenizeShellArgs(seg) : [];
+}
+
+function scheduleSetUnix(cronExpr: string, extraArgs: string[]): void {
   const cwd = process.cwd();
   const aidevBin = getAidevBin();
   const nodeBin = findBin('node') ?? 'node';
-  const newLine = buildUnixCronLine(cronExpr, cwd, nodeBin, aidevBin);
+  const newLine = buildUnixCronLine(cronExpr, cwd, nodeBin, aidevBin, extraArgs);
 
-  const lines = getCrontab().split('\n').filter((l) => l !== newLine);
+  // Replace any existing aidev entry for this cwd, regardless of cron/args.
+  const lines = getCrontab().split('\n').filter((l) => {
+    if (!l.includes(UNIX_MARKER_PREFIX)) return true;
+    const m = l.match(/# aidev-cwd:(.+)$/);
+    return !m || m[1].trim() !== cwd;
+  });
   lines.push(newLine);
   const updated = lines.join('\n').replace(/\n+$/, '') + '\n';
 
@@ -86,6 +144,7 @@ interface CronEntry {
   cron: string;
   cwd: string;
   line: string;
+  extraArgs: string[];
 }
 
 function parseAidevEntries(crontab: string): CronEntry[] {
@@ -97,7 +156,8 @@ function parseAidevEntries(crontab: string): CronEntry[] {
       const cwd = cwdMatch ? cwdMatch[1].trim() : '(unknown)';
       const parts = line.trim().split(/\s+/);
       const cron = parts.slice(0, 5).join(' ');
-      return { cron, cwd, line };
+      const extraArgs = extractUnixCronArgs(line);
+      return { cron, cwd, line, extraArgs };
     });
 }
 
@@ -107,16 +167,18 @@ function printEntriesTable(entries: CronEntry[]): void {
   const header =
     `  ${chalk.bold('ID')}  ` +
     `${chalk.bold('Directory'.padEnd(cwdW))}  ` +
-    chalk.bold('Schedule'.padEnd(cronW));
+    `${chalk.bold('Schedule'.padEnd(cronW))}  ` +
+    chalk.bold('Args');
   const sep =
-    `  ──  ` + `${'─'.repeat(cwdW)}  ` + '─'.repeat(cronW);
+    `  ──  ` + `${'─'.repeat(cwdW)}  ` + `${'─'.repeat(cronW)}  ` + '────';
   console.log(header);
   console.log(sep);
   entries.forEach((e, i) => {
     const id = chalk.cyan(String(i + 1).padStart(2));
     const isCurrentDir = e.cwd === process.cwd();
     const dir = isCurrentDir ? chalk.green(e.cwd.padEnd(cwdW)) : e.cwd.padEnd(cwdW);
-    console.log(`  ${id}  ${dir}  ${e.cron}`);
+    const args = e.extraArgs.length > 0 ? chalk.dim(e.extraArgs.join(' ')) : '';
+    console.log(`  ${id}  ${dir}  ${e.cron.padEnd(cronW)}  ${args}`);
   });
 }
 
@@ -209,6 +271,10 @@ function xmlEscape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function xmlUnescape(s: string): string {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
 export type LaunchdSchedule =
   | { key: 'StartInterval'; seconds: number }
   | { key: 'StartCalendarInterval'; hour: number; minute: number };
@@ -242,6 +308,7 @@ export function buildLaunchAgentPlist(
   aidevBin: string,
   cwd: string,
   schedule: LaunchdSchedule,
+  extraArgs: string[] = [],
 ): string {
   // Capture PATH at scheduling time (from the developer's live terminal session).
   // This ensures the right node/claude/cursor/windsurf binaries are found when
@@ -274,6 +341,7 @@ export function buildLaunchAgentPlist(
     `\t\t<string>${xmlEscape(nodeBin)}</string>`,
     `\t\t<string>${xmlEscape(aidevBin)}</string>`,
     '\t\t<string>run</string>',
+    ...extraArgs.map((a) => `\t\t<string>${xmlEscape(a)}</string>`),
     '\t</array>',
     '\t<key>WorkingDirectory</key>',
     `\t<string>${xmlEscape(cwd)}</string>`,
@@ -293,7 +361,7 @@ export function buildLaunchAgentPlist(
   ].join('\n');
 }
 
-function scheduleSetDarwin(cronExpr: string): void {
+function scheduleSetDarwin(cronExpr: string, extraArgs: string[]): void {
   const schedule = cronToLaunchdSchedule(cronExpr);
   if (!schedule) {
     logger.error(
@@ -309,7 +377,7 @@ function scheduleSetDarwin(cronExpr: string): void {
   const nodeBin = findBin('node') ?? 'node';
   const launchAgentsDir = getLaunchAgentsDir();
   const plistPath = path.join(launchAgentsDir, `${label}.plist`);
-  const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule);
+  const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule, extraArgs);
 
   try {
     fs.mkdirSync(launchAgentsDir, { recursive: true });
@@ -337,6 +405,17 @@ interface DarwinEntry {
   cwd: string;
   schedule: string;
   plistPath: string;
+  extraArgs: string[];
+}
+
+/** Extracts the user-supplied extra args from an existing LaunchAgent plist. */
+export function extractLaunchAgentArgs(xml: string): string[] {
+  const block = xml.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
+  if (!block) return [];
+  const strings = [...block[1].matchAll(/<string>([^<]*)<\/string>/g)].map((m) => xmlUnescape(m[1]));
+  // ProgramArguments = [nodeBin, aidevBin, "run", ...extraArgs]
+  if (strings.length <= 3) return [];
+  return strings.slice(3);
 }
 
 function parseDarwinEntries(): DarwinEntry[] {
@@ -374,7 +453,8 @@ function parseDarwinEntries(): DarwinEntry[] {
       }
     }
 
-    return { label, cwd, schedule, plistPath };
+    const extraArgs = extractLaunchAgentArgs(xml);
+    return { label, cwd, schedule, plistPath, extraArgs };
   });
 }
 
@@ -384,15 +464,17 @@ function printDarwinEntriesTable(entries: DarwinEntry[]): void {
   const header =
     `  ${chalk.bold('ID')}  ` +
     `${chalk.bold('Directory'.padEnd(cwdW))}  ` +
-    chalk.bold('Schedule'.padEnd(schedW));
-  const sep = `  ──  ${'─'.repeat(cwdW)}  ${'─'.repeat(schedW)}`;
+    `${chalk.bold('Schedule'.padEnd(schedW))}  ` +
+    chalk.bold('Args');
+  const sep = `  ──  ${'─'.repeat(cwdW)}  ${'─'.repeat(schedW)}  ────`;
   console.log(header);
   console.log(sep);
   entries.forEach((e, i) => {
     const id = chalk.cyan(String(i + 1).padStart(2));
     const isCurrentDir = e.cwd === process.cwd();
     const dir = isCurrentDir ? chalk.green(e.cwd.padEnd(cwdW)) : e.cwd.padEnd(cwdW);
-    console.log(`  ${id}  ${dir}  ${e.schedule}`);
+    const args = e.extraArgs.length > 0 ? chalk.dim(e.extraArgs.join(' ')) : '';
+    console.log(`  ${id}  ${dir}  ${e.schedule.padEnd(schedW)}  ${args}`);
   });
 }
 
@@ -488,7 +570,7 @@ export function windowsTaskName(cwd: string, cronExpr?: string): string {
   return `aidev\\${sanitized}--${cronTag}`;
 }
 
-function scheduleSetWindows(cronExpr: string): void {
+function scheduleSetWindows(cronExpr: string, extraArgs: string[]): void {
   const cwd = process.cwd();
   const schtasksArgs = cronToSchtasksArgs(cronExpr);
   if (!schtasksArgs) {
@@ -501,8 +583,9 @@ function scheduleSetWindows(cronExpr: string): void {
 
   const taskName = windowsTaskName(cwd, cronExpr);
   const aidevBin = getAidevBin();
+  const argsStr = extraArgs.length > 0 ? ' ' + extraArgs.map(cmdQuoteForSchtasks).join(' ') : '';
   // cmd /c: run command and exit; /d: change drive+dir
-  const command = `cmd /c cd /d "${cwd}" && "${aidevBin}" run`;
+  const command = `cmd /c cd /d "${cwd}" && "${aidevBin}" run${argsStr}`;
 
   const result = spawnSync(
     'schtasks',
@@ -655,7 +738,7 @@ function scheduleFixDarwin(): void {
       continue;
     }
 
-    const expected = buildLaunchAgentPlist(entry.label, nodeBin, aidevBin, entry.cwd, schedule);
+    const expected = buildLaunchAgentPlist(entry.label, nodeBin, aidevBin, entry.cwd, schedule, entry.extraArgs);
     if (expected === xml) {
       logger.info(`${entry.cwd}: already up to date`);
       continue;
@@ -689,7 +772,7 @@ function scheduleFixUnix(): void {
   let fixed = 0;
 
   for (const entry of entries) {
-    const expected = buildUnixCronLine(entry.cron, entry.cwd, nodeBin, aidevBin);
+    const expected = buildUnixCronLine(entry.cron, entry.cwd, nodeBin, aidevBin, entry.extraArgs);
     if (entry.line === expected) {
       logger.info(`${entry.cwd}: already up to date`);
       continue;
@@ -716,11 +799,11 @@ function scheduleFixWindows(): void {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export async function scheduleSetCommand(cronExpr?: string): Promise<void> {
+export async function scheduleSetCommand(cronExpr?: string, extraArgs: string[] = []): Promise<void> {
   if (!cronExpr) cronExpr = await pickCron();
-  if (isWindows) scheduleSetWindows(cronExpr);
-  else if (process.platform === 'darwin') scheduleSetDarwin(cronExpr);
-  else scheduleSetUnix(cronExpr);
+  if (isWindows) scheduleSetWindows(cronExpr, extraArgs);
+  else if (process.platform === 'darwin') scheduleSetDarwin(cronExpr, extraArgs);
+  else scheduleSetUnix(cronExpr, extraArgs);
 }
 
 export async function scheduleGetCommand(): Promise<void> {

@@ -91,6 +91,7 @@ aidev run
 | `aidev stop` | Stop any running aidev process in the current directory |
 | `aidev schedule set` | Interactive cron picker for this directory |
 | `aidev schedule set "<expr>"` | Set a specific cron expression |
+| `aidev schedule set "<expr>" -e <path>` | Set a schedule that uses a custom env file when it fires |
 | `aidev schedule get` | Show the current schedule for this directory |
 | `aidev help` | Show command and config reference |
 
@@ -581,9 +582,18 @@ aidev schedule set
 # Or pass an expression directly
 aidev schedule set "*/15 * * * *"
 
+# Run a schedule against a custom env file (so the scheduled run uses
+# that config — useful when several env files live alongside one repo)
+aidev schedule set "*/15 * * * *" -e /path/to/custom/.env.aidev
+
 # Check what's scheduled for the current directory
 aidev schedule get
 ```
+
+The `-e <path>` option is baked into the scheduled entry itself (the cron
+line on Linux, the LaunchAgent plist on macOS, or the Task Scheduler `/tr`
+command on Windows), so each run will pick up the right env file without
+relying on the shell environment at firing time.
 
 **Preset options (interactive picker)**
 

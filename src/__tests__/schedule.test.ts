@@ -1,6 +1,18 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { cronToSchtasksArgs, windowsTaskName, buildUnixCronLine, cronToLaunchdSchedule, buildLaunchAgentPlist, extractLaunchdSchedule } from '../commands/schedule';
+import {
+  cronToSchtasksArgs,
+  windowsTaskName,
+  buildUnixCronLine,
+  cronToLaunchdSchedule,
+  buildLaunchAgentPlist,
+  extractLaunchdSchedule,
+  extractUnixCronArgs,
+  extractLaunchAgentArgs,
+  shQuoteForCron,
+  tokenizeShellArgs,
+  cmdQuoteForSchtasks,
+} from '../commands/schedule';
 import type { LaunchdSchedule } from '../commands/schedule';
 
 describe('cronToSchtasksArgs', () => {
@@ -74,6 +86,111 @@ describe('buildUnixCronLine', () => {
     const expr = '0 8 * * *';
     const line = buildUnixCronLine(expr, cwd, node, aidev);
     assert.ok(line.startsWith(expr));
+  });
+
+  it('appends extra args after "run" inside the single-quoted command', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev, ['-e', '/path/to/.env.aidev']);
+    assert.ok(line.includes(`${aidev} run -e /path/to/.env.aidev'`));
+  });
+
+  it('produces no args segment when extraArgs is empty', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev, []);
+    assert.ok(line.includes(`${aidev} run'`));
+  });
+
+  it('double-quotes args containing whitespace', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev, ['-e', '/path with space/.env']);
+    assert.ok(line.includes('"/path with space/.env"'));
+  });
+
+  it('escapes shell metacharacters ($, `, ", \\) inside double-quoted args', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev, ['--x=$VAR']);
+    assert.ok(line.includes('"--x=\\$VAR"'));
+  });
+
+  it('rejects args containing single quotes', () => {
+    assert.throws(() => buildUnixCronLine('*/15 * * * *', cwd, node, aidev, ["it's"]));
+  });
+});
+
+describe('extractUnixCronArgs', () => {
+  const cwd = '/home/user/myproject';
+  const node = '/usr/local/bin/node';
+  const aidev = '/usr/local/bin/aidev';
+
+  it('returns [] when no args were embedded', () => {
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
+    assert.deepEqual(extractUnixCronArgs(line), []);
+  });
+
+  it('round-trips simple args', () => {
+    const args = ['-e', '/path/to/.env.aidev'];
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev, args);
+    assert.deepEqual(extractUnixCronArgs(line), args);
+  });
+
+  it('round-trips args with whitespace', () => {
+    const args = ['-e', '/path with space/.env'];
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev, args);
+    assert.deepEqual(extractUnixCronArgs(line), args);
+  });
+
+  it('round-trips args with escaped shell metachars', () => {
+    const args = ['--x=$VAR', '--y=`cmd`'];
+    const line = buildUnixCronLine('*/15 * * * *', cwd, node, aidev, args);
+    assert.deepEqual(extractUnixCronArgs(line), args);
+  });
+});
+
+describe('shQuoteForCron', () => {
+  it('leaves simple args unquoted', () => {
+    assert.equal(shQuoteForCron('-e'), '-e');
+    assert.equal(shQuoteForCron('/path/to/.env.aidev'), '/path/to/.env.aidev');
+    assert.equal(shQuoteForCron('foo=bar'), 'foo=bar');
+  });
+
+  it('double-quotes args with whitespace', () => {
+    assert.equal(shQuoteForCron('a b'), '"a b"');
+  });
+
+  it('escapes $, `, ", and \\ inside double quotes', () => {
+    assert.equal(shQuoteForCron('$x'), '"\\$x"');
+    assert.equal(shQuoteForCron('`x`'), '"\\`x\\`"');
+    assert.equal(shQuoteForCron('a"b'), '"a\\"b"');
+    assert.equal(shQuoteForCron('a\\b'), '"a\\\\b"');
+  });
+
+  it('throws on single quotes', () => {
+    assert.throws(() => shQuoteForCron("it's"));
+  });
+});
+
+describe('tokenizeShellArgs', () => {
+  it('parses unquoted tokens', () => {
+    assert.deepEqual(tokenizeShellArgs('-e /path/to/.env'), ['-e', '/path/to/.env']);
+  });
+
+  it('parses double-quoted tokens', () => {
+    assert.deepEqual(tokenizeShellArgs('-e "/path with space/.env"'), ['-e', '/path with space/.env']);
+  });
+
+  it('handles escapes inside double quotes', () => {
+    assert.deepEqual(tokenizeShellArgs('"\\$VAR"'), ['$VAR']);
+  });
+});
+
+describe('cmdQuoteForSchtasks', () => {
+  it('leaves simple args unquoted', () => {
+    assert.equal(cmdQuoteForSchtasks('-e'), '-e');
+    assert.equal(cmdQuoteForSchtasks('C:\\path\\to\\.env.aidev'), 'C:\\path\\to\\.env.aidev');
+  });
+
+  it('double-quotes args containing whitespace', () => {
+    assert.equal(cmdQuoteForSchtasks('C:\\path with space\\.env'), '"C:\\path with space\\.env"');
+  });
+
+  it('escapes embedded double quotes by doubling them', () => {
+    assert.equal(cmdQuoteForSchtasks('a"b'), '"a""b"');
   });
 });
 
@@ -233,6 +350,48 @@ describe('buildLaunchAgentPlist', () => {
     assert.ok(plist.includes('<key>RunAtLoad</key>'));
     assert.ok(plist.includes('<false/>'));
   });
+
+  it('appends extra args as additional <string> entries after "run"', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule, ['-e', '/path/to/.env']);
+    const argsBlock = plist.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
+    assert.ok(argsBlock, 'ProgramArguments missing');
+    const strings = [...argsBlock![1].matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
+    assert.deepEqual(strings, [nodeBin, aidevBin, 'run', '-e', '/path/to/.env']);
+  });
+
+  it('XML-escapes special characters in extra args', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, intervalSchedule, ['--x=a&b']);
+    assert.ok(plist.includes('<string>--x=a&amp;b</string>'));
+  });
+});
+
+describe('extractLaunchAgentArgs', () => {
+  const label = 'com.aidev.run.abc123';
+  const nodeBin = '/usr/local/bin/node';
+  const aidevBin = '/usr/local/bin/aidev';
+  const cwd = '/Users/dev/myproject';
+  const schedule: LaunchdSchedule = { key: 'StartInterval', seconds: 900 };
+
+  it('returns [] when no extra args were embedded', () => {
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule);
+    assert.deepEqual(extractLaunchAgentArgs(plist), []);
+  });
+
+  it('round-trips extra args', () => {
+    const args = ['-e', '/path/to/.env.aidev'];
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule, args);
+    assert.deepEqual(extractLaunchAgentArgs(plist), args);
+  });
+
+  it('round-trips XML-escaped args', () => {
+    const args = ['--x=a&b'];
+    const plist = buildLaunchAgentPlist(label, nodeBin, aidevBin, cwd, schedule, args);
+    assert.deepEqual(extractLaunchAgentArgs(plist), args);
+  });
+
+  it('returns [] for plist without ProgramArguments', () => {
+    assert.deepEqual(extractLaunchAgentArgs('<plist><dict></dict></plist>'), []);
+  });
 });
 
 // ─── extractLaunchdSchedule ───────────────────────────────────────────────────
@@ -302,5 +461,13 @@ describe('buildUnixCronLine idempotency (schedule fix basis)', () => {
     const updated = buildUnixCronLine('*/15 * * * *', cwd, node, aidev);
     assert.notEqual(original, updated);
     assert.ok(updated.includes(aidev));
+  });
+
+  it('preserves extra args round-tripped through extract+rebuild (schedule fix)', () => {
+    const args = ['-e', '/path/to/.env.aidev'];
+    const original = buildUnixCronLine('*/15 * * * *', cwd, node, aidev, args);
+    const extracted = extractUnixCronArgs(original);
+    const rebuilt = buildUnixCronLine('*/15 * * * *', cwd, node, aidev, extracted);
+    assert.equal(original, rebuilt);
   });
 });
