@@ -14,6 +14,7 @@ export class LinearProvider implements TaskProvider {
   private apiKey: string;
   private teamId: string;
   private label: string;
+  private assigneeTag: string;
   private pendingStatus: string;
   private inReviewStatus: string;
 
@@ -21,6 +22,7 @@ export class LinearProvider implements TaskProvider {
     this.apiKey = config.linearApiKey;
     this.teamId = config.linearTeamId;
     this.label = config.linearLabel;
+    this.assigneeTag = config.assigneeTag;
     this.pendingStatus = config.linearPendingStatus || 'Backlog';
     this.inReviewStatus = config.linearInReviewStatus || 'In Review';
   }
@@ -341,6 +343,43 @@ export class LinearProvider implements TaskProvider {
     return ids;
   }
 
+  private async resolveAssigneeId(): Promise<string | null> {
+    const value = this.assigneeTag.trim();
+    if (!value) return null;
+
+    const query = `
+      query Users($filter: UserFilter) {
+        users(filter: $filter, first: 2) {
+          nodes { id email displayName }
+        }
+      }
+    `;
+    type UsersResponse = {
+      users: { nodes: Array<{ id: string; email: string | null; displayName: string | null }> };
+    };
+
+    try {
+      if (value.includes('@')) {
+        const data = await this.graphql<UsersResponse>(query, {
+          filter: { email: { eq: value } },
+        });
+        const id = data.users.nodes[0]?.id;
+        if (id) return id;
+      }
+      const data = await this.graphql<UsersResponse>(query, {
+        filter: { displayName: { eq: value } },
+      });
+      const id = data.users.nodes[0]?.id;
+      if (id) return id;
+      logger.warn(`Linear: no user matched assignee "${value}"; creating issue without assignee`);
+      return null;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`Linear: failed to resolve assignee "${value}" (${msg}); creating issue without assignee`);
+      return null;
+    }
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const mutation = `
       mutation IssueCreate($input: IssueCreateInput!) {
@@ -363,6 +402,10 @@ export class LinearProvider implements TaskProvider {
       if (labelIds.length) {
         input.labelIds = labelIds;
       }
+    }
+    const assigneeId = await this.resolveAssigneeId();
+    if (assigneeId) {
+      input.assigneeId = assigneeId;
     }
 
     const data = await this.graphql<{
