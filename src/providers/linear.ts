@@ -5,6 +5,27 @@ import { logger } from '../logger';
 const LINEAR_GRAPHQL = 'https://api.linear.app/graphql';
 const SKIP_STATE_TYPES = new Set(['completed', 'canceled']);
 
+const STATE_TYPE_BY_GENERIC: Record<string, string> = {
+  pending: 'backlog',
+  backlog: 'backlog',
+  todo: 'unstarted',
+  open: 'unstarted',
+  unstarted: 'unstarted',
+  'in progress': 'started',
+  started: 'started',
+  done: 'completed',
+  closed: 'completed',
+  completed: 'completed',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+};
+
+interface LinearWorkflowState {
+  id: string;
+  name: string;
+  type: string;
+}
+
 interface LinearGraphQLResponse<T> {
   data?: T;
   errors?: Array<{ message: string }>;
@@ -51,7 +72,7 @@ export class LinearProvider implements TaskProvider {
     return raw.data;
   }
 
-  private async fetchWorkflowStateIds(): Promise<Map<string, string>> {
+  private async fetchWorkflowStates(): Promise<LinearWorkflowState[]> {
     const query = `
       query WorkflowStates($filter: WorkflowStateFilter) {
         workflowStates(filter: $filter) {
@@ -64,14 +85,9 @@ export class LinearProvider implements TaskProvider {
       }
     `;
     const data = await this.graphql<{
-      workflowStates: { nodes: Array<{ id: string; name: string; type: string }> };
+      workflowStates: { nodes: LinearWorkflowState[] };
     }>(query, { filter: { team: { id: { eq: this.teamId } } } });
-
-    const byName = new Map<string, string>();
-    for (const node of data.workflowStates.nodes) {
-      byName.set(node.name.toLowerCase(), node.id);
-    }
-    return byName;
+    return data.workflowStates.nodes;
   }
 
   async fetchTasks(): Promise<Task[]> {
@@ -225,28 +241,36 @@ export class LinearProvider implements TaskProvider {
   }
 
   async fetchAvailableStatuses(): Promise<string[]> {
-    const query = `
-      query WorkflowStates($filter: WorkflowStateFilter) {
-        workflowStates(filter: $filter) {
-          nodes { name }
-        }
-      }
-    `;
-    const data = await this.graphql<{
-      workflowStates: { nodes: Array<{ name: string }> };
-    }>(query, { filter: { team: { id: { eq: this.teamId } } } });
-    return data.workflowStates.nodes.map((n) => n.name);
+    const states = await this.fetchWorkflowStates();
+    const names = states.map((s) => s.name);
+    const hasCompleted = states.some((s) => s.type === 'completed');
+    if (hasCompleted && !names.some((n) => n.toLowerCase() === 'done')) {
+      names.push('done');
+    }
+    return names;
   }
 
   async updateStatus(taskId: string, status: string): Promise<void> {
     logger.debug(`Updating Linear issue ${taskId} status to "${status}"`);
 
-    const stateIds = await this.fetchWorkflowStateIds();
+    const states = await this.fetchWorkflowStates();
     const key = status.toLowerCase();
-    const stateId = stateIds.get(key) ?? [...stateIds.entries()].find(([name]) => name.includes(key))?.[1];
+    let stateId = states.find((s) => s.name.toLowerCase() === key)?.id;
     if (!stateId) {
-      const names = [...stateIds.keys()].join(', ');
-      throw new Error(`Linear: no workflow state matching "${status}". Available: ${names}`);
+      stateId = states.find((s) => s.name.toLowerCase().includes(key))?.id;
+    }
+    if (!stateId) {
+      const targetType = STATE_TYPE_BY_GENERIC[key];
+      if (targetType) {
+        stateId = states.find((s) => s.type === targetType)?.id;
+      }
+    }
+    if (!stateId) {
+      const names = states.map((s) => s.name).join(', ');
+      const types = [...new Set(states.map((s) => s.type))].join(', ');
+      throw new Error(
+        `Linear: no workflow state matching "${status}". Available names: ${names}. Available types: ${types}`,
+      );
     }
 
     const issueId = await this.resolveIssueId(taskId);
