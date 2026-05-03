@@ -167,7 +167,7 @@ export function loadConfig(customEnvPath?: string): Config {
   const commentPrefix = process.env.AIDEV_COMMENT_PREFIX || '[aidev]';
   const nonCodeTag = process.env.NON_CODE_TAG || `${folderName}-other`;
   const hooksPath = process.env.AIDEV_HOOKS_PATH || '';
-  const acceptedTag = process.env.ACCEPTED_TAG || '';
+  const acceptedTag = process.env.ACCEPTED_TAG || 'accepted';
   const doneStatus = process.env.DONE_STATUS || '';
 
   const autoCompressRaw = (process.env.AIDEV_AUTO_COMPRESS || '').trim().toLowerCase();

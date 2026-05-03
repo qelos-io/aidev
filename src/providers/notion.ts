@@ -225,6 +225,13 @@ export class NotionProvider implements TaskProvider {
     return comments;
   }
 
+  async fetchAvailableStatuses(): Promise<string[]> {
+    const db = await this.request<NotionDatabaseResponse>(`/databases/${this.databaseId}`);
+    const prop = db.properties[this.statusPropertyName];
+    const options = prop?.status?.options ?? prop?.select?.options ?? [];
+    return options.map((o) => o.name);
+  }
+
   async updateStatus(taskId: string, status: string): Promise<void> {
     await this.ensureSchema();
     logger.debug(`Updating Notion page ${taskId} status to "${status}"`);

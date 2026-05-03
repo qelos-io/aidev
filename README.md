@@ -265,8 +265,8 @@ CLICKUP_TAG=my-project
 | `AIDEV_TRIGGER_WORD` | `aidev-continue` | Comment containing this word re-triggers a skipped task |
 | `AIDEV_COMMENT_PREFIX` | `[aidev]` | Custom prefix for all aidev comments posted to task providers |
 | `AIDEV_HOOKS_PATH` | — | Path to a `.ts` or `.js` module that exports hook functions (see [Hooks](#hooks)) |
-| `ACCEPTED_TAG` | — | Tasks in review with this tag are auto-merged (see [Auto-merge accepted PRs](#auto-merge-accepted-prs)) |
-| `DONE_STATUS` | — | Status to set after auto-merging an accepted PR (e.g. `done`) |
+| `ACCEPTED_TAG` | `accepted` | Tasks in review with this tag are auto-merged (see [Auto-merge accepted PRs](#auto-merge-accepted-prs)) |
+| `DONE_STATUS` | auto-detected | Status to set after auto-merging an accepted PR. When unset, aidev picks the first match of `done`, `closed`, `finish`, `success`, `prod` from the board's statuses |
 | `PR_SIGNATURE` | `Automated PR by aidev.` | Custom signature line appended to the PR body |
 | `AIDEV_AUTO_COMPRESS` | `true` | Auto-compress older comments when the prompt grows large. Set to `false` / `0` / `no` to opt out |
 | `AIDEV_COMPRESS_THRESHOLD` | `12000` | Char-length threshold that triggers compression |
@@ -443,21 +443,21 @@ This runs automatically as part of every `aidev run` (after processing open/pend
 
 ## Auto-merge accepted PRs
 
-When a task has been reviewed and is ready to merge, tag it with your configured `ACCEPTED_TAG`. On the next run, aidev will automatically merge the PR via the GitHub CLI (`gh`), update the task status, and sync your local main branch.
+When a task has been reviewed and is ready to merge, tag it with `accepted` (the default — override via `ACCEPTED_TAG`). On the next run, aidev will automatically merge the PR via the GitHub CLI (`gh`), update the task status, and sync your local main branch.
 
-This feature is **optional** — it only activates when both `ACCEPTED_TAG` is configured and the `gh` CLI is installed and authenticated.
+This feature works out of the box whenever the `gh` CLI is installed and authenticated.
 
 ```bash
-# In .env.aidev
-ACCEPTED_TAG=accepted
-DONE_STATUS=done
+# In .env.aidev (both optional)
+# ACCEPTED_TAG=accepted   # the tag aidev looks for on review tasks (default: accepted)
+# DONE_STATUS=done        # status to apply after merge — auto-detected when omitted
 ```
 
 **How it works:**
 
-1. Finds all tasks in your "in review" status that have the accepted tag
+1. Finds all tasks in your "in review" status that have the accepted tag (`accepted` by default)
 2. For each task: merges the PR with squash and deletes the remote branch (`gh pr merge --squash --delete-branch`)
-3. Updates the task status to `DONE_STATUS` (if configured)
+3. Updates the task status to `DONE_STATUS`. When unset, aidev probes the board for one of `done`, `closed`, `finish`, `success`, `prod` and uses the first match
 4. Checks out the base branch and pulls the latest changes
 
 **Run it manually:**
@@ -466,7 +466,7 @@ DONE_STATUS=done
 aidev run accepted
 ```
 
-**Automatic mode:** When `ACCEPTED_TAG` is set and `gh` is available, accepted PRs are also auto-merged at the end of every `aidev run`.
+**Automatic mode:** Whenever `gh` is available, accepted PRs are also auto-merged at the end of every `aidev run`.
 
 > **Prerequisites:** The [GitHub CLI](https://cli.github.com/) must be installed and authenticated (`gh auth login`). `aidev init` will prompt you for these settings if it detects `gh` on your PATH.
 

@@ -222,6 +222,20 @@ export class LinearProvider implements TaskProvider {
     throw new Error(`Linear: could not resolve issue "${identifier}"`);
   }
 
+  async fetchAvailableStatuses(): Promise<string[]> {
+    const query = `
+      query WorkflowStates($filter: WorkflowStateFilter) {
+        workflowStates(filter: $filter) {
+          nodes { name }
+        }
+      }
+    `;
+    const data = await this.graphql<{
+      workflowStates: { nodes: Array<{ name: string }> };
+    }>(query, { filter: { team: { id: { eq: this.teamId } } } });
+    return data.workflowStates.nodes.map((n) => n.name);
+  }
+
   async updateStatus(taskId: string, status: string): Promise<void> {
     logger.debug(`Updating Linear issue ${taskId} status to "${status}"`);
 

@@ -321,6 +321,7 @@ describe('loadConfig tag defaults', () => {
   const envKeys = [
     'CLICKUP_API_KEY', 'CLICKUP_TEAM_ID', 'CLICKUP_TAG',
     'NON_CODE_TAG', 'JIRA_LABEL', 'PROVIDER',
+    'ACCEPTED_TAG',
   ];
   const saved: Record<string, string | undefined> = {};
   let tmpDir: string;
@@ -384,6 +385,22 @@ describe('loadConfig tag defaults', () => {
 
   it('does not require CLICKUP_TAG in env', () => {
     assert.doesNotThrow(() => loadConfig());
+  });
+
+  it('defaults acceptedTag to "accepted" when ACCEPTED_TAG is unset', () => {
+    delete process.env.ACCEPTED_TAG;
+    const config = loadConfig();
+    assert.equal(config.acceptedTag, 'accepted');
+  });
+
+  it('respects explicit ACCEPTED_TAG when set', () => {
+    process.env.ACCEPTED_TAG = 'approved';
+    try {
+      const config = loadConfig();
+      assert.equal(config.acceptedTag, 'approved');
+    } finally {
+      delete process.env.ACCEPTED_TAG;
+    }
   });
 });
 

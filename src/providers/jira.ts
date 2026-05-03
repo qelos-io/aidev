@@ -332,6 +332,23 @@ export class JiraProvider implements TaskProvider {
     }));
   }
 
+  async fetchAvailableStatuses(): Promise<string[]> {
+    interface ProjectStatusesResponse extends Array<{
+      statuses: Array<{ name: string }>;
+    }> {}
+
+    const data = await this.request<ProjectStatusesResponse>(
+      `/project/${encodeURIComponent(this.project)}/statuses`
+    );
+    const seen = new Set<string>();
+    for (const issueType of data) {
+      for (const s of issueType.statuses || []) {
+        if (s.name) seen.add(s.name);
+      }
+    }
+    return [...seen];
+  }
+
   async updateStatus(taskId: string, status: string): Promise<void> {
     logger.debug(`Transitioning Jira issue ${taskId} to "${status}"`);
 

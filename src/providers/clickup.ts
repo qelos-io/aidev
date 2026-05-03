@@ -248,6 +248,44 @@ export class ClickUpProvider implements TaskProvider {
     });
   }
 
+  async fetchAvailableStatuses(): Promise<string[]> {
+    interface RawTask {
+      status: { status: string };
+      list?: { id?: string };
+    }
+    interface TasksResponse {
+      tasks: RawTask[];
+    }
+    interface ListResponse {
+      statuses?: Array<{ status: string }>;
+    }
+
+    const seen = new Set<string>();
+
+    if (this.listId) {
+      try {
+        const list = await this.request<ListResponse>(`/list/${this.listId}`);
+        for (const s of list.statuses || []) {
+          if (s.status) seen.add(s.status);
+        }
+      } catch {
+        // fall through to task-based discovery
+      }
+    }
+
+    if (seen.size === 0) {
+      const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
+      const data = await this.request<TasksResponse>(
+        `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=true`
+      );
+      for (const t of data.tasks) {
+        if (t.status?.status) seen.add(t.status.status);
+      }
+    }
+
+    return [...seen];
+  }
+
   async updateStatus(taskId: string, status: string): Promise<void> {
     logger.debug(`Updating task ${taskId} status to "${status}"`);
     await this.request(`/task/${taskId}`, {

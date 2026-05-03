@@ -5,12 +5,44 @@ import { isGhInstalled, isGhAuthenticated, mergePullRequest } from '../github';
 import * as git from '../git';
 import { getInReviewStatus } from './run';
 
+const DONE_STATUS_CANDIDATES = ['done', 'closed', 'finish', 'success', 'prod'];
+
 /**
  * Comment posted on the task immediately before merging an accepted PR (so the
  * ticket records that aidev is performing the merge).
  */
 export function buildAcceptedMergeComment(config: Config, branchName: string): string {
   return `${config.commentPrefix} Merging the accepted pull request for branch \`${branchName}\`.`;
+}
+
+/**
+ * Pick the configured done status, otherwise probe the board for one of the
+ * common "done" names (done / closed / finish / success / prod). Returns null
+ * when nothing matches and no override was given.
+ */
+export async function resolveDoneStatus(
+  config: Config,
+  provider: TaskProvider,
+): Promise<string | null> {
+  if (config.doneStatus) return config.doneStatus;
+  if (!provider.fetchAvailableStatuses) return null;
+
+  let statuses: string[];
+  try {
+    statuses = await provider.fetchAvailableStatuses();
+  } catch (err) {
+    logger.debug(
+      `Could not fetch available statuses to auto-detect DONE_STATUS: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
+
+  const byLower = new Map(statuses.map((s) => [s.toLowerCase(), s]));
+  for (const candidate of DONE_STATUS_CANDIDATES) {
+    const match = byLower.get(candidate);
+    if (match) return match;
+  }
+  return null;
 }
 
 /**
@@ -53,6 +85,17 @@ export async function acceptedCommand(
 
   logger.info(`Found ${acceptedTasks.length} accepted task(s)`);
 
+  const doneStatus = await resolveDoneStatus(config, provider);
+  if (!config.doneStatus) {
+    if (doneStatus) {
+      logger.info(`DONE_STATUS not configured — using detected status "${doneStatus}"`);
+    } else {
+      logger.warn(
+        `DONE_STATUS not configured and no matching status (${DONE_STATUS_CANDIDATES.join(', ')}) found on the board — task status will not be updated after merge.`,
+      );
+    }
+  }
+
   let merged = 0;
   for (const task of acceptedTasks) {
     const branchName = `${task.id}/${git.slugify(task.name)}`;
@@ -75,10 +118,10 @@ export async function acceptedCommand(
 
     logger.success(`[${task.id}] PR merged successfully`);
 
-    if (config.doneStatus) {
+    if (doneStatus) {
       try {
-        await provider.updateStatus(task.id, config.doneStatus);
-        logger.info(`[${task.id}] Status updated to "${config.doneStatus}"`);
+        await provider.updateStatus(task.id, doneStatus);
+        logger.info(`[${task.id}] Status updated to "${doneStatus}"`);
       } catch (err) {
         logger.warn(`[${task.id}] Failed to update status: ${err instanceof Error ? err.message : String(err)}`);
       }
