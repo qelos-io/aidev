@@ -261,6 +261,86 @@ export class LinearProvider implements TaskProvider {
     });
   }
 
+  private async fetchTeamLabels(): Promise<Array<{ id: string; name: string }>> {
+    const query = `
+      query IssueLabels($filter: IssueLabelFilter) {
+        issueLabels(filter: $filter, first: 250) {
+          nodes { id name }
+        }
+      }
+    `;
+    const data = await this.graphql<{
+      issueLabels: { nodes: Array<{ id: string; name: string }> };
+    }>(query, { filter: { team: { id: { eq: this.teamId } } } });
+    return data.issueLabels.nodes;
+  }
+
+  private async resolveLabelIds(names: string[]): Promise<string[]> {
+    const seen = new Set<string>();
+    const wanted: string[] = [];
+    for (const name of names) {
+      const trimmed = name.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      wanted.push(trimmed);
+    }
+    if (wanted.length === 0) return [];
+
+    let existing = await this.fetchTeamLabels();
+    const indexByName = (labels: Array<{ id: string; name: string }>): Map<string, string> => {
+      const sorted = [...labels].sort((a, b) => a.name.localeCompare(b.name));
+      const map = new Map<string, string>();
+      for (const l of sorted) {
+        const key = l.name.toLowerCase();
+        if (!map.has(key)) map.set(key, l.id);
+      }
+      return map;
+    };
+    let byName = indexByName(existing);
+
+    const createMutation = `
+      mutation IssueLabelCreate($input: IssueLabelCreateInput!) {
+        issueLabelCreate(input: $input) {
+          success
+          issueLabel { id name }
+        }
+      }
+    `;
+
+    const ids: string[] = [];
+    for (const name of wanted) {
+      const key = name.toLowerCase();
+      const existingId = byName.get(key);
+      if (existingId) {
+        ids.push(existingId);
+        continue;
+      }
+      try {
+        const data = await this.graphql<{
+          issueLabelCreate: { success: boolean; issueLabel: { id: string; name: string } | null };
+        }>(createMutation, { input: { name, teamId: this.teamId } });
+        const created = data.issueLabelCreate?.issueLabel;
+        if (!created) {
+          throw new Error(`Linear: issueLabelCreate did not return a label for "${name}"`);
+        }
+        ids.push(created.id);
+        existing.push(created);
+        byName = indexByName(existing);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/already exists/i.test(msg)) throw err;
+        existing = await this.fetchTeamLabels();
+        byName = indexByName(existing);
+        const refetchedId = byName.get(key);
+        if (!refetchedId) throw err;
+        ids.push(refetchedId);
+      }
+    }
+    return ids;
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const mutation = `
       mutation IssueCreate($input: IssueCreateInput!) {
@@ -277,6 +357,12 @@ export class LinearProvider implements TaskProvider {
     };
     if (params.priority !== undefined) {
       input.priority = params.priority;
+    }
+    if (params.tags?.length) {
+      const labelIds = await this.resolveLabelIds(params.tags);
+      if (labelIds.length) {
+        input.labelIds = labelIds;
+      }
     }
 
     const data = await this.graphql<{
