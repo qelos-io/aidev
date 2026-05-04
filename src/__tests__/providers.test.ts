@@ -31,7 +31,7 @@ const baseJiraConfig = {
 
 const baseLinearConfig = {
   linearApiKey: 'lin_api_test',
-  linearTeamId: 'team-uuid-123',
+  linearTeamId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
   linearLabel: 'aidev',
   linearPendingStatus: 'Backlog',
   linearInReviewStatus: 'In Review',
@@ -687,7 +687,7 @@ describe('LinearProvider.createTask — labels', () => {
     assert.equal(result.id, 'ENG-7');
     assert.equal(labelCreateCalls.length, 1, 'should issueLabelCreate exactly once');
     assert.equal((labelCreateCalls[0] as Record<string, unknown>).name, 'urgent');
-    assert.equal((labelCreateCalls[0] as Record<string, unknown>).teamId, 'team-uuid-123');
+    assert.equal((labelCreateCalls[0] as Record<string, unknown>).teamId, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
     assert.ok(issueCreateInput, 'issueCreate must have been called');
     assert.deepEqual(issueCreateInput!.labelIds, ['label-existing-id', 'label-new-id']);
   });
