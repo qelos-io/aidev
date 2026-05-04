@@ -11,6 +11,7 @@ import { LinearProvider } from '../providers/linear';
 import { MondayProvider } from '../providers/monday';
 import { NotionProvider } from '../providers/notion';
 import { TrelloProvider } from '../providers/trello';
+import { logger } from '../logger';
 
 const baseClickUpConfig = {
   clickupApiKey: 'test-key',
@@ -627,6 +628,284 @@ describe('LinearProvider.getComments', () => {
     assert.equal(comments[0].text, '[aidev] Starting');
     assert.equal(comments[1].text, 'aidev-continue');
     assert.equal(comments[1].author, 'Alice');
+  });
+});
+
+describe('LinearProvider.createTask — labels', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('resolves an existing label and creates a missing one, then attaches both ids', async () => {
+    const labelCreateCalls: Array<Record<string, unknown>> = [];
+    let issueCreateInput: Record<string, unknown> | undefined;
+
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      const query = body.query as string;
+      if (query.includes('issueLabels')) {
+        return jsonResponse({
+          data: {
+            issueLabels: {
+              nodes: [{ id: 'label-existing-id', name: 'Backend' }],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        });
+      }
+      if (query.includes('issueLabelCreate')) {
+        labelCreateCalls.push(body.variables?.input ?? {});
+        const name = (body.variables?.input as Record<string, unknown>)?.name as string;
+        return jsonResponse({
+          data: {
+            issueLabelCreate: {
+              success: true,
+              issueLabel: { id: 'label-new-id', name },
+            },
+          },
+        });
+      }
+      if (query.includes('issueCreate')) {
+        issueCreateInput = body.variables?.input as Record<string, unknown>;
+        return jsonResponse({
+          data: {
+            issueCreate: {
+              success: true,
+              issue: { id: 'issue-uuid', identifier: 'ENG-7', url: 'https://linear.app/org/issue/ENG-7' },
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const result = await provider.createTask({
+      title: 'New task',
+      description: 'desc',
+      tags: ['backend', 'urgent'],
+    });
+
+    assert.equal(result.id, 'ENG-7');
+    assert.equal(labelCreateCalls.length, 1, 'should issueLabelCreate exactly once');
+    assert.equal((labelCreateCalls[0] as Record<string, unknown>).name, 'urgent');
+    assert.equal((labelCreateCalls[0] as Record<string, unknown>).teamId, 'team-uuid-123');
+    assert.ok(issueCreateInput, 'issueCreate must have been called');
+    assert.deepEqual(issueCreateInput!.labelIds, ['label-existing-id', 'label-new-id']);
+  });
+
+  it('paginates issueLabels and finds an existing label on a later page', async () => {
+    const labelCreateCalls: Array<Record<string, unknown>> = [];
+    let issueCreateInput: Record<string, unknown> | undefined;
+    const cursors: Array<string | null> = [];
+
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      const query = body.query as string;
+      if (query.includes('issueLabels')) {
+        const after = (body.variables?.after as string | null) ?? null;
+        cursors.push(after);
+        if (after === null) {
+          return jsonResponse({
+            data: {
+              issueLabels: {
+                nodes: [{ id: 'label-page1', name: 'Frontend' }],
+                pageInfo: { hasNextPage: true, endCursor: 'cursor-1' },
+              },
+            },
+          });
+        }
+        return jsonResponse({
+          data: {
+            issueLabels: {
+              nodes: [{ id: 'label-page2', name: 'Backend' }],
+              pageInfo: { hasNextPage: false, endCursor: 'cursor-2' },
+            },
+          },
+        });
+      }
+      if (query.includes('issueLabelCreate')) {
+        labelCreateCalls.push(body.variables?.input ?? {});
+        return jsonResponse({ data: { issueLabelCreate: { success: true, issueLabel: null } } });
+      }
+      if (query.includes('issueCreate')) {
+        issueCreateInput = body.variables?.input as Record<string, unknown>;
+        return jsonResponse({
+          data: {
+            issueCreate: {
+              success: true,
+              issue: { id: 'issue-uuid', identifier: 'ENG-11', url: 'https://linear.app/org/issue/ENG-11' },
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const result = await provider.createTask({
+      title: 'Paginated label',
+      description: '',
+      tags: ['backend'],
+    });
+
+    assert.equal(result.id, 'ENG-11');
+    assert.deepEqual(cursors, [null, 'cursor-1'], 'should walk pages until hasNextPage is false');
+    assert.equal(labelCreateCalls.length, 0, 'should not create a label that exists on a later page');
+    assert.ok(issueCreateInput, 'issueCreate must have been called');
+    assert.deepEqual(issueCreateInput!.labelIds, ['label-page2']);
+  });
+
+  it('omits labelIds entirely when params.tags is empty', async () => {
+    let issueLabelsCalled = false;
+    let issueCreateInput: Record<string, unknown> | undefined;
+
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      const query = body.query as string;
+      if (query.includes('issueLabels')) {
+        issueLabelsCalled = true;
+        return jsonResponse({ data: { issueLabels: { nodes: [] } } });
+      }
+      if (query.includes('issueCreate')) {
+        issueCreateInput = body.variables?.input as Record<string, unknown>;
+        return jsonResponse({
+          data: {
+            issueCreate: {
+              success: true,
+              issue: { id: 'issue-uuid', identifier: 'ENG-8', url: 'https://linear.app/org/issue/ENG-8' },
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    await provider.createTask({ title: 'No tags', description: '', tags: [] });
+
+    assert.equal(issueLabelsCalled, false, 'should not query labels when tags is empty');
+    assert.ok(issueCreateInput, 'issueCreate must have been called');
+    assert.equal('labelIds' in issueCreateInput!, false, 'input must not contain labelIds');
+  });
+});
+
+describe('LinearProvider.updateStatus — state type fallback', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('matches by Linear state type when no state name matches the configured status', async () => {
+    let updatedStateId: string | undefined;
+
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      const query = body.query as string;
+      if (query.includes('workflowStates')) {
+        return jsonResponse({
+          data: {
+            workflowStates: {
+              nodes: [
+                { id: 'state-triage', name: 'Triage', type: 'backlog' },
+                { id: 'state-doing', name: 'Doing', type: 'started' },
+                { id: 'state-shipped', name: 'Shipped', type: 'completed' },
+              ],
+            },
+          },
+        });
+      }
+      if (query.includes('issues') && body.variables?.filter?.identifier) {
+        return jsonResponse({ data: { issues: { nodes: [{ id: 'issue-uuid-99' }] } } });
+      }
+      if (query.includes('issueUpdate')) {
+        updatedStateId = (body.variables?.input as Record<string, unknown>)?.stateId as string;
+        return jsonResponse({ data: { issueUpdate: { success: true } } });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    await provider.updateStatus('ENG-99', 'Backlog');
+
+    assert.equal(updatedStateId, 'state-triage');
+  });
+});
+
+describe('LinearProvider.createTask — assignee resolution', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('extracts email from "username <email>" format and queries by email', async () => {
+    const userFilters: Array<Record<string, unknown>> = [];
+    let issueCreateInput: Record<string, unknown> | undefined;
+
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      const query = body.query as string;
+      if (query.includes('users')) {
+        userFilters.push((body.variables?.filter as Record<string, unknown>) ?? {});
+        return jsonResponse({
+          data: { users: { nodes: [{ id: 'user-uuid-1', email: 'alice@example.com', displayName: 'Alice' }] } },
+        });
+      }
+      if (query.includes('issueCreate')) {
+        issueCreateInput = body.variables?.input as Record<string, unknown>;
+        return jsonResponse({
+          data: {
+            issueCreate: {
+              success: true,
+              issue: { id: 'issue-uuid', identifier: 'ENG-10', url: 'https://linear.app/org/issue/ENG-10' },
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider({
+      ...baseLinearConfig,
+      assigneeTag: 'Alice <alice@example.com>',
+    } as unknown as Config);
+    const result = await provider.createTask({ title: 'Assigned', description: '', tags: [] });
+
+    assert.equal(result.id, 'ENG-10');
+    assert.ok(issueCreateInput, 'issueCreate must have been called');
+    assert.equal(issueCreateInput!.assigneeId, 'user-uuid-1');
+    assert.equal(userFilters.length, 1, 'should query users exactly once when email lookup succeeds');
+    assert.deepEqual(userFilters[0], { email: { eq: 'alice@example.com' } });
+  });
+
+  it('warns and creates the issue without assignee when no user matches', async () => {
+    let issueCreateInput: Record<string, unknown> | undefined;
+
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      const query = body.query as string;
+      if (query.includes('users')) {
+        return jsonResponse({ data: { users: { nodes: [] } } });
+      }
+      if (query.includes('issueCreate')) {
+        issueCreateInput = body.variables?.input as Record<string, unknown>;
+        return jsonResponse({
+          data: {
+            issueCreate: {
+              success: true,
+              issue: { id: 'issue-uuid', identifier: 'ENG-9', url: 'https://linear.app/org/issue/ENG-9' },
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+    const warn = mock.method(logger, 'warn', () => {});
+
+    const provider = new LinearProvider({
+      ...baseLinearConfig,
+      assigneeTag: 'unknown@example.com',
+    } as unknown as Config);
+    const result = await provider.createTask({ title: 'No assignee', description: '', tags: [] });
+
+    assert.equal(result.id, 'ENG-9');
+    assert.ok(issueCreateInput, 'issueCreate must have been called');
+    assert.equal('assigneeId' in issueCreateInput!, false, 'input must not contain assigneeId');
+    assert.ok(warn.mock.callCount() >= 1, 'logger.warn must be called at least once');
+    const firstCallArg = warn.mock.calls[0]?.arguments?.[0] ?? '';
+    assert.match(String(firstCallArg), /unknown@example\.com/);
   });
 });
 

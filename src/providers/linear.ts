@@ -5,6 +5,27 @@ import { logger } from '../logger';
 const LINEAR_GRAPHQL = 'https://api.linear.app/graphql';
 const SKIP_STATE_TYPES = new Set(['completed', 'canceled']);
 
+const STATE_TYPE_BY_GENERIC: Record<string, string> = {
+  pending: 'backlog',
+  backlog: 'backlog',
+  todo: 'unstarted',
+  open: 'unstarted',
+  unstarted: 'unstarted',
+  'in progress': 'started',
+  started: 'started',
+  done: 'completed',
+  closed: 'completed',
+  completed: 'completed',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+};
+
+interface LinearWorkflowState {
+  id: string;
+  name: string;
+  type: string;
+}
+
 interface LinearGraphQLResponse<T> {
   data?: T;
   errors?: Array<{ message: string }>;
@@ -14,6 +35,7 @@ export class LinearProvider implements TaskProvider {
   private apiKey: string;
   private teamId: string;
   private label: string;
+  private assigneeTag: string;
   private pendingStatus: string;
   private inReviewStatus: string;
 
@@ -21,6 +43,7 @@ export class LinearProvider implements TaskProvider {
     this.apiKey = config.linearApiKey;
     this.teamId = config.linearTeamId;
     this.label = config.linearLabel;
+    this.assigneeTag = config.assigneeTag;
     this.pendingStatus = config.linearPendingStatus || 'Backlog';
     this.inReviewStatus = config.linearInReviewStatus || 'In Review';
   }
@@ -49,7 +72,7 @@ export class LinearProvider implements TaskProvider {
     return raw.data;
   }
 
-  private async fetchWorkflowStateIds(): Promise<Map<string, string>> {
+  private async fetchWorkflowStates(): Promise<LinearWorkflowState[]> {
     const query = `
       query WorkflowStates($filter: WorkflowStateFilter) {
         workflowStates(filter: $filter) {
@@ -62,14 +85,9 @@ export class LinearProvider implements TaskProvider {
       }
     `;
     const data = await this.graphql<{
-      workflowStates: { nodes: Array<{ id: string; name: string; type: string }> };
+      workflowStates: { nodes: LinearWorkflowState[] };
     }>(query, { filter: { team: { id: { eq: this.teamId } } } });
-
-    const byName = new Map<string, string>();
-    for (const node of data.workflowStates.nodes) {
-      byName.set(node.name.toLowerCase(), node.id);
-    }
-    return byName;
+    return data.workflowStates.nodes;
   }
 
   async fetchTasks(): Promise<Task[]> {
@@ -223,28 +241,36 @@ export class LinearProvider implements TaskProvider {
   }
 
   async fetchAvailableStatuses(): Promise<string[]> {
-    const query = `
-      query WorkflowStates($filter: WorkflowStateFilter) {
-        workflowStates(filter: $filter) {
-          nodes { name }
-        }
-      }
-    `;
-    const data = await this.graphql<{
-      workflowStates: { nodes: Array<{ name: string }> };
-    }>(query, { filter: { team: { id: { eq: this.teamId } } } });
-    return data.workflowStates.nodes.map((n) => n.name);
+    const states = await this.fetchWorkflowStates();
+    const names = states.map((s) => s.name);
+    const hasCompleted = states.some((s) => s.type === 'completed');
+    if (hasCompleted && !names.some((n) => n.toLowerCase() === 'done')) {
+      names.push('done');
+    }
+    return names;
   }
 
   async updateStatus(taskId: string, status: string): Promise<void> {
     logger.debug(`Updating Linear issue ${taskId} status to "${status}"`);
 
-    const stateIds = await this.fetchWorkflowStateIds();
+    const states = await this.fetchWorkflowStates();
     const key = status.toLowerCase();
-    const stateId = stateIds.get(key) ?? [...stateIds.entries()].find(([name]) => name.includes(key))?.[1];
+    let stateId = states.find((s) => s.name.toLowerCase() === key)?.id;
     if (!stateId) {
-      const names = [...stateIds.keys()].join(', ');
-      throw new Error(`Linear: no workflow state matching "${status}". Available: ${names}`);
+      stateId = states.find((s) => s.name.toLowerCase().includes(key))?.id;
+    }
+    if (!stateId) {
+      const targetType = STATE_TYPE_BY_GENERIC[key];
+      if (targetType) {
+        stateId = states.find((s) => s.type === targetType)?.id;
+      }
+    }
+    if (!stateId) {
+      const names = states.map((s) => s.name).join(', ');
+      const types = [...new Set(states.map((s) => s.type))].join(', ');
+      throw new Error(
+        `Linear: no workflow state matching "${status}". Available names: ${names}. Available types: ${types}`,
+      );
     }
 
     const issueId = await this.resolveIssueId(taskId);
@@ -293,6 +319,148 @@ export class LinearProvider implements TaskProvider {
     });
   }
 
+  private async fetchTeamLabels(): Promise<Array<{ id: string; name: string }>> {
+    const query = `
+      query IssueLabels($filter: IssueLabelFilter, $after: String) {
+        issueLabels(filter: $filter, first: 250, after: $after) {
+          nodes { id name }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `;
+    type LabelsPage = {
+      issueLabels: {
+        nodes: Array<{ id: string; name: string }>;
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      };
+    };
+    const all: Array<{ id: string; name: string }> = [];
+    let after: string | null = null;
+    for (;;) {
+      const data: LabelsPage = await this.graphql<LabelsPage>(query, {
+        filter: { team: { id: { eq: this.teamId } } },
+        after,
+      });
+      all.push(...data.issueLabels.nodes);
+      if (!data.issueLabels.pageInfo.hasNextPage || !data.issueLabels.pageInfo.endCursor) break;
+      after = data.issueLabels.pageInfo.endCursor;
+    }
+    return all;
+  }
+
+  private async resolveLabelIds(names: string[]): Promise<string[]> {
+    const seen = new Set<string>();
+    const wanted: string[] = [];
+    for (const name of names) {
+      const trimmed = name.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      wanted.push(trimmed);
+    }
+    if (wanted.length === 0) return [];
+
+    let existing = await this.fetchTeamLabels();
+    const indexByName = (labels: Array<{ id: string; name: string }>): Map<string, string> => {
+      const sorted = [...labels].sort((a, b) => a.name.localeCompare(b.name));
+      const map = new Map<string, string>();
+      for (const l of sorted) {
+        const key = l.name.toLowerCase();
+        if (!map.has(key)) map.set(key, l.id);
+      }
+      return map;
+    };
+    let byName = indexByName(existing);
+
+    const createMutation = `
+      mutation IssueLabelCreate($input: IssueLabelCreateInput!) {
+        issueLabelCreate(input: $input) {
+          success
+          issueLabel { id name }
+        }
+      }
+    `;
+
+    const ids: string[] = [];
+    for (const name of wanted) {
+      const key = name.toLowerCase();
+      const existingId = byName.get(key);
+      if (existingId) {
+        ids.push(existingId);
+        continue;
+      }
+      try {
+        const data = await this.graphql<{
+          issueLabelCreate: { success: boolean; issueLabel: { id: string; name: string } | null };
+        }>(createMutation, { input: { name, teamId: this.teamId } });
+        const created = data.issueLabelCreate?.issueLabel;
+        if (!created) {
+          throw new Error(`Linear: issueLabelCreate did not return a label for "${name}"`);
+        }
+        ids.push(created.id);
+        existing.push(created);
+        byName = indexByName(existing);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/already exists/i.test(msg)) throw err;
+        existing = await this.fetchTeamLabels();
+        byName = indexByName(existing);
+        const refetchedId = byName.get(key);
+        if (!refetchedId) throw err;
+        ids.push(refetchedId);
+      }
+    }
+    return ids;
+  }
+
+  private async resolveAssigneeId(): Promise<string | null> {
+    const value = this.assigneeTag.trim();
+    if (!value) return null;
+
+    const angleMatch = value.match(/<([^>]+)>/);
+    const emailCandidate = angleMatch
+      ? angleMatch[1].trim()
+      : value.includes('@') ? value : '';
+    const displayNameCandidate = angleMatch
+      ? value.slice(0, angleMatch.index).trim()
+      : value.includes('@') ? '' : value;
+
+    const query = `
+      query Users($filter: UserFilter) {
+        users(filter: $filter, first: 2) {
+          nodes { id email displayName }
+        }
+      }
+    `;
+    type UsersResponse = {
+      users: { nodes: Array<{ id: string; email: string | null; displayName: string | null }> };
+    };
+
+    try {
+      if (emailCandidate) {
+        const data = await this.graphql<UsersResponse>(query, {
+          filter: { email: { eq: emailCandidate } },
+        });
+        const id = data.users.nodes[0]?.id;
+        if (id) return id;
+      }
+      if (displayNameCandidate) {
+        const data = await this.graphql<UsersResponse>(query, {
+          filter: { displayName: { eq: displayNameCandidate } },
+        });
+        const id = data.users.nodes[0]?.id;
+        if (id) return id;
+      }
+      logger.warn(`Linear: no user matched assignee "${value}"; creating issue without assignee`);
+      return null;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`Linear: failed to resolve assignee "${value}" (${msg}); creating issue without assignee`);
+      return null;
+    }
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const mutation = `
       mutation IssueCreate($input: IssueCreateInput!) {
@@ -309,6 +477,16 @@ export class LinearProvider implements TaskProvider {
     };
     if (params.priority !== undefined) {
       input.priority = params.priority;
+    }
+    if (params.tags?.length) {
+      const labelIds = await this.resolveLabelIds(params.tags);
+      if (labelIds.length) {
+        input.labelIds = labelIds;
+      }
+    }
+    const assigneeId = await this.resolveAssigneeId();
+    if (assigneeId) {
+      input.assigneeId = assigneeId;
     }
 
     const data = await this.graphql<{
