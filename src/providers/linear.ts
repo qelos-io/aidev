@@ -261,6 +261,38 @@ export class LinearProvider implements TaskProvider {
     });
   }
 
+  async removeTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Removing label "${tag}" from Linear issue ${taskId}`);
+
+    const issueId = await this.resolveIssueId(taskId);
+    const query = `
+      query IssueLabels($id: String!) {
+        issue(id: $id) {
+          labels { nodes { id name } }
+        }
+      }
+    `;
+    const data = await this.graphql<{
+      issue: { labels: { nodes: Array<{ id: string; name: string }> } } | null;
+    }>(query, { id: issueId });
+
+    const want = tag.toLowerCase();
+    const label = data.issue?.labels.nodes.find((l) => l.name.toLowerCase() === want);
+    if (!label) return;
+
+    const mutation = `
+      mutation IssueRemoveLabel($id: String!, $labelId: String!) {
+        issueRemoveLabel(id: $id, labelId: $labelId) {
+          success
+        }
+      }
+    `;
+    await this.graphql<{ issueRemoveLabel: { success: boolean } }>(mutation, {
+      id: issueId,
+      labelId: label.id,
+    });
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const mutation = `
       mutation IssueCreate($input: IssueCreateInput!) {

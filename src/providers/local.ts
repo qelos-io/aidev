@@ -284,6 +284,36 @@ export class LocalProvider implements TaskProvider {
     }
   }
 
+  async removeTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Removing tag "${tag}" from local task ${taskId}`);
+
+    const found = findTaskFile(this.baseDir, taskId);
+    if (!found) {
+      throw new Error(`Local task not found: ${taskId}`);
+    }
+
+    const filePath = path.join(found.dir, found.filename);
+    const content = fs.readFileSync(filePath, 'utf8');
+    const { meta, body } = parseFrontmatter(content);
+    if (!meta.tags) return;
+
+    const want = tag.trim().toLowerCase();
+    const remaining = meta.tags
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t && t.toLowerCase() !== want);
+
+    if (remaining.length === meta.tags.split(',').map((t) => t.trim()).filter(Boolean).length) return;
+
+    if (remaining.length > 0) {
+      meta.tags = remaining.join(', ');
+    } else {
+      delete meta.tags;
+    }
+
+    fs.writeFileSync(filePath, renderFrontmatter(meta, body), 'utf8');
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const id = shortId();
     const slug = slugify(params.title);

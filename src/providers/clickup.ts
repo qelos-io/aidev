@@ -294,6 +294,13 @@ export class ClickUpProvider implements TaskProvider {
     });
   }
 
+  async removeTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Removing tag "${tag}" from task ${taskId}`);
+    await this.request(`/task/${taskId}/tag/${encodeURIComponent(tag)}`, {
+      method: 'DELETE',
+    });
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const listId = params.listId || this.listId;
     if (!listId) {
