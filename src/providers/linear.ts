@@ -4,6 +4,7 @@ import { logger } from '../logger';
 
 const LINEAR_GRAPHQL = 'https://api.linear.app/graphql';
 const SKIP_STATE_TYPES = new Set(['completed', 'canceled']);
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const STATE_TYPE_BY_GENERIC: Record<string, string> = {
   pending: 'backlog',
@@ -26,14 +27,29 @@ interface LinearWorkflowState {
   type: string;
 }
 
+interface LinearGraphQLError {
+  message: string;
+  extensions?: {
+    userPresentableMessage?: string;
+    code?: string;
+  };
+  path?: Array<string | number>;
+}
+
 interface LinearGraphQLResponse<T> {
   data?: T;
-  errors?: Array<{ message: string }>;
+  errors?: LinearGraphQLError[];
+}
+
+function formatLinearError(e: LinearGraphQLError): string {
+  const detail = e.extensions?.userPresentableMessage;
+  return detail ? `${e.message} (${detail})` : e.message;
 }
 
 export class LinearProvider implements TaskProvider {
   private apiKey: string;
-  private teamId: string;
+  private teamIdInput: string;
+  private resolvedTeamId: string | null = null;
   private label: string;
   private assigneeTag: string;
   private pendingStatus: string;
@@ -41,11 +57,35 @@ export class LinearProvider implements TaskProvider {
 
   constructor(config: Config) {
     this.apiKey = config.linearApiKey;
-    this.teamId = config.linearTeamId;
+    this.teamIdInput = config.linearTeamId;
     this.label = config.linearLabel;
     this.assigneeTag = config.assigneeTag;
     this.pendingStatus = config.linearPendingStatus || 'Backlog';
     this.inReviewStatus = config.linearInReviewStatus || 'In Review';
+  }
+
+  private async resolveTeamId(): Promise<string> {
+    if (this.resolvedTeamId) return this.resolvedTeamId;
+    if (!this.teamIdInput) {
+      throw new Error('Linear: LINEAR_TEAM_ID is not set');
+    }
+    if (UUID_REGEX.test(this.teamIdInput)) {
+      this.resolvedTeamId = this.teamIdInput;
+      return this.resolvedTeamId;
+    }
+    const query = `
+      query Team($id: String!) {
+        team(id: $id) { id }
+      }
+    `;
+    const data = await this.graphql<{ team: { id: string } | null }>(query, { id: this.teamIdInput });
+    if (!data.team?.id) {
+      throw new Error(
+        `Linear: could not resolve LINEAR_TEAM_ID "${this.teamIdInput}". Set it to the team UUID or team key.`,
+      );
+    }
+    this.resolvedTeamId = data.team.id;
+    return this.resolvedTeamId;
   }
 
   private async graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
@@ -60,11 +100,11 @@ export class LinearProvider implements TaskProvider {
 
     const raw = (await res.json()) as LinearGraphQLResponse<T>;
     if (!res.ok) {
-      const msg = raw.errors?.map((e) => e.message).join('; ') || res.statusText;
+      const msg = raw.errors?.map(formatLinearError).join('; ') || res.statusText;
       throw new Error(`Linear API error ${res.status}: ${msg}`);
     }
     if (raw.errors?.length) {
-      throw new Error(`Linear GraphQL errors: ${raw.errors.map((e) => e.message).join('; ')}`);
+      throw new Error(`Linear GraphQL errors: ${raw.errors.map(formatLinearError).join('; ')}`);
     }
     if (raw.data === undefined) {
       throw new Error('Linear API returned no data');
@@ -84,14 +124,16 @@ export class LinearProvider implements TaskProvider {
         }
       }
     `;
+    const teamId = await this.resolveTeamId();
     const data = await this.graphql<{
       workflowStates: { nodes: LinearWorkflowState[] };
-    }>(query, { filter: { team: { id: { eq: this.teamId } } } });
+    }>(query, { filter: { team: { id: { eq: teamId } } } });
     return data.workflowStates.nodes;
   }
 
   async fetchTasks(): Promise<Task[]> {
-    logger.debug(`Fetching Linear issues for team ${this.teamId} with label "${this.label}"`);
+    const teamId = await this.resolveTeamId();
+    logger.debug(`Fetching Linear issues for team ${teamId} with label "${this.label}"`);
 
     const query = `
       query Issues($filter: IssueFilter) {
@@ -110,11 +152,11 @@ export class LinearProvider implements TaskProvider {
       }
     `;
     const filter: Record<string, unknown> = {
-      team: { id: { eq: this.teamId } },
+      team: { id: { eq: teamId } },
       state: { type: { nin: ['completed', 'canceled'] } },
     };
     if (this.label && this.label !== '*') {
-      (filter as Record<string, unknown>).labels = { name: { eq: this.label } };
+      filter.labels = { some: { name: { eq: this.label } } };
     }
 
     const data = await this.graphql<{
@@ -334,11 +376,12 @@ export class LinearProvider implements TaskProvider {
         pageInfo: { hasNextPage: boolean; endCursor: string | null };
       };
     };
+    const teamId = await this.resolveTeamId();
     const all: Array<{ id: string; name: string }> = [];
     let after: string | null = null;
     for (;;) {
       const data: LabelsPage = await this.graphql<LabelsPage>(query, {
-        filter: { team: { id: { eq: this.teamId } } },
+        filter: { team: { id: { eq: teamId } } },
         after,
       });
       all.push(...data.issueLabels.nodes);
@@ -361,6 +404,7 @@ export class LinearProvider implements TaskProvider {
     }
     if (wanted.length === 0) return [];
 
+    const teamId = await this.resolveTeamId();
     let existing = await this.fetchTeamLabels();
     const indexByName = (labels: Array<{ id: string; name: string }>): Map<string, string> => {
       const sorted = [...labels].sort((a, b) => a.name.localeCompare(b.name));
@@ -393,7 +437,7 @@ export class LinearProvider implements TaskProvider {
       try {
         const data = await this.graphql<{
           issueLabelCreate: { success: boolean; issueLabel: { id: string; name: string } | null };
-        }>(createMutation, { input: { name, teamId: this.teamId } });
+        }>(createMutation, { input: { name, teamId } });
         const created = data.issueLabelCreate?.issueLabel;
         if (!created) {
           throw new Error(`Linear: issueLabelCreate did not return a label for "${name}"`);
@@ -462,6 +506,7 @@ export class LinearProvider implements TaskProvider {
   }
 
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
+    const teamId = await this.resolveTeamId();
     const mutation = `
       mutation IssueCreate($input: IssueCreateInput!) {
         issueCreate(input: $input) {
@@ -471,7 +516,7 @@ export class LinearProvider implements TaskProvider {
       }
     `;
     const input: Record<string, unknown> = {
-      teamId: this.teamId,
+      teamId,
       title: params.title,
       description: params.description || undefined,
     };
