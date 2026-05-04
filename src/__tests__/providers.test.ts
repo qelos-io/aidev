@@ -791,7 +791,7 @@ describe('LinearProvider.createTask — assignee resolution', () => {
       ...baseLinearConfig,
       assigneeTag: 'unknown@example.com',
     } as unknown as Config);
-    const result = await provider.createTask({ title: 'No assignee', description: '' });
+    const result = await provider.createTask({ title: 'No assignee', description: '', tags: [] });
 
     assert.equal(result.id, 'ENG-9');
     assert.ok(issueCreateInput, 'issueCreate must have been called');
