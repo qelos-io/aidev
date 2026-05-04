@@ -378,6 +378,16 @@ export class JiraProvider implements TaskProvider {
     });
   }
 
+  async removeTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Removing label "${tag}" from Jira issue ${taskId}`);
+    await this.request(`/issue/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        update: { labels: [{ remove: tag }] },
+      }),
+    });
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const project = params.listId || this.project;
 

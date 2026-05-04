@@ -1318,6 +1318,13 @@ async function implementThinkingTask(
     const comment = buildCompletionComment(branchName, prUrl, config);
     await provider.postComment(task.id, comment);
     await provider.updateStatus(task.id, getInReviewStatus(config));
+    if (config.thinkingTag && provider.removeTag) {
+      try {
+        await provider.removeTag(task.id, config.thinkingTag);
+      } catch (err) {
+        logger.warn(`Could not remove thinking tag: ${err instanceof Error ? err.message : err}`);
+      }
+    }
   } catch (err) {
     logger.warn(`Branch pushed but failed to update task: ${err instanceof Error ? err.message : err}`);
   }
