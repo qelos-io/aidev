@@ -321,16 +321,31 @@ export class LinearProvider implements TaskProvider {
 
   private async fetchTeamLabels(): Promise<Array<{ id: string; name: string }>> {
     const query = `
-      query IssueLabels($filter: IssueLabelFilter) {
-        issueLabels(filter: $filter, first: 250) {
+      query IssueLabels($filter: IssueLabelFilter, $after: String) {
+        issueLabels(filter: $filter, first: 250, after: $after) {
           nodes { id name }
+          pageInfo { hasNextPage endCursor }
         }
       }
     `;
-    const data = await this.graphql<{
-      issueLabels: { nodes: Array<{ id: string; name: string }> };
-    }>(query, { filter: { team: { id: { eq: this.teamId } } } });
-    return data.issueLabels.nodes;
+    type LabelsPage = {
+      issueLabels: {
+        nodes: Array<{ id: string; name: string }>;
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      };
+    };
+    const all: Array<{ id: string; name: string }> = [];
+    let after: string | null = null;
+    for (;;) {
+      const data: LabelsPage = await this.graphql<LabelsPage>(query, {
+        filter: { team: { id: { eq: this.teamId } } },
+        after,
+      });
+      all.push(...data.issueLabels.nodes);
+      if (!data.issueLabels.pageInfo.hasNextPage || !data.issueLabels.pageInfo.endCursor) break;
+      after = data.issueLabels.pageInfo.endCursor;
+    }
+    return all;
   }
 
   private async resolveLabelIds(names: string[]): Promise<string[]> {
@@ -403,6 +418,14 @@ export class LinearProvider implements TaskProvider {
     const value = this.assigneeTag.trim();
     if (!value) return null;
 
+    const angleMatch = value.match(/<([^>]+)>/);
+    const emailCandidate = angleMatch
+      ? angleMatch[1].trim()
+      : value.includes('@') ? value : '';
+    const displayNameCandidate = angleMatch
+      ? value.slice(0, angleMatch.index).trim()
+      : value.includes('@') ? '' : value;
+
     const query = `
       query Users($filter: UserFilter) {
         users(filter: $filter, first: 2) {
@@ -415,18 +438,20 @@ export class LinearProvider implements TaskProvider {
     };
 
     try {
-      if (value.includes('@')) {
+      if (emailCandidate) {
         const data = await this.graphql<UsersResponse>(query, {
-          filter: { email: { eq: value } },
+          filter: { email: { eq: emailCandidate } },
         });
         const id = data.users.nodes[0]?.id;
         if (id) return id;
       }
-      const data = await this.graphql<UsersResponse>(query, {
-        filter: { displayName: { eq: value } },
-      });
-      const id = data.users.nodes[0]?.id;
-      if (id) return id;
+      if (displayNameCandidate) {
+        const data = await this.graphql<UsersResponse>(query, {
+          filter: { displayName: { eq: displayNameCandidate } },
+        });
+        const id = data.users.nodes[0]?.id;
+        if (id) return id;
+      }
       logger.warn(`Linear: no user matched assignee "${value}"; creating issue without assignee`);
       return null;
     } catch (err) {
