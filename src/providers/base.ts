@@ -13,4 +13,9 @@ export interface TaskProvider {
    * because not every backend exposes this cleanly; callers must handle absence.
    */
   fetchAvailableStatuses?(): Promise<string[]>;
+  /**
+   * Removes a tag/label from a task. Optional — providers that don't expose
+   * tag mutation can omit it; callers must guard with a typeof check.
+   */
+  removeTag?(taskId: string, tag: string): Promise<void>;
 }

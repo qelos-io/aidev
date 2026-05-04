@@ -341,6 +341,23 @@ export class TrelloProvider implements TaskProvider {
     });
   }
 
+  async removeTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Removing label "${tag}" from Trello card ${taskId}`);
+
+    const card = await this.request<{ labels: TrelloLabel[] }>(
+      `/cards/${encodeURIComponent(taskId)}?fields=labels`,
+    );
+
+    const want = tag.trim().toLowerCase();
+    const label = card.labels.find((l) => l.name.trim().toLowerCase() === want);
+    if (!label) return;
+
+    await this.request(
+      `/cards/${encodeURIComponent(taskId)}/idLabels/${encodeURIComponent(label.id)}`,
+      { method: 'DELETE' },
+    );
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const lists = await this.fetchLists();
     const listId =
