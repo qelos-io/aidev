@@ -189,6 +189,28 @@ export interface MergeResult {
   error: string;
 }
 
+export type PrMergeability = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+
+/**
+ * Returns the GitHub-reported mergeability of the PR for the given branch.
+ * `UNKNOWN` covers both transient unknown states (GitHub still computing) and
+ * the case where no PR is found / gh fails — callers must treat UNKNOWN as
+ * "do not assume it can merge".
+ */
+export function getPullRequestMergeability(branch: string): PrMergeability {
+  const result = gh(['pr', 'view', branch, '--json', 'mergeable']);
+  if (result.status !== 0) return 'UNKNOWN';
+  try {
+    const parsed = JSON.parse(result.stdout) as { mergeable?: string };
+    const value = (parsed.mergeable || '').toUpperCase();
+    if (value === 'MERGEABLE') return 'MERGEABLE';
+    if (value === 'CONFLICTING') return 'CONFLICTING';
+    return 'UNKNOWN';
+  } catch {
+    return 'UNKNOWN';
+  }
+}
+
 export function mergePullRequest(branch: string): MergeResult {
   logger.debug(`Merging PR for branch: ${branch} (squash + delete branch)`);
   const result = gh([
