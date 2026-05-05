@@ -59,6 +59,17 @@ const baseAnswers: Answers = {
   mondayBoardId: '',
   mondayStatusColumnId: 'status',
   mondayGroupId: '',
+  trelloApiKey: '',
+  trelloToken: '',
+  trelloBoardId: '',
+  trelloLabel: '',
+  trelloOpenList: 'To Do',
+  trelloPendingList: 'Blocked',
+  trelloInProgressList: 'Doing',
+  trelloInReviewList: 'In Review',
+  trelloOpenStatus: '',
+  trelloPendingStatus: '',
+  trelloInReviewStatus: '',
   nonCodeTag: '',
   nonCodeClickupTeamId: '',
   nonCodeJiraProject: '',
@@ -264,6 +275,17 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     mondayBoardId: p.MONDAY_BOARD_ID || '',
     mondayStatusColumnId: p.MONDAY_STATUS_COLUMN_ID || 'status',
     mondayGroupId: p.MONDAY_GROUP_ID || '',
+    trelloApiKey: p.TRELLO_API_KEY || '',
+    trelloToken: p.TRELLO_TOKEN || '',
+    trelloBoardId: p.TRELLO_BOARD_ID || '',
+    trelloLabel: p.TRELLO_LABEL || folderName,
+    trelloOpenList: p.TRELLO_OPEN_LIST || 'To Do',
+    trelloPendingList: p.TRELLO_PENDING_LIST || 'Blocked',
+    trelloInProgressList: p.TRELLO_IN_PROGRESS_LIST || 'Doing',
+    trelloInReviewList: p.TRELLO_IN_REVIEW_LIST || 'In Review',
+    trelloOpenStatus: p.TRELLO_OPEN_STATUS || '',
+    trelloPendingStatus: p.TRELLO_PENDING_STATUS || '',
+    trelloInReviewStatus: p.TRELLO_IN_REVIEW_STATUS || '',
     nonCodeTag: p.NON_CODE_TAG || '',
     nonCodeClickupTeamId: p.NON_CODE_CLICKUP_TEAM_ID || '',
     nonCodeJiraProject: p.NON_CODE_JIRA_PROJECT || '',
@@ -524,6 +546,122 @@ describe('renderEnv Linear provider', () => {
     };
     const first = renderEnv(linearAnswers);
     const second = renderEnv(answersFromParsed(dotenv.parse(first)));
+    assert.equal(second, first);
+  });
+});
+
+// ─── renderEnv Trello provider ───────────────────────────────────────────────
+
+describe('renderEnv Trello provider', () => {
+  it('writes PROVIDER=trello and TRELLO_* keys', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      provider: 'trello',
+      clickupApiKey: '',
+      clickupTeamId: '',
+      clickupTag: '',
+      clickupPendingStatus: '',
+      clickupInReviewStatus: '',
+      trelloApiKey: 'key123',
+      trelloToken: 'tok456',
+      trelloBoardId: 'board789',
+      trelloLabel: 'myproject',
+      trelloOpenList: 'To Do',
+      trelloPendingList: 'Blocked',
+      trelloInProgressList: 'Doing',
+      trelloInReviewList: 'In Review',
+    });
+    assert.ok(out.includes('PROVIDER=trello'));
+    assert.ok(out.includes('TRELLO_API_KEY=key123'));
+    assert.ok(out.includes('TRELLO_TOKEN=tok456'));
+    assert.ok(out.includes('TRELLO_BOARD_ID=board789'));
+    assert.ok(out.includes('TRELLO_LABEL=myproject'));
+    assert.ok(out.includes('TRELLO_OPEN_LIST="To Do"'));
+    assert.ok(out.includes('TRELLO_PENDING_LIST=Blocked'));
+    assert.ok(out.includes('TRELLO_IN_PROGRESS_LIST=Doing'));
+    assert.ok(out.includes('TRELLO_IN_REVIEW_LIST="In Review"'));
+  });
+
+  it('omits semantic status keys when empty', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      provider: 'trello',
+      trelloApiKey: 'k',
+      trelloToken: 't',
+      trelloBoardId: 'b',
+    });
+    assert.ok(!out.includes('TRELLO_OPEN_STATUS'));
+    assert.ok(!out.includes('TRELLO_PENDING_STATUS'));
+    assert.ok(!out.includes('TRELLO_IN_REVIEW_STATUS'));
+  });
+
+  it('does not include ClickUp keys when provider is trello', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      provider: 'trello',
+      clickupApiKey: '',
+      clickupTeamId: '',
+      clickupTag: '',
+      clickupPendingStatus: '',
+      clickupInReviewStatus: '',
+      trelloApiKey: 'k',
+      trelloToken: 't',
+      trelloBoardId: 'b',
+    });
+    assert.ok(!out.includes('CLICKUP_API_KEY'));
+    assert.ok(!out.includes('CLICKUP_PENDING_STATUS'));
+  });
+
+  it('re-rendering Trello answers with parsed values produces identical output', () => {
+    const trelloAnswers: Answers = {
+      ...baseAnswers,
+      provider: 'trello',
+      clickupApiKey: '',
+      clickupTeamId: '',
+      clickupTag: '',
+      clickupPendingStatus: '',
+      clickupInReviewStatus: '',
+      trelloApiKey: 'key123',
+      trelloToken: 'tok456',
+      trelloBoardId: 'board789',
+      trelloLabel: 'myproject',
+      trelloOpenList: 'To Do',
+      trelloPendingList: 'Blocked',
+      trelloInProgressList: 'Doing',
+      trelloInReviewList: 'In Review',
+    };
+    const first = renderEnv(trelloAnswers);
+    const second = renderEnv(answersFromParsed(dotenv.parse(first)));
+    assert.equal(second, first);
+  });
+
+  it('preserves customized semantic statuses through round-trip', () => {
+    const trelloAnswers: Answers = {
+      ...baseAnswers,
+      provider: 'trello',
+      clickupApiKey: '',
+      clickupTeamId: '',
+      clickupTag: '',
+      clickupPendingStatus: '',
+      clickupInReviewStatus: '',
+      trelloApiKey: 'k',
+      trelloToken: 't',
+      trelloBoardId: 'b',
+      trelloLabel: 'lbl',
+      trelloOpenList: 'To Do',
+      trelloPendingList: 'Blocked',
+      trelloInProgressList: 'Doing',
+      trelloInReviewList: 'In Review',
+      trelloOpenStatus: 'todo',
+      trelloPendingStatus: 'waiting',
+      trelloInReviewStatus: 'qa',
+    };
+    const first = renderEnv(trelloAnswers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.TRELLO_OPEN_STATUS, 'todo');
+    assert.equal(parsed.TRELLO_PENDING_STATUS, 'waiting');
+    assert.equal(parsed.TRELLO_IN_REVIEW_STATUS, 'qa');
+    const second = renderEnv(answersFromParsed(parsed));
     assert.equal(second, first);
   });
 });
