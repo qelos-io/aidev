@@ -61,9 +61,9 @@ aidev init
 
 The wizard will ask for your task provider credentials, git settings, and preferred AI agents.
 
-> **Note:** `aidev init` currently supports **ClickUp, Jira, Linear, Local, and Monday.com**. For **Notion** and **Trello**, create `.env.aidev` manually using `.env.aidev.example` as a template (see [Configuration](#configuration)).
+> **Note:** `aidev init` currently supports **ClickUp, Jira, Linear, Local, Monday.com, and Trello**. For **Notion**, create `.env.aidev` manually using `.env.aidev.example` as a template (see [Configuration](#configuration)).
 >
-> For ClickUp, API keys can be left blank if they are already set as environment variables in your shell. For Jira, Linear, and Monday.com, the wizard requires credentials to be entered directly — to use shell env vars instead, edit `.env.aidev` after init and remove the values you want read from your environment.
+> For ClickUp, API keys can be left blank if they are already set as environment variables in your shell. For Jira, Linear, Monday.com, and Trello, the wizard requires credentials to be entered directly — to use shell env vars instead, edit `.env.aidev` after init and remove the values you want read from your environment.
 
 Once configured:
 
@@ -658,9 +658,9 @@ AIDEV_LOG_PATH=~/aidev/run.log        # under your home directory
 | Monday.com | ✅ Implemented | ✅ Interactive wizard |
 | Local | ✅ Implemented | ✅ Interactive wizard |
 | Notion | ✅ Implemented | Manual `.env.aidev` config |
-| Trello | ✅ Implemented | Manual `.env.aidev` config |
+| Trello | ✅ Implemented | ✅ Interactive wizard |
 
-> **Notion & Trello:** These providers are fully functional but not yet included in the `aidev init` wizard. To use them, set `PROVIDER=notion` or `PROVIDER=trello` in `.env.aidev` and fill in the required variables from the [Configuration](#configuration) section above.
+> **Notion:** This provider is fully functional but not yet included in the `aidev init` wizard. To use it, set `PROVIDER=notion` in `.env.aidev` and fill in the required variables from the [Configuration](#configuration) section above.
 
 The `TaskProvider` interface makes it straightforward to add new providers. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 

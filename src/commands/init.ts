@@ -116,7 +116,7 @@ interface ClickUpMember {
 }
 
 export interface Answers {
-  provider: 'clickup' | 'jira' | 'linear' | 'local' | 'monday';
+  provider: 'clickup' | 'jira' | 'linear' | 'local' | 'monday' | 'trello';
   // ClickUp
   clickupApiKey: string;
   clickupTeamId: string;
@@ -142,6 +142,18 @@ export interface Answers {
   mondayBoardId: string;
   mondayStatusColumnId: string;
   mondayGroupId: string;
+  // Trello
+  trelloApiKey: string;
+  trelloToken: string;
+  trelloBoardId: string;
+  trelloLabel: string;
+  trelloOpenList: string;
+  trelloPendingList: string;
+  trelloInProgressList: string;
+  trelloInReviewList: string;
+  trelloOpenStatus: string;
+  trelloPendingStatus: string;
+  trelloInReviewStatus: string;
   // Non-code tasks
   nonCodeTag: string;
   nonCodeClickupTeamId: string;
@@ -323,14 +335,29 @@ export function renderEnv(a: Answers): string {
                 `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
                 `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
               ]
-            : [
-                `PROVIDER=clickup`,
-                line('CLICKUP_API_KEY', a.clickupApiKey),
-                line('CLICKUP_TEAM_ID', a.clickupTeamId),
-                line('CLICKUP_TAG', a.clickupTag),
-                `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
-                `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
-              ];
+            : a.provider === 'trello'
+              ? [
+                  `PROVIDER=trello`,
+                  line('TRELLO_API_KEY', a.trelloApiKey),
+                  line('TRELLO_TOKEN', a.trelloToken),
+                  line('TRELLO_BOARD_ID', a.trelloBoardId),
+                  line('TRELLO_LABEL', a.trelloLabel),
+                  `TRELLO_OPEN_LIST=${envVal(a.trelloOpenList)}`,
+                  `TRELLO_PENDING_LIST=${envVal(a.trelloPendingList)}`,
+                  `TRELLO_IN_PROGRESS_LIST=${envVal(a.trelloInProgressList)}`,
+                  `TRELLO_IN_REVIEW_LIST=${envVal(a.trelloInReviewList)}`,
+                  line('TRELLO_OPEN_STATUS', a.trelloOpenStatus),
+                  line('TRELLO_PENDING_STATUS', a.trelloPendingStatus),
+                  line('TRELLO_IN_REVIEW_STATUS', a.trelloInReviewStatus),
+                ]
+              : [
+                  `PROVIDER=clickup`,
+                  line('CLICKUP_API_KEY', a.clickupApiKey),
+                  line('CLICKUP_TEAM_ID', a.clickupTeamId),
+                  line('CLICKUP_TAG', a.clickupTag),
+                  `CLICKUP_PENDING_STATUS=${envVal(a.clickupPendingStatus)}`,
+                  `CLICKUP_IN_REVIEW_STATUS=${envVal(a.clickupInReviewStatus)}`,
+                ];
 
   const lines = [
     a.aidevEnvExtend
@@ -571,7 +598,7 @@ export async function initCommand(): Promise<void> {
 
     // ── Provider ─────────────────────────────────────────────
     section('Task provider');
-    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira', 'linear', 'local', 'monday'], existing.PROVIDER || 'clickup') as Answers['provider'];
+    const provider = await choose(rl, 'Which task provider do you use?', ['clickup', 'jira', 'linear', 'local', 'monday', 'trello'], existing.PROVIDER || 'clickup') as Answers['provider'];
 
     // Provider-specific config
     const globalEnvHint = hint('leave blank to use global env var');
@@ -601,6 +628,18 @@ export async function initCommand(): Promise<void> {
     let mondayBoardId = '';
     let mondayStatusColumnId = 'status';
     let mondayGroupId = '';
+
+    let trelloApiKey = '';
+    let trelloToken = '';
+    let trelloBoardId = '';
+    let trelloLabel = '';
+    let trelloOpenList = 'To Do';
+    let trelloPendingList = 'Blocked';
+    let trelloInProgressList = 'Doing';
+    let trelloInReviewList = 'In Review';
+    let trelloOpenStatus = '';
+    let trelloPendingStatus = '';
+    let trelloInReviewStatus = '';
 
     if (provider === 'local') {
       // ── Local ──────────────────────────────────────────────
@@ -676,6 +715,35 @@ export async function initCommand(): Promise<void> {
       );
       clickupPendingStatus = await ask(rl, 'Pending status label', existing.CLICKUP_PENDING_STATUS || 'Working on it');
       clickupInReviewStatus = await ask(rl, 'In-review status label', existing.CLICKUP_IN_REVIEW_STATUS || 'Done');
+    } else if (provider === 'trello') {
+      section('Trello');
+      console.log(
+        chalk.dim(
+          `  Get an API key and token from https://trello.com/power-ups/admin\n` +
+          `  (or https://trello.com/app-key for legacy keys).`
+        )
+      );
+      trelloApiKey = await ask(rl, `API key ${globalEnvHint}`, existing.TRELLO_API_KEY || '', true);
+      trelloToken = await ask(rl, `API token ${globalEnvHint}`, existing.TRELLO_TOKEN || '', true);
+      trelloBoardId = await ask(
+        rl,
+        `Board ID ${hint('short ID from the board URL')}`,
+        existing.TRELLO_BOARD_ID || '',
+        true
+      );
+      trelloLabel = await ask(
+        rl,
+        `Label to filter cards ${hint('cards with this label will be picked up — * for all assigned cards')}`,
+        existing.TRELLO_LABEL || folderName
+      );
+      trelloOpenList = await ask(rl, 'Open list name', existing.TRELLO_OPEN_LIST || 'To Do');
+      trelloPendingList = await ask(rl, 'Pending list name', existing.TRELLO_PENDING_LIST || 'Blocked');
+      trelloInProgressList = await ask(rl, 'In-progress list name', existing.TRELLO_IN_PROGRESS_LIST || 'Doing');
+      trelloInReviewList = await ask(rl, 'In-review list name', existing.TRELLO_IN_REVIEW_LIST || 'In Review');
+      // Semantic status names are rarely customized — preserve any existing values silently
+      trelloOpenStatus = existing.TRELLO_OPEN_STATUS || '';
+      trelloPendingStatus = existing.TRELLO_PENDING_STATUS || '';
+      trelloInReviewStatus = existing.TRELLO_IN_REVIEW_STATUS || '';
     } else {
       // ── ClickUp ──────────────────────────────────────────────
       section('ClickUp');
@@ -853,6 +921,17 @@ export async function initCommand(): Promise<void> {
       mondayBoardId,
       mondayStatusColumnId,
       mondayGroupId,
+      trelloApiKey,
+      trelloToken,
+      trelloBoardId,
+      trelloLabel,
+      trelloOpenList,
+      trelloPendingList,
+      trelloInProgressList,
+      trelloInReviewList,
+      trelloOpenStatus,
+      trelloPendingStatus,
+      trelloInReviewStatus,
       nonCodeTag,
       nonCodeClickupTeamId,
       nonCodeJiraProject,
