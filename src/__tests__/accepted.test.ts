@@ -1,7 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAcceptedMergeComment, resolveDoneStatus } from '../commands/accepted';
-import type { Config } from '../types';
+import {
+  ACCEPTED_CONFLICT_MARKER,
+  buildAcceptedConflictComment,
+  buildAcceptedMergeComment,
+  hasAlreadyNotifiedConflict,
+  resolveDoneStatus,
+} from '../commands/accepted';
+import type { Comment, Config } from '../types';
 import type { TaskProvider } from '../providers';
 
 describe('buildAcceptedMergeComment', () => {
@@ -19,6 +25,48 @@ describe('buildAcceptedMergeComment', () => {
     const text = buildAcceptedMergeComment(config, 'x/y');
     assert.ok(text.startsWith('[bot] '));
     assert.ok(text.includes('`x/y`'));
+  });
+});
+
+describe('buildAcceptedConflictComment', () => {
+  it('embeds the conflict marker so duplicates can be detected', () => {
+    const config = { commentPrefix: '[aidev]' } as Config;
+    const text = buildAcceptedConflictComment(config, 'abc/fix', 'main');
+    assert.ok(text.startsWith('[aidev] '));
+    assert.ok(text.includes('`abc/fix`'));
+    assert.ok(text.includes('`main`'));
+    assert.ok(text.includes(ACCEPTED_CONFLICT_MARKER));
+  });
+});
+
+function makeComment(text: string): Comment {
+  return { id: 'c', text, author: 'a', authorId: 'a', date: 0 };
+}
+
+describe('hasAlreadyNotifiedConflict', () => {
+  const prefix = '[aidev]';
+
+  it('returns true when a prior aidev-prefixed conflict notice exists', () => {
+    const config = { commentPrefix: prefix } as Config;
+    const notice = buildAcceptedConflictComment(config, 'b/x', 'main');
+    assert.equal(hasAlreadyNotifiedConflict([makeComment(notice)], prefix), true);
+  });
+
+  it('returns false when no prior notice exists', () => {
+    const comments = [
+      makeComment(`${prefix} Merging the accepted pull request for branch \`b/x\`.`),
+      makeComment('looks good'),
+    ];
+    assert.equal(hasAlreadyNotifiedConflict(comments, prefix), false);
+  });
+
+  it('ignores notices that lack the comment prefix (so user-written text containing the marker does not block aidev)', () => {
+    const text = `random user note: ${ACCEPTED_CONFLICT_MARKER}`;
+    assert.equal(hasAlreadyNotifiedConflict([makeComment(text)], prefix), false);
+  });
+
+  it('returns false on empty comments', () => {
+    assert.equal(hasAlreadyNotifiedConflict([], prefix), false);
   });
 });
 

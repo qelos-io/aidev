@@ -1,11 +1,24 @@
-import { Config } from '../types';
+import { Comment, Config } from '../types';
 import { TaskProvider } from '../providers';
 import { logger } from '../logger';
-import { isGhInstalled, isGhAuthenticated, mergePullRequest } from '../github';
+import {
+  isGhInstalled,
+  isGhAuthenticated,
+  mergePullRequest,
+  getPullRequestMergeability,
+} from '../github';
 import * as git from '../git';
 import { getInReviewStatus } from './run';
 
 const DONE_STATUS_CANDIDATES = ['done', 'closed', 'finish', 'success', 'prod'];
+
+/**
+ * Stable phrase embedded in the conflict comment so we can detect a previously
+ * posted notice on later cron ticks and avoid spamming the ticket. Changing
+ * this phrase will cause one duplicate notice on tickets that already received
+ * a notice from a previous version.
+ */
+export const ACCEPTED_CONFLICT_MARKER = 'has merge conflicts and cannot be auto-merged';
 
 /**
  * Comment posted on the task immediately before merging an accepted PR (so the
@@ -13,6 +26,32 @@ const DONE_STATUS_CANDIDATES = ['done', 'closed', 'finish', 'success', 'prod'];
  */
 export function buildAcceptedMergeComment(config: Config, branchName: string): string {
   return `${config.commentPrefix} Merging the accepted pull request for branch \`${branchName}\`.`;
+}
+
+/**
+ * One-time notice posted when an accepted PR cannot be merged because of
+ * conflicts. Phrased so {@link hasAlreadyNotifiedConflict} can detect it on
+ * later runs.
+ */
+export function buildAcceptedConflictComment(
+  config: Config,
+  branchName: string,
+  baseBranch: string,
+): string {
+  return (
+    `${config.commentPrefix} Cannot merge accepted pull request for branch \`${branchName}\` — ` +
+    `the PR ${ACCEPTED_CONFLICT_MARKER} with \`${baseBranch}\`. Resolve the conflicts ` +
+    `(or retrigger the task to let aidev attempt resolution) before this can be merged.`
+  );
+}
+
+export function hasAlreadyNotifiedConflict(
+  comments: Comment[],
+  commentPrefix: string,
+): boolean {
+  return comments.some(
+    (c) => c.text.startsWith(commentPrefix) && c.text.includes(ACCEPTED_CONFLICT_MARKER),
+  );
 }
 
 /**
@@ -100,6 +139,40 @@ export async function acceptedCommand(
   for (const task of acceptedTasks) {
     const branchName = `${task.id}/${git.slugify(task.name)}`;
     logger.task(`[${task.id}] "${task.name}" — merging branch ${branchName}`);
+
+    const mergeability = getPullRequestMergeability(branchName);
+    if (mergeability === 'CONFLICTING') {
+      let existingComments: Comment[] = [];
+      try {
+        existingComments = await provider.getComments(task.id);
+      } catch (err) {
+        logger.warn(
+          `[${task.id}] Failed to fetch comments to check for prior conflict notice: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      if (hasAlreadyNotifiedConflict(existingComments, config.commentPrefix)) {
+        logger.info(
+          `[${task.id}] Skipping — PR has merge conflicts and the ticket was already notified.`,
+        );
+        continue;
+      }
+
+      try {
+        await provider.postComment(
+          task.id,
+          buildAcceptedConflictComment(config, branchName, config.githubBaseBranch),
+        );
+        logger.warn(
+          `[${task.id}] PR has merge conflicts with ${config.githubBaseBranch} — posted notice and skipping.`,
+        );
+      } catch (err) {
+        logger.warn(
+          `[${task.id}] Failed to post conflict notice: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      continue;
+    }
 
     try {
       await provider.postComment(task.id, buildAcceptedMergeComment(config, branchName));
