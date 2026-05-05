@@ -256,7 +256,10 @@ export class LinearProvider implements TaskProvider {
   }
 
   private async resolveIssueId(identifier: string): Promise<string> {
-    if (/^[A-Z]+-\d+$/i.test(identifier)) {
+    const match = identifier.match(/^([A-Za-z]+)-(\d+)$/);
+    if (match) {
+      const teamKey = match[1].toUpperCase();
+      const number = Number(match[2]);
       const query = `
         query IssueByIdentifier($filter: IssueFilter) {
           issues(filter: $filter, first: 1) {
@@ -265,7 +268,7 @@ export class LinearProvider implements TaskProvider {
         }
       `;
       const data = await this.graphql<{ issues: { nodes: Array<{ id: string }> } }>(query, {
-        filter: { identifier: { eq: identifier } },
+        filter: { team: { key: { eq: teamKey } }, number: { eq: number } },
       });
       const id = data.issues?.nodes?.[0]?.id;
       if (id) return id;

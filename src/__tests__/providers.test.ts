@@ -601,7 +601,7 @@ describe('LinearProvider.getComments', () => {
   it('returns comments sorted ascending by date', async () => {
     mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(init.body as string) : {};
-      if (body.query?.includes('issues') && body.variables?.filter?.identifier) {
+      if (body.query?.includes('issues') && body.variables?.filter?.team?.key) {
         return jsonResponse({ data: { issues: { nodes: [{ id: 'issue-uuid-1' }] } } });
       }
       if (body.query?.includes('issue(id:')) {
@@ -810,7 +810,7 @@ describe('LinearProvider.updateStatus — state type fallback', () => {
           },
         });
       }
-      if (query.includes('issues') && body.variables?.filter?.identifier) {
+      if (query.includes('issues') && body.variables?.filter?.team?.key) {
         return jsonResponse({ data: { issues: { nodes: [{ id: 'issue-uuid-99' }] } } });
       }
       if (query.includes('issueUpdate')) {
