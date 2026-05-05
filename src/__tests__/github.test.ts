@@ -4,7 +4,13 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { getRemoteUrl, isGitHubRemote, isGhInstalled, filterUnresolvedByNonAidev } from '../github';
+import {
+  getRemoteUrl,
+  isGitHubRemote,
+  isGhInstalled,
+  filterUnresolvedByNonAidev,
+  getPullRequestMergeability,
+} from '../github';
 import type { ReviewThread } from '../github';
 import { tryCreatePR, buildPRUrl } from '../commands/run';
 import { printGhSuggestion } from '../commands/init';
@@ -103,6 +109,30 @@ describe('isGhInstalled', () => {
   it('returns a boolean', () => {
     const result = isGhInstalled();
     assert.equal(typeof result, 'boolean');
+  });
+});
+
+// ─── getPullRequestMergeability ──────────────────────────────────────────────
+
+describe('getPullRequestMergeability', () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-gh-test-'));
+    initRepo(tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns UNKNOWN when there is no PR for the branch (gh exits non-zero)', () => {
+    const value = getPullRequestMergeability('does-not-exist');
+    assert.equal(value, 'UNKNOWN');
   });
 });
 
