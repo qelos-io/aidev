@@ -604,16 +604,31 @@ describe('LinearProvider.getComments', () => {
       if (body.query?.includes('issues') && body.variables?.filter?.team?.key) {
         return jsonResponse({ data: { issues: { nodes: [{ id: 'issue-uuid-1' }] } } });
       }
-      if (body.query?.includes('issue(id:')) {
+      if (body.query?.includes('IssueComments') && body.variables?.issueId) {
         return jsonResponse({
           data: {
-            issue: {
-              comments: {
-                nodes: [
-                  { id: 'c1', body: '[aidev] Starting', user: { name: 'Bot', id: 'u1' }, createdAt: '2024-01-01T10:00:00.000Z' },
-                  { id: 'c2', body: 'aidev-continue', user: { name: 'Alice', id: 'u2' }, createdAt: '2024-01-01T11:00:00.000Z' },
-                ],
-              },
+            comments: {
+              nodes: [
+                {
+                  id: 'c1',
+                  body: '[aidev] Starting',
+                  parentId: null,
+                  user: { name: 'Bot', id: 'u1' },
+                  botActor: null,
+                  externalUser: null,
+                  createdAt: '2024-01-01T10:00:00.000Z',
+                },
+                {
+                  id: 'c2',
+                  body: 'aidev-continue',
+                  parentId: null,
+                  user: { name: 'Alice', id: 'u2' },
+                  botActor: null,
+                  externalUser: null,
+                  createdAt: '2024-01-01T11:00:00.000Z',
+                },
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
             },
           },
         });
