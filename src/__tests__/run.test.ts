@@ -189,6 +189,31 @@ describe('hasHumanReply', () => {
     ];
     assert.equal(hasHumanReply(comments, '[mybot]'), false);
   });
+
+  it('returns true when human comment quotes the aidev prefix mid-text', () => {
+    const comments = [
+      makeComment('[aidev] Starting implementation'),
+      makeComment('Re: [aidev] please retry — the change you proposed is wrong'),
+    ];
+    assert.equal(hasHumanReply(comments), true);
+  });
+
+  it('treats aidev comments as such even with leading whitespace', () => {
+    const comments = [
+      makeComment('Initial human request'),
+      makeComment('   [aidev] Implementation complete!'),
+    ];
+    assert.equal(hasHumanReply(comments), false);
+  });
+
+  it('returns true when a human commented after aidev even if a later comment is again from aidev', () => {
+    const comments = [
+      makeComment('[aidev] Implementation complete!'),
+      makeComment('Please address review feedback'),
+      makeComment('[aidev] Merge conflicts resolved automatically.'),
+    ];
+    assert.equal(hasHumanReply(comments), true);
+  });
 });
 
 // ─── hasTriggerWord ───────────────────────────────────────────────────────────
@@ -352,6 +377,13 @@ describe('hasAidevComment', () => {
     assert.equal(hasAidevComment(comments), false);
   });
 
+  it('does not treat human comments quoting the prefix as aidev comments', () => {
+    const comments = [
+      makeComment('Earlier you said: "[aidev] foo" — that was wrong'),
+    ];
+    assert.equal(hasAidevComment(comments), false);
+  });
+
   it('returns true when only the last comment is from aidev', () => {
     const comments = [
       makeComment('Human wrote this'),
@@ -410,6 +442,13 @@ describe('filterAutomatedComments', () => {
     const automated = makeComment('[mybot] Starting implementation on branch foo');
     const result = filterAutomatedComments([human, automated], '[mybot]');
     assert.deepEqual(result, [human]);
+  });
+
+  it('keeps human comments that quote the aidev prefix', () => {
+    const quotingHuman = makeComment('You said "[aidev] xyz" — please redo it');
+    const automated = makeComment('[aidev] Starting implementation');
+    const result = filterAutomatedComments([quotingHuman, automated]);
+    assert.deepEqual(result, [quotingHuman]);
   });
 });
 

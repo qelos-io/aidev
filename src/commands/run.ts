@@ -353,10 +353,37 @@ async function processTask(
   return 'processed';
 }
 
+export function isAidevComment(text: string, commentPrefix: string = '[aidev]'): boolean {
+  return text.trimStart().startsWith(commentPrefix);
+}
+
+/**
+ * True when someone other than aidev spoke after an aidev message: there is a non-aidev
+ * comment that has at least one earlier [aidev]-prefixed comment in the thread.
+ * Ignores trailing aidev-only noise after the human (e.g. another bot post or sync).
+ */
 export function hasHumanReply(comments: Comment[], commentPrefix: string = '[aidev]'): boolean {
-  if (comments.length < 2) return false;
-  const lastComment = comments[comments.length - 1];
-  return !lastComment.text.includes(commentPrefix);
+  if (comments.length === 0) return false;
+
+  let lastNonAidevIndex = -1;
+  for (let i = comments.length - 1; i >= 0; i--) {
+    if (!isAidevComment(comments[i].text, commentPrefix)) {
+      lastNonAidevIndex = i;
+      break;
+    }
+  }
+
+  if (lastNonAidevIndex === -1) {
+    return false;
+  }
+
+  for (let j = lastNonAidevIndex - 1; j >= 0; j--) {
+    if (isAidevComment(comments[j].text, commentPrefix)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -1451,11 +1478,11 @@ export function buildNonCodeCompletionComment(config: Config, agentResponse?: st
 }
 
 export function hasAidevComment(comments: Comment[], commentPrefix: string = '[aidev]'): boolean {
-  return comments.some((c) => c.text.includes(commentPrefix));
+  return comments.some((c) => isAidevComment(c.text, commentPrefix));
 }
 
 export function filterAutomatedComments(comments: Comment[], commentPrefix: string = '[aidev]'): Comment[] {
-  return comments.filter((c) => !c.text.includes(commentPrefix));
+  return comments.filter((c) => !isAidevComment(c.text, commentPrefix));
 }
 
 async function buildConversationContext(

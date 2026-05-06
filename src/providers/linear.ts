@@ -216,43 +216,83 @@ export class LinearProvider implements TaskProvider {
 
     const issueId = await this.resolveIssueId(taskId);
     const query = `
-      query IssueComments($id: String!) {
-        issue(id: $id) {
-          comments {
-            nodes {
-              id
-              body
-              user { name id }
-              createdAt
-            }
+      query IssueComments($issueId: String!, $after: String) {
+        comments(
+          filter: { issue: { id: { eq: $issueId } } }
+          first: 250
+          after: $after
+        ) {
+          nodes {
+            id
+            body
+            parentId
+            user { name id }
+            botActor { name userDisplayName id }
+            externalUser { id }
+            createdAt
           }
+          pageInfo { hasNextPage endCursor }
         }
       }
     `;
-    const data = await this.graphql<{
-      issue: {
-        comments: {
-          nodes: Array<{
-            id: string;
-            body: string | null;
-            user: { name: string; id: string } | null;
-            createdAt: string;
-          }>;
-        };
+    type CommentNode = {
+      id: string;
+      body: string | null;
+      parentId: string | null;
+      user: { name: string; id: string } | null;
+      botActor: { name: string | null; userDisplayName: string | null; id: string | null } | null;
+      externalUser: { id: string } | null;
+      createdAt: string;
+    };
+    type CommentsPage = {
+      comments: {
+        nodes: CommentNode[];
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
       };
-    }>(query, { id: issueId });
+    };
 
-    const nodes = data.issue?.comments?.nodes ?? [];
-    const sorted = [...nodes].sort(
+    const authorFromLinearNode = (c: CommentNode): { author: string; authorId: string } => {
+      if (c.user?.name) {
+        return { author: c.user.name, authorId: c.user.id };
+      }
+      if (c.externalUser) {
+        return { author: 'External user', authorId: c.externalUser.id };
+      }
+      if (c.botActor?.userDisplayName?.trim()) {
+        return {
+          author: c.botActor.userDisplayName.trim(),
+          authorId: c.botActor.id ?? '',
+        };
+      }
+      if (c.botActor?.name?.trim()) {
+        return { author: c.botActor.name.trim(), authorId: c.botActor.id ?? '' };
+      }
+      return { author: 'Unknown', authorId: '' };
+    };
+
+    const all: CommentNode[] = [];
+    let after: string | null = null;
+    for (;;) {
+      const data: CommentsPage = await this.graphql<CommentsPage>(query, { issueId, after });
+      const conn = data.comments;
+      all.push(...conn.nodes);
+      if (!conn.pageInfo.hasNextPage || !conn.pageInfo.endCursor) break;
+      after = conn.pageInfo.endCursor;
+    }
+
+    const sorted = [...all].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
-    return sorted.map((c) => ({
-      id: c.id,
-      text: c.body || '',
-      author: c.user?.name ?? 'Unknown',
-      authorId: c.user?.id ?? '',
-      date: new Date(c.createdAt).getTime(),
-    }));
+    return sorted.map((c) => {
+      const { author, authorId } = authorFromLinearNode(c);
+      return {
+        id: c.id,
+        text: c.body || '',
+        author,
+        authorId,
+        date: new Date(c.createdAt).getTime(),
+      };
+    });
   }
 
   private async resolveIssueId(identifier: string): Promise<string> {
