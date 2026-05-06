@@ -119,11 +119,12 @@ const scheduleCmd = program
 
 scheduleCmd
   .command('set [cron]')
-  .description('Set cron schedule — interactive picker if no cron given')
-  .option('-e, --env <path>', 'env file path passed to scheduled "aidev run" (-e <path>)')
-  .action(async (cron: string | undefined, options: { env?: string }) => {
-    const extraArgs: string[] = [];
-    if (options.env) extraArgs.push('-e', options.env);
+  .description('Set cron schedule — interactive picker if no cron given. Pass -e <path> to embed a custom env file in the scheduled command.')
+  .action(async (cron: string | undefined) => {
+    // -e is defined on the root program and commander captures it there even
+    // when it appears after the subcommand name, so read it from program.opts().
+    const { env } = program.opts<{ env?: string }>();
+    const extraArgs = env ? ['-e', env] : [];
     await scheduleSetCommand(cron, extraArgs);
   });
 
