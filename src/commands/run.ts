@@ -308,15 +308,15 @@ async function processTask(
     const trigger = hasTriggerWord(comments, config.triggerWord);
 
     if (isPending) {
-      const reply = hasHumanReply(comments, config.commentPrefix);
-      if (!reply && !trigger) {
-        logger.info(`[${task.id}] "${task.name}" skipped — pending task has no human reply or trigger word ("${config.triggerWord}")`);
+      const hasHumanFollowUp = hasHumanComment(comments, config.commentPrefix);
+      if (!hasHumanFollowUp && !trigger) {
+        logger.info(`[${task.id}] "${task.name}" skipped — pending task has no human comment or trigger word ("${config.triggerWord}")`);
         return 'skipped';
       }
       logger.info(
         trigger
           ? `Trigger word "${config.triggerWord}" found — re-processing pending task`
-          : 'Pending task has a human reply — proceeding'
+          : 'Pending task has a human comment — proceeding'
       );
     } else {
       if (!trigger) {
@@ -1485,6 +1485,10 @@ export function filterAutomatedComments(comments: Comment[], commentPrefix: stri
   return comments.filter((c) => !isAidevComment(c.text, commentPrefix));
 }
 
+export function hasHumanComment(comments: Comment[], commentPrefix: string = '[aidev]'): boolean {
+  return comments.some((c) => !isAidevComment(c.text, commentPrefix));
+}
+
 async function buildConversationContext(
   taskId: string,
   comments: Comment[],
@@ -1544,15 +1548,15 @@ async function processNonCodeTask(
     const hasHumanFollowUp = hasHumanReply(comments, config.commentPrefix);
 
     if (isPending) {
-      const reply = hasHumanReply(comments, config.commentPrefix);
-      if (!reply && !trigger) {
-        logger.info(`[${task.id}] "${task.name}" skipped — pending with no human reply or trigger word ("${config.triggerWord}")`);
+      const hasHumanCommentForPending = hasHumanComment(comments, config.commentPrefix);
+      if (!hasHumanCommentForPending && !trigger) {
+        logger.info(`[${task.id}] "${task.name}" skipped — pending with no human comment or trigger word ("${config.triggerWord}")`);
         return 'skipped';
       }
       logger.info(
         trigger
           ? `Trigger word "${config.triggerWord}" found — re-processing non-code task`
-          : 'Pending non-code task has a human reply — proceeding'
+          : 'Pending non-code task has a human comment — proceeding'
       );
     } else {
       // For already processed tasks, check if there's a human follow-up or trigger word

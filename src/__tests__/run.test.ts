@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
@@ -213,6 +213,36 @@ describe('hasHumanReply', () => {
       makeComment('[aidev] Merge conflicts resolved automatically.'),
     ];
     assert.equal(hasHumanReply(comments), true);
+  });
+});
+
+describe('hasHumanComment', () => {
+  it('returns false when there are no comments', () => {
+    assert.equal(hasHumanComment([]), false);
+  });
+
+  it('returns false when all comments are aidev comments', () => {
+    const comments = [
+      makeComment('[aidev] Starting implementation'),
+      makeComment('   [aidev] Need clarification'),
+    ];
+    assert.equal(hasHumanComment(comments), false);
+  });
+
+  it('returns true when at least one human comment exists', () => {
+    const comments = [
+      makeComment('[aidev] Starting implementation'),
+      makeComment('Please proceed'),
+    ];
+    assert.equal(hasHumanComment(comments), true);
+  });
+
+  it('supports custom prefixes', () => {
+    const comments = [
+      makeComment('[mybot] Status update'),
+      makeComment('Follow-up from user'),
+    ];
+    assert.equal(hasHumanComment(comments, '[mybot]'), true);
   });
 });
 
