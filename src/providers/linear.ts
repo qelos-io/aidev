@@ -216,7 +216,7 @@ export class LinearProvider implements TaskProvider {
 
     const issueId = await this.resolveIssueId(taskId);
     const query = `
-      query IssueComments($issueId: String!, $after: String) {
+      query IssueComments($issueId: ID!, $after: String) {
         comments(
           filter: { issue: { id: { eq: $issueId } } }
           first: 250
