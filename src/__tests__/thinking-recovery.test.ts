@@ -10,8 +10,13 @@ import {
   readTaskPlan,
   writeTaskPlan,
   splitFailedSubtask,
+  buildThinkingSubtaskPrompt,
+  truncateForSubtaskPrompt,
   SubTask,
   ThinkingTaskPlan,
+  cleanupStaleThinkingArtifacts,
+  THINKING_ARTIFACT_MAX_AGE_MS,
+  SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX,
 } from '../commands/run';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -53,6 +58,111 @@ describe('formatSubtaskId', () => {
   });
 });
 
+// ─── buildThinkingSubtaskPrompt ───────────────────────────────────────────────
+
+describe('buildThinkingSubtaskPrompt', () => {
+  const sub: SubTask = {
+    id: 1,
+    title: 'Add handler',
+    description: 'Edit src/foo.ts and add the route.',
+    status: 'pending',
+    attempts: 0,
+  };
+  const basePlan: ThinkingTaskPlan = {
+    taskId: 'T-1',
+    taskName: 'Feature',
+    subtasks: [sub],
+  };
+
+  it('uses full task description and full instructions when not compact', () => {
+    const task = stubTask({ description: 'Full long description of the feature.' });
+    const text = buildThinkingSubtaskPrompt(
+      sub,
+      task,
+      basePlan,
+      '## Section\nDo the thing.',
+      undefined,
+      undefined,
+      { compact: false },
+    );
+    assert.match(text, /Task description:\nFull long description/);
+    assert.match(text, /## Full implementation instructions/);
+    assert.match(text, /## Section\nDo the thing\./);
+  });
+
+  it('uses taskSummary and truncated instructions when compact', () => {
+    const task = stubTask({ description: 'X'.repeat(10_000) });
+    const plan: ThinkingTaskPlan = {
+      ...basePlan,
+      taskSummary: 'Build feature X with safe defaults.',
+    };
+    const longInstr = 'Y'.repeat(20_000);
+    const text = buildThinkingSubtaskPrompt(sub, task, plan, longInstr, undefined, undefined, { compact: true });
+    assert.match(text, /Goal \(concise\):\nBuild feature X/);
+    assert.match(text, /## Implementation plan \(truncated\)/);
+    assert.ok(text.length < longInstr.length);
+    assert.match(text, /T-1\.aidev\.instructions\.md/);
+  });
+
+  it('truncates task description in compact mode when taskSummary is absent', () => {
+    const longDesc = 'Z'.repeat(SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX + 500);
+    const task = stubTask({ description: longDesc });
+    const text = buildThinkingSubtaskPrompt(
+      sub,
+      task,
+      basePlan,
+      '',
+      undefined,
+      undefined,
+      { compact: true },
+    );
+    assert.match(text, /Task description \(truncated\)/);
+    assert.match(text, /… \(truncated\)/);
+  });
+
+  it('includes previous-attempt diagnostics when previousError is set and not __git__', () => {
+    const text = buildThinkingSubtaskPrompt(
+      sub,
+      stubTask(),
+      basePlan,
+      '',
+      undefined,
+      'TypeError: oops',
+      { compact: true },
+    );
+    assert.match(text, /Previous attempt failure diagnostics/);
+    assert.match(text, /TypeError: oops/);
+  });
+
+  it('omits previous-attempt section for __git__ sentinel', () => {
+    const text = buildThinkingSubtaskPrompt(
+      sub,
+      stubTask(),
+      basePlan,
+      '',
+      undefined,
+      '__git__',
+      { compact: true },
+    );
+    assert.doesNotMatch(text, /Previous attempt failure diagnostics/);
+  });
+});
+
+// ─── truncateForSubtaskPrompt ─────────────────────────────────────────────────
+
+describe('truncateForSubtaskPrompt', () => {
+  it('returns the string unchanged when under the limit', () => {
+    assert.equal(truncateForSubtaskPrompt('abc', 10), 'abc');
+  });
+
+  it('appends an ellipsis marker when over the limit', () => {
+    const t = 'a'.repeat(200);
+    const out = truncateForSubtaskPrompt(t, 50);
+    assert.match(out, /… \(truncated\)/);
+    assert.ok(out.length < t.length);
+  });
+});
+
 // ─── subtaskDepth ─────────────────────────────────────────────────────────────
 
 describe('subtaskDepth', () => {
@@ -80,9 +190,9 @@ describe('formatSubtaskList', () => {
       ],
     };
     const text = formatSubtaskList(plan);
-    assert.match(text, /✅ \*\*1\.\*\* foundations — _done_/);
-    assert.match(text, /⬜ \*\*2\.1\*\* split-a — _pending_/);
-    assert.match(text, /❌ \*\*2\.2\*\* split-b — _failed_/);
+    assert.match(text, /✅ \*\*1\.\*\* foundations — \*done\*/);
+    assert.match(text, /⬜ \*\*2\.1\*\* split-a — \*pending\*/);
+    assert.match(text, /❌ \*\*2\.2\*\* split-b — \*failed\*/);
   });
 });
 
@@ -156,6 +266,60 @@ describe('readTaskPlan', () => {
     assert.ok(loaded);
     assert.equal(loaded!.subtasks[0].id, '3.1');
     assert.equal(loaded!.subtasks[1].id, '3.2');
+  });
+
+  it('round-trips taskSummary', () => {
+    const plan: ThinkingTaskPlan = {
+      taskId: 'SUM',
+      taskName: 'demo',
+      taskSummary: 'Ship the widget; keep API stable.',
+      subtasks: [{ id: 1, title: 'a', description: 'a', status: 'pending', attempts: 0 }],
+    };
+    writeTaskPlan(plan);
+    const loaded = readTaskPlan('SUM');
+    assert.ok(loaded);
+    assert.equal(loaded!.taskSummary, 'Ship the widget; keep API stable.');
+  });
+});
+
+// ─── cleanupStaleThinkingArtifacts ────────────────────────────────────────────
+
+describe('cleanupStaleThinkingArtifacts', () => {
+  let tmpDir: string;
+  let prevCwd: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-stale-thinking-'));
+    prevCwd = process.cwd();
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('does not remove recent artifact files', () => {
+    fs.writeFileSync(path.join(tmpDir, 'X.aidev.task.json'), '{}', 'utf8');
+    fs.writeFileSync(path.join(tmpDir, 'X.aidev.instructions.md'), 'x', 'utf8');
+    cleanupStaleThinkingArtifacts(tmpDir, Date.now());
+    assert.ok(fs.existsSync(path.join(tmpDir, 'X.aidev.task.json')));
+    assert.ok(fs.existsSync(path.join(tmpDir, 'X.aidev.instructions.md')));
+  });
+
+  it('removes artifact files older than the max age', () => {
+    fs.writeFileSync(path.join(tmpDir, 'OLD.aidev.task.json'), '{}', 'utf8');
+    fs.writeFileSync(path.join(tmpDir, 'OLD.aidev.instructions.md'), 'x', 'utf8');
+    const futureNow = Date.now() + THINKING_ARTIFACT_MAX_AGE_MS + 60_000;
+    cleanupStaleThinkingArtifacts(tmpDir, futureNow);
+    assert.ok(!fs.existsSync(path.join(tmpDir, 'OLD.aidev.task.json')));
+    assert.ok(!fs.existsSync(path.join(tmpDir, 'OLD.aidev.instructions.md')));
+  });
+
+  it('ignores unrelated filenames', () => {
+    fs.writeFileSync(path.join(tmpDir, 'notes.txt'), 'x', 'utf8');
+    cleanupStaleThinkingArtifacts(tmpDir, Date.now() + THINKING_ARTIFACT_MAX_AGE_MS + 60_000);
+    assert.ok(fs.existsSync(path.join(tmpDir, 'notes.txt')));
   });
 });
 

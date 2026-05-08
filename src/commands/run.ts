@@ -66,6 +66,8 @@ export interface SubTask {
 export interface ThinkingTaskPlan {
   taskId: string;
   taskName: string;
+  /** Short summary of the ticket goal for compact sub-task prompts (from analyze step). */
+  taskSummary?: string;
   subtasks: SubTask[];
 }
 
@@ -115,6 +117,51 @@ function taskInstructionsPath(taskId: string): string {
   return path.join(process.cwd(), `${taskId}.aidev.instructions.md`);
 }
 
+const THINKING_TASK_JSON_SUFFIX = '.aidev.task.json';
+const THINKING_INSTRUCTIONS_SUFFIX = '.aidev.instructions.md';
+
+/** 30 days — stale `.aidev.task.json` / `.aidev.instructions.md` files are removed. Exported for tests. */
+export const THINKING_ARTIFACT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function effectiveFileCreationMs(stat: fs.Stats): number {
+  const b = stat.birthtimeMs;
+  if (Number.isFinite(b) && b > 0) return b;
+  return stat.mtimeMs;
+}
+
+/**
+ * Removes thinking artifact files in `cwd` older than {@link THINKING_ARTIFACT_MAX_AGE_MS}.
+ * Uses birth time when available, otherwise mtime (Linux often lacks birthtime).
+ */
+export function cleanupStaleThinkingArtifacts(cwd: string = process.cwd(), nowMs: number = Date.now()): void {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(cwd);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    if (
+      !name.endsWith(THINKING_TASK_JSON_SUFFIX)
+      && !name.endsWith(THINKING_INSTRUCTIONS_SUFFIX)
+    ) {
+      continue;
+    }
+    const full = path.join(cwd, name);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(full);
+    } catch {
+      continue;
+    }
+    if (!stat.isFile()) continue;
+    if (nowMs - effectiveFileCreationMs(stat) <= THINKING_ARTIFACT_MAX_AGE_MS) continue;
+    try {
+      fs.unlinkSync(full);
+    } catch { /* ignore */ }
+  }
+}
+
 function cleanupThinkingFiles(taskId: string): void {
   for (const p of [taskPlanPath(taskId), taskInstructionsPath(taskId)]) {
     try { fs.unlinkSync(p); } catch { /* already removed */ }
@@ -136,6 +183,7 @@ export function readTaskPlan(taskId: string): ThinkingTaskPlan | null {
   if (!fs.existsSync(p)) return null;
   try {
     const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as ThinkingTaskPlan;
+    if (typeof raw.taskSummary !== 'string') delete raw.taskSummary;
     // Backward compat: older plans may be missing `attempts` / `lastError`.
     raw.subtasks = (raw.subtasks || []).map((s) => ({
       id: s.id,
@@ -162,6 +210,82 @@ export function subtaskDepth(id: number | string): number {
   return (id.match(/\./g) || []).length;
 }
 
+/** Max chars for ticket description when compact mode has no {@link ThinkingTaskPlan.taskSummary}. */
+export const SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX = 3000;
+
+/** Max chars for archived instructions markdown in compact sub-task prompts. */
+export const SUBTASK_PROMPT_COMPACT_INSTRUCTIONS_MAX = 8192;
+
+export function truncateForSubtaskPrompt(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, maxLen)}\n\n… (truncated)`;
+}
+
+export interface ThinkingSubtaskPromptOptions {
+  /** Smaller prompt: concise goal + truncated plan; used when there are no human ticket comments or on AI retry. */
+  compact: boolean;
+}
+
+export function buildThinkingSubtaskPrompt(
+  subtask: SubTask,
+  task: Task,
+  plan: ThinkingTaskPlan,
+  instructions: string,
+  reviewContext: string | undefined,
+  previousError: string | undefined,
+  options: ThinkingSubtaskPromptOptions,
+): string {
+  const completedSteps = plan.subtasks
+    .filter((s) => s.status === 'done')
+    .map((s) => `  - [done] ${s.id}. ${s.title}`)
+    .join('\n');
+
+  const retrySection = previousError && previousError !== '__git__'
+    ? `\n## Previous attempt failure diagnostics\nThis step failed on a previous attempt. Diagnostics below — please take them into account and avoid repeating the same failure.\n\n${previousError}\n`
+    : '';
+
+  const { compact } = options;
+
+  let taskContextSection = '';
+  if (compact) {
+    const summary = plan.taskSummary?.trim();
+    if (summary) {
+      taskContextSection = `\nGoal (concise):\n${summary}\n`;
+    } else if (task.description?.trim()) {
+      taskContextSection = `\nTask description (truncated):\n${truncateForSubtaskPrompt(
+        task.description.trim(),
+        SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX,
+      )}\n`;
+    }
+  } else if (task.description?.trim()) {
+    taskContextSection = `\nTask description:\n${task.description}\n`;
+  }
+
+  let instructionsSection = '';
+  const instr = instructions.trim();
+  if (compact) {
+    if (instr) {
+      instructionsSection = `## Implementation plan (truncated)\n${truncateForSubtaskPrompt(
+        instr,
+        SUBTASK_PROMPT_COMPACT_INSTRUCTIONS_MAX,
+      )}\n\n(Full plan: \`${plan.taskId}.aidev.instructions.md\`.)\n`;
+    }
+  } else if (instr) {
+    instructionsSection = `## Full implementation instructions\n${instr}\n`;
+  }
+
+  return `You are implementing step ${subtask.id} of a multi-step task.
+
+Overall task: ${task.name}${taskContextSection}
+${instructionsSection}${reviewContext || ''}${retrySection}## Progress
+${completedSteps || '(no steps completed yet)'}
+
+## Current step: ${subtask.id}. ${subtask.title}
+${subtask.description}
+
+Implement ONLY this step. Focus on correctness and follow the existing code style.`;
+}
+
 export function formatSubtaskList(plan: ThinkingTaskPlan): string {
   const icons: Record<SubTask['status'], string> = {
     pending: '⬜',
@@ -170,7 +294,7 @@ export function formatSubtaskList(plan: ThinkingTaskPlan): string {
     failed: '❌',
   };
   return plan.subtasks
-    .map((s) => `${icons[s.status]} **${formatSubtaskId(s.id)}** ${s.title} — _${s.status}_`)
+    .map((s) => `${icons[s.status]} **${formatSubtaskId(s.id)}** ${s.title} — *${s.status}*`)
     .join('\n');
 }
 
@@ -873,6 +997,7 @@ Analyze this task and break it into smaller, independently implementable sub-tas
 
 Respond with valid JSON only — no markdown fences, no extra text:
 {
+  "taskSummary": "2-5 short sentences: overall goal and constraints only — for reuse in each sub-task prompt (no step-by-step detail; that goes in instructions and subtasks)",
   "instructions": "Detailed implementation instructions in markdown covering the full task — architecture decisions, key files to modify, edge cases to handle, testing approach",
   "subtasks": [
     {
@@ -883,7 +1008,7 @@ Respond with valid JSON only — no markdown fences, no extra text:
   ]
 }
 
-Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (foundation first).`;
+Keep sub-tasks focused: 2-10 sub-tasks is ideal. Order them by dependency (foundation first).`;
 
   logger.info('Analyzing task and creating implementation plan...');
   const result = await runner.run(analysisPrompt);
@@ -899,6 +1024,7 @@ Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (founda
       return null;
     }
     const parsed = JSON.parse(jsonMatch[0]) as {
+      taskSummary?: string;
       instructions: string;
       subtasks: Array<{ id: number | string; title: string; description: string }>;
     };
@@ -908,9 +1034,11 @@ Keep sub-tasks focused: 2-6 sub-tasks is ideal. Order them by dependency (founda
       return null;
     }
 
+    const taskSummaryRaw = typeof parsed.taskSummary === 'string' ? parsed.taskSummary.trim() : '';
     const plan: ThinkingTaskPlan = {
       taskId: task.id,
       taskName: task.name,
+      ...(taskSummaryRaw ? { taskSummary: taskSummaryRaw } : {}),
       subtasks: parsed.subtasks.map((s, i) => ({
         id: s.id ?? i + 1,
         title: s.title,
@@ -955,10 +1083,17 @@ export async function splitFailedSubtask(
     ? failedSubtask.lastError
     : '(no diagnostics captured)';
 
+  const splitTaskContext =
+    plan.taskSummary?.trim()
+      ? plan.taskSummary.trim()
+      : parentTask.description?.trim()
+        ? truncateForSubtaskPrompt(parentTask.description.trim(), SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX)
+        : '';
+
   const splitPrompt = `You are a senior software architect helping recover a stalled implementation step by splitting it into exactly two smaller, sequential sub-tasks.
 
 Overall task: ${parentTask.name}
-${parentTask.description ? `\nTask description:\n${parentTask.description}\n` : ''}
+${splitTaskContext ? `\nTask context:\n${splitTaskContext}\n` : ''}
 ## Surrounding plan
 ${siblings || '(no sibling sub-tasks)'}
 
@@ -1035,38 +1170,27 @@ async function executeSubTask(
   plan: ThinkingTaskPlan,
   config: Config,
   runners: AIRunner[],
-  reviewContext?: string,
-  previousError?: string
+  reviewContext: string | undefined,
+  previousError: string | undefined,
+  hasTicketConversationContext: boolean,
 ): Promise<boolean> {
   const instructionsPath = taskInstructionsPath(task.id);
   const instructions = fs.existsSync(instructionsPath)
     ? fs.readFileSync(instructionsPath, 'utf8')
     : '';
 
-  const completedSteps = plan.subtasks
-    .filter((s) => s.status === 'done')
-    .map((s) => `  - [done] ${s.id}. ${s.title}`)
-    .join('\n');
+  const useCompactPrompt =
+    (!!previousError && previousError !== '__git__') || !hasTicketConversationContext;
 
-  const retrySection = previousError && previousError !== '__git__'
-    ? `\n## Previous attempt failure diagnostics\nThis step failed on a previous attempt. Diagnostics below — please take them into account and avoid repeating the same failure.\n\n${previousError}\n`
-    : '';
-
-  const prompt = `You are implementing step ${subtask.id} of a multi-step task.
-
-Overall task: ${task.name}
-${task.description ? `\nTask description:\n${task.description}` : ''}
-
-## Full implementation instructions
-${instructions}
-${reviewContext || ''}${retrySection}
-## Progress
-${completedSteps || '(no steps completed yet)'}
-
-## Current step: ${subtask.id}. ${subtask.title}
-${subtask.description}
-
-Implement ONLY this step. Focus on correctness and follow the existing code style.`;
+  const prompt = buildThinkingSubtaskPrompt(
+    subtask,
+    task,
+    plan,
+    instructions,
+    reviewContext,
+    previousError,
+    { compact: useCompactPrompt },
+  );
 
   let implemented = false;
   let previousNotes = '';
@@ -1105,6 +1229,7 @@ async function implementThinkingTask(
   vm?: HookVM
 ): Promise<void> {
   logger.info(`Implementing thinking task: ${task.name}`);
+  cleanupStaleThinkingArtifacts();
 
   try {
     await provider.updateStatus(task.id, 'in progress');
@@ -1132,11 +1257,12 @@ async function implementThinkingTask(
     }
   }
 
-  let context = '';
+  let ticketConversationContext = '';
   try {
     const comments = await provider.getComments(task.id);
-    context = await buildConversationContext(task.id, comments, config, runners);
+    ticketConversationContext = await buildConversationContext(task.id, comments, config, runners);
   } catch { /* ignore */ }
+  let context = ticketConversationContext;
 
   if (branchExists) {
     const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, hooks, vm, branchName);
@@ -1272,7 +1398,16 @@ async function implementThinkingTask(
     writeTaskPlan(plan);
 
     logger.info(`  Starting step ${subtask.id}: ${subtask.title} (attempt ${subtask.attempts})`);
-    const success = await executeSubTask(subtask, task, plan, config, runners, reviewContext, previousError);
+    const success = await executeSubTask(
+      subtask,
+      task,
+      plan,
+      config,
+      runners,
+      reviewContext,
+      previousError,
+      ticketConversationContext.trim().length > 0,
+    );
 
     if (!success) {
       const diagnostics = collectAndLogDiagnostics();
@@ -1322,8 +1457,6 @@ async function implementThinkingTask(
     } catch { /* ignore */ }
   }
 
-  cleanupThinkingFiles(task.id);
-
   if (!allSucceeded) {
     logger.error('Thinking task did not complete all sub-tasks');
     try {
@@ -1335,6 +1468,8 @@ async function implementThinkingTask(
     } catch { /* ignore */ }
     return;
   }
+
+  cleanupThinkingFiles(task.id);
 
   if (reviewThreads.length > 0) {
     resolveHandledThreads(reviewThreads);
