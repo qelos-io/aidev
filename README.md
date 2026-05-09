@@ -180,7 +180,7 @@ CLICKUP_TAG=my-project
 | `CLICKUP_PENDING_STATUS` | `pending` | Status name for "waiting for reply" |
 | `CLICKUP_IN_REVIEW_STATUS` | `review` | Status set after implementation |
 | `ASSIGNEE_TAG` | — | Only process tasks assigned to this user (optional) |
-| `THINKING_TAG` | — | Tasks with this tag are analyzed and broken into sub-tasks before execution (optional) |
+| `THINKING_TAG` | `thinking` | Tasks with this tag are analyzed and broken into sub-tasks before execution |
 | `NON_CODE_TAG` | — | Tasks with this tag run without git branching (optional) |
 | `NON_CODE_CLICKUP_TEAM_ID` | same as `CLICKUP_TEAM_ID` | Different workspace for non-code tasks (optional) |
 

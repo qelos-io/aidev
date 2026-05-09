@@ -804,8 +804,8 @@ export async function initCommand(): Promise<void> {
     section('Thinking tasks');
     const thinkingTag = await ask(
       rl,
-      `Thinking tag ${hint('tasks with this tag are broken into sub-tasks before execution, optional')}`,
-      existing.THINKING_TAG || ''
+      `Thinking tag ${hint('tasks with this tag are broken into sub-tasks before execution')}`,
+      existing.THINKING_TAG || 'thinking'
     );
 
     // ── Non-code tasks ──────────────────────────────────────
