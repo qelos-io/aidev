@@ -45,6 +45,24 @@ export function buildAcceptedConflictComment(
   );
 }
 
+/**
+ * Comment posted when `gh pr merge` fails for a reason other than conflicts
+ * (e.g. branch protection, required checks not green, missing approvals, gh
+ * not authenticated). Includes the raw gh error so the user can act on it
+ * without having to dig through aidev's local logs.
+ */
+export function buildAcceptedMergeFailureComment(
+  config: Config,
+  branchName: string,
+  reason: string,
+): string {
+  const trimmed = reason.trim() || 'no error message reported by gh';
+  return (
+    `${config.commentPrefix} Failed to merge accepted pull request for branch \`${branchName}\`.\n\n` +
+    `Reason:\n\`\`\`\n${trimmed}\n\`\`\``
+  );
+}
+
 export function hasAlreadyNotifiedConflict(
   comments: Comment[],
   commentPrefix: string,
@@ -186,6 +204,16 @@ export async function acceptedCommand(
     const result = mergePullRequest(branchName);
     if (!result.success) {
       logger.error(`[${task.id}] Failed to merge PR: ${result.error}`);
+      try {
+        await provider.postComment(
+          task.id,
+          buildAcceptedMergeFailureComment(config, branchName, result.error),
+        );
+      } catch (err) {
+        logger.warn(
+          `[${task.id}] Failed to post merge-failure notice: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       continue;
     }
 

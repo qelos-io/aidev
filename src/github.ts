@@ -220,7 +220,14 @@ export function mergePullRequest(branch: string): MergeResult {
   ]);
 
   if (result.status !== 0) {
-    return { success: false, error: result.stderr.trim() };
+    // gh writes user-facing failure text to either stderr (most cases) or
+    // stdout (e.g. "Pull request is not mergeable: ..."). Combine both so
+    // callers always get something descriptive instead of an empty string.
+    const stderr = result.stderr.trim();
+    const stdout = result.stdout.trim();
+    const combined = [stderr, stdout].filter(Boolean).join('\n').trim();
+    const error = combined || `gh pr merge exited with status ${result.status}`;
+    return { success: false, error };
   }
 
   return { success: true, error: '' };

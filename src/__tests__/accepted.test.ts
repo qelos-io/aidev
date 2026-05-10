@@ -4,6 +4,7 @@ import {
   ACCEPTED_CONFLICT_MARKER,
   buildAcceptedConflictComment,
   buildAcceptedMergeComment,
+  buildAcceptedMergeFailureComment,
   hasAlreadyNotifiedConflict,
   resolveDoneStatus,
 } from '../commands/accepted';
@@ -36,6 +37,32 @@ describe('buildAcceptedConflictComment', () => {
     assert.ok(text.includes('`abc/fix`'));
     assert.ok(text.includes('`main`'));
     assert.ok(text.includes(ACCEPTED_CONFLICT_MARKER));
+  });
+});
+
+describe('buildAcceptedMergeFailureComment', () => {
+  const config = { commentPrefix: '[aidev]' } as Config;
+
+  it('includes the prefix, branch name, and the raw gh reason', () => {
+    const text = buildAcceptedMergeFailureComment(
+      config,
+      'abc/fix-bug',
+      'Pull request is not mergeable: required status checks failed.',
+    );
+    assert.ok(text.startsWith('[aidev] '));
+    assert.ok(text.includes('`abc/fix-bug`'));
+    assert.ok(text.includes('Pull request is not mergeable: required status checks failed.'));
+  });
+
+  it('falls back to a placeholder when the reason is empty', () => {
+    const text = buildAcceptedMergeFailureComment(config, 'b/x', '   ');
+    assert.ok(text.includes('no error message reported by gh'));
+  });
+
+  it('preserves multi-line reasons inside a fenced code block', () => {
+    const reason = 'line one\nline two';
+    const text = buildAcceptedMergeFailureComment(config, 'b/x', reason);
+    assert.ok(text.includes('```\nline one\nline two\n```'));
   });
 });
 
