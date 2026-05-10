@@ -1725,7 +1725,11 @@ async function processNonCodeTask(
     }
   }
 
-  await implementNonCodeTask(task, config, provider, runners, hooks, vm);
+  if (isThinkingTask(task, config)) {
+    await implementNonCodeThinkingTask(task, config, provider, runners, hooks, vm);
+  } else {
+    await implementNonCodeTask(task, config, provider, runners, hooks, vm);
+  }
   return 'processed';
 }
 
@@ -1813,6 +1817,343 @@ async function implementNonCodeTask(
   }
 
   logger.success(`Non-code task complete: ${task.name}`);
+}
+
+// ─── Non-code thinking task processing ──────────────────────────────────────
+
+export interface NonCodeSubTaskResult {
+  id: number | string;
+  title: string;
+  summary: string;
+}
+
+export function buildNonCodeAnalysisPrompt(task: Task, context: string): string {
+  return `You are a senior analyst breaking down a non-code task (research, investigation, documentation, communication, planning, etc.) into smaller, sequential sub-tasks.
+
+Each sub-task will be executed in order. Each later sub-task will receive a short summary of every earlier sub-task's result, so subsequent steps can build on previous findings.
+
+Task name: ${task.name}
+
+Description:
+${task.description || '(no description provided)'}
+${context}
+
+Analyze this task and break it into 2-8 focused, sequential sub-tasks. Each sub-task should be a coherent unit of work that produces a textual outcome (analysis, summary, draft, list of findings, etc.) — no code changes are expected.
+
+Respond with valid JSON only — no markdown fences, no extra text:
+{
+  "taskSummary": "2-5 short sentences: overall goal and constraints only — reused as compact context for each sub-task",
+  "subtasks": [
+    {
+      "id": 1,
+      "title": "Short title for the sub-task",
+      "description": "Detailed description of what to investigate, produce, or decide in this step"
+    }
+  ]
+}
+
+Order sub-tasks by dependency (foundation first). Keep titles short — they will appear in ticket comments.`;
+}
+
+export function buildNonCodeSubtaskPrompt(
+  subtask: SubTask,
+  task: Task,
+  plan: ThinkingTaskPlan,
+  previousResults: NonCodeSubTaskResult[],
+  reviewContext: string | undefined,
+): string {
+  const completedSteps = plan.subtasks
+    .filter((s) => s.status === 'done')
+    .map((s) => `  - [done] ${formatSubtaskId(s.id)} ${s.title}`)
+    .join('\n');
+
+  const previousSection = previousResults.length > 0
+    ? `\n## Summaries from previous sub-tasks\nUse these findings as context — do not repeat work already done.\n\n${previousResults
+        .map((r) => `### ${formatSubtaskId(r.id)} ${r.title}\n${r.summary}`)
+        .join('\n\n')}\n`
+    : '';
+
+  const summary = plan.taskSummary?.trim();
+  const goalSection = summary
+    ? `\nGoal (concise):\n${summary}\n`
+    : task.description?.trim()
+      ? `\nTask description:\n${task.description.trim()}\n`
+      : '';
+
+  return `You are working on step ${formatSubtaskId(subtask.id)} of a multi-step non-code task. No code changes are expected — produce a clear textual response.
+
+Overall task: ${task.name}${goalSection}${previousSection}${reviewContext || ''}## Progress
+${completedSteps || '(no steps completed yet)'}
+
+## Current step: ${formatSubtaskId(subtask.id)} ${subtask.title}
+${subtask.description}
+
+Focus ONLY on this step. Write the response so it can be posted directly as a ticket comment — clear, self-contained, and addressed to the task's stakeholders. Do not include preambles like "Here's text you can paste"; output only the content itself.`;
+}
+
+export function buildNonCodeThinkingCompletionComment(config: Config): string {
+  return [
+    `${config.commentPrefix} Non-code task complete!`,
+    ``,
+    `All sub-tasks finished. Individual summaries were posted above.`,
+    ``,
+    `Status set to: ${getInReviewStatus(config)}`,
+  ].join('\n');
+}
+
+async function analyzeAndPlanNonCode(
+  task: Task,
+  context: string,
+  runners: AIRunner[]
+): Promise<ThinkingTaskPlan | null> {
+  const runner = runners.find((r) => r.isAvailable());
+  if (!runner) {
+    logger.error('No AI runner available for non-code task analysis');
+    return null;
+  }
+
+  const analysisPrompt = buildNonCodeAnalysisPrompt(task, context);
+
+  logger.info('Analyzing non-code task and creating sub-task plan...');
+  const result = await runner.run(analysisPrompt);
+  if (!result.success) {
+    logger.error('Non-code task analysis failed');
+    return null;
+  }
+
+  try {
+    const jsonMatch = result.output.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      logger.error('Could not parse non-code analysis response — no JSON found');
+      return null;
+    }
+    const parsed = JSON.parse(jsonMatch[0]) as {
+      taskSummary?: string;
+      subtasks: Array<{ id?: number | string; title: string; description: string }>;
+    };
+
+    if (!parsed.subtasks || parsed.subtasks.length === 0) {
+      logger.error('Non-code analysis produced no sub-tasks');
+      return null;
+    }
+
+    const taskSummaryRaw = typeof parsed.taskSummary === 'string' ? parsed.taskSummary.trim() : '';
+    const plan: ThinkingTaskPlan = {
+      taskId: task.id,
+      taskName: task.name,
+      ...(taskSummaryRaw ? { taskSummary: taskSummaryRaw } : {}),
+      subtasks: parsed.subtasks.map((s, i) => ({
+        id: s.id ?? i + 1,
+        title: s.title,
+        description: s.description,
+        status: 'pending' as const,
+        attempts: 0,
+      })),
+    };
+
+    return plan;
+  } catch (err) {
+    logger.error(`Failed to parse non-code analysis response: ${err}`);
+    return null;
+  }
+}
+
+async function implementNonCodeThinkingTask(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[],
+  hooks: AidevHooks = {},
+  vm?: HookVM
+): Promise<void> {
+  logger.info(`Implementing non-code thinking task: ${task.name}`);
+
+  try {
+    await provider.updateStatus(task.id, 'in progress');
+    await provider.postComment(
+      task.id,
+      `${config.commentPrefix} Starting non-code task execution (thinking mode — will analyze and break into sub-tasks)`
+    );
+  } catch (err) {
+    logger.warn(`Could not update task status: ${err}`);
+  }
+
+  let context = '';
+  try {
+    const comments = await provider.getComments(task.id);
+    context = await buildConversationContext(task.id, comments, config, runners);
+  } catch {
+    // ignore
+  }
+
+  const plan = await analyzeAndPlanNonCode(task, context, runners);
+  if (!plan) {
+    logger.error('Failed to create non-code task plan');
+    await provider.postComment(
+      task.id,
+      `${config.commentPrefix} Failed to analyze and break down the non-code task. Manual intervention needed.`
+    );
+    return;
+  }
+
+  logger.info(`Non-code task broken into ${plan.subtasks.length} sub-tasks`);
+
+  try {
+    await provider.postComment(
+      task.id,
+      `${config.commentPrefix} Task analyzed and broken into ${plan.subtasks.length} sub-tasks:\n\n${formatSubtaskList(plan)}`
+    );
+  } catch (err) {
+    logger.warn(`Failed to post non-code breakdown comment: ${err}`);
+  }
+
+  // beforeThinkingTask hook — may adjust subtask titles/descriptions before execution.
+  // branchName is empty because non-code tasks don't create a branch.
+  if (vm) {
+    const thinkCtx: ThinkingTaskContext = {
+      task,
+      config,
+      branchName: '',
+      subtasks: plan.subtasks.map((s) => ({
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        status: s.status,
+      })),
+    };
+    const modified = await executeHook(hooks, 'beforeThinkingTask', thinkCtx, vm);
+    const prevById = new Map(plan.subtasks.map((s) => [s.id, s]));
+    plan.subtasks = modified.subtasks.map((s) => {
+      const prev = prevById.get(s.id);
+      return {
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        status: (prev?.status ?? s.status) as SubTask['status'],
+        attempts: prev?.attempts ?? 0,
+        lastError: prev?.lastError,
+      };
+    });
+  }
+
+  const previousResults: NonCodeSubTaskResult[] = [];
+  let allSucceeded = true;
+
+  for (const subtask of plan.subtasks) {
+    subtask.status = 'running';
+    subtask.attempts = (subtask.attempts ?? 0) + 1;
+
+    logger.info(`  Starting non-code step ${formatSubtaskId(subtask.id)}: ${subtask.title}`);
+
+    const prompt = buildNonCodeSubtaskPrompt(subtask, task, plan, previousResults, undefined);
+
+    let summary = '';
+    let success = false;
+    let previousNotes = '';
+
+    for (const runner of runners) {
+      if (!runner.isAvailable()) continue;
+
+      logger.info(`    Running ${runner.name} for step ${formatSubtaskId(subtask.id)}...`);
+      const result = await runner.run(prompt, previousNotes || undefined);
+
+      if (result.success && result.output.trim().length > 0) {
+        summary = result.output.trim();
+        success = true;
+        break;
+      }
+
+      if (!result.success) {
+        logger.warn(`    ${runner.name} failed — trying next runner`);
+        previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
+      } else {
+        logger.warn(`    ${runner.name} produced empty output — trying next runner`);
+        previousNotes = `Previous runner (${runner.name}) produced empty output.`;
+      }
+    }
+
+    if (!success) {
+      subtask.status = 'failed';
+      subtask.lastError = previousNotes;
+      allSucceeded = false;
+      logger.error(`  Non-code step ${formatSubtaskId(subtask.id)} failed: ${subtask.title}`);
+
+      try {
+        await provider.postComment(
+          task.id,
+          `${config.commentPrefix} Step ${formatSubtaskId(subtask.id)} failed: ${subtask.title}\n\n${formatSubtaskList(plan)}`
+        );
+      } catch { /* ignore */ }
+
+      break;
+    }
+
+    // Post the sub-task summary BEFORE marking it done — per the task spec, the
+    // comment is posted, then the sub-task is announced as complete.
+    try {
+      await provider.postComment(
+        task.id,
+        `${config.commentPrefix} Step ${formatSubtaskId(subtask.id)}: ${subtask.title}\n\n---\n\n${summary}`
+      );
+    } catch (err) {
+      logger.warn(`Failed to post summary for step ${formatSubtaskId(subtask.id)}: ${err}`);
+    }
+
+    previousResults.push({ id: subtask.id, title: subtask.title, summary });
+    subtask.status = 'done';
+    logger.success(`  Non-code step ${formatSubtaskId(subtask.id)} complete: ${subtask.title}`);
+
+    try {
+      await provider.postComment(
+        task.id,
+        `${config.commentPrefix} Step ${formatSubtaskId(subtask.id)} complete: ${subtask.title}\n\n${formatSubtaskList(plan)}`
+      );
+    } catch { /* ignore */ }
+  }
+
+  if (!allSucceeded) {
+    logger.error('Non-code thinking task did not complete all sub-tasks');
+    try {
+      await provider.postComment(
+        task.id,
+        `${config.commentPrefix} Non-code thinking task did not complete all sub-tasks. Manual intervention needed.`
+      );
+    } catch { /* ignore */ }
+    return;
+  }
+
+  try {
+    await provider.postComment(task.id, buildNonCodeThinkingCompletionComment(config));
+    await provider.updateStatus(task.id, getInReviewStatus(config));
+    if (config.thinkingTag && provider.removeTag) {
+      try {
+        await provider.removeTag(task.id, config.thinkingTag);
+      } catch (err) {
+        logger.warn(`Could not remove thinking tag: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  } catch (err) {
+    logger.warn(`Non-code thinking task done but failed to update task: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // afterThinkingTask hook
+  if (vm) {
+    const afterCtx: ThinkingTaskContext & { success: boolean } = {
+      task,
+      config,
+      branchName: '',
+      subtasks: plan.subtasks.map((s) => ({
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        status: s.status,
+      })),
+      success: true,
+    };
+    await executeHook(hooks, 'afterThinkingTask', afterCtx, vm);
+  }
+
+  logger.success(`Non-code thinking task complete: ${task.name}`);
 }
 
 // ─── Review task processing ─────────────────────────────────────────────────
