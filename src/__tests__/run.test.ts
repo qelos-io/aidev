@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
@@ -576,6 +576,145 @@ describe('buildNonCodePrompt', () => {
     const prompt = buildNonCodePrompt(task, '');
     assert.ok(!prompt.includes('LATEST comment'));
     assert.ok(!prompt.includes('Original description'));
+  });
+});
+
+// ─── buildNonCodeAnalysisPrompt ──────────────────────────────────────────────
+
+describe('buildNonCodeAnalysisPrompt', () => {
+  const task: Task = {
+    id: '1', name: 'Investigate flaky CI',
+    description: 'Find why the build flakes on macOS runners.',
+    status: 'open', url: 'http://example.com', tags: [],
+  };
+
+  it('includes the task name and description', () => {
+    const prompt = buildNonCodeAnalysisPrompt(task, '');
+    assert.ok(prompt.includes('Investigate flaky CI'));
+    assert.ok(prompt.includes('Find why the build flakes on macOS runners.'));
+  });
+
+  it('includes the conversation context when provided', () => {
+    const prompt = buildNonCodeAnalysisPrompt(task, '\n\nConversation context:\nAlice: Please prioritize this');
+    assert.ok(prompt.includes('Alice: Please prioritize this'));
+  });
+
+  it('asks for sequential sub-tasks with a JSON schema', () => {
+    const prompt = buildNonCodeAnalysisPrompt(task, '');
+    assert.ok(prompt.includes('sequential'));
+    assert.ok(prompt.includes('"subtasks"'));
+    assert.ok(prompt.includes('"taskSummary"'));
+  });
+
+  it('mentions that no code changes are expected', () => {
+    const prompt = buildNonCodeAnalysisPrompt(task, '');
+    assert.ok(prompt.toLowerCase().includes('no code'));
+  });
+
+  it('mentions that later sub-tasks receive earlier summaries', () => {
+    const prompt = buildNonCodeAnalysisPrompt(task, '');
+    assert.ok(prompt.toLowerCase().includes('summary') || prompt.toLowerCase().includes('summaries'));
+  });
+
+  it('handles missing description gracefully', () => {
+    const prompt = buildNonCodeAnalysisPrompt({ ...task, description: '' }, '');
+    assert.ok(prompt.includes('no description provided'));
+  });
+});
+
+// ─── buildNonCodeSubtaskPrompt ───────────────────────────────────────────────
+
+describe('buildNonCodeSubtaskPrompt', () => {
+  const task: Task = {
+    id: '1', name: 'Investigate flaky CI',
+    description: 'Find why the build flakes on macOS runners.',
+    status: 'open', url: 'http://example.com', tags: [],
+  };
+
+  function makePlan(taskSummary?: string): ThinkingTaskPlan {
+    return {
+      taskId: task.id,
+      taskName: task.name,
+      ...(taskSummary ? { taskSummary } : {}),
+      subtasks: [
+        { id: 1, title: 'Collect failure samples', description: 'Pull last 50 macOS runs', status: 'done', attempts: 1 },
+        { id: 2, title: 'Identify common stack traces', description: 'Group by error message', status: 'pending', attempts: 0 },
+      ],
+    };
+  }
+
+  const previousResults: NonCodeSubTaskResult[] = [
+    { id: 1, title: 'Collect failure samples', summary: 'Pulled 50 failing runs; 60% on macos-13.' },
+  ];
+
+  it('mentions the current step ID and title', () => {
+    const subtask = makePlan().subtasks[1] as SubTask;
+    const prompt = buildNonCodeSubtaskPrompt(subtask, task, makePlan(), previousResults, undefined);
+    assert.ok(prompt.includes('Identify common stack traces'));
+    assert.ok(prompt.includes('2'));
+  });
+
+  it('embeds previous sub-task summaries when provided', () => {
+    const subtask = makePlan().subtasks[1] as SubTask;
+    const prompt = buildNonCodeSubtaskPrompt(subtask, task, makePlan(), previousResults, undefined);
+    assert.ok(prompt.includes('Pulled 50 failing runs'));
+    assert.ok(prompt.includes('Collect failure samples'));
+    assert.ok(prompt.includes('Summaries from previous sub-tasks'));
+  });
+
+  it('omits the previous summaries section when there are none', () => {
+    const subtask = makePlan().subtasks[0] as SubTask;
+    const prompt = buildNonCodeSubtaskPrompt(subtask, task, makePlan(), [], undefined);
+    assert.ok(!prompt.includes('Summaries from previous sub-tasks'));
+  });
+
+  it('uses the plan task summary when available', () => {
+    const plan = makePlan('Goal: fix macOS flakes. Constraint: no infra changes.');
+    const subtask = plan.subtasks[1] as SubTask;
+    const prompt = buildNonCodeSubtaskPrompt(subtask, task, plan, previousResults, undefined);
+    assert.ok(prompt.includes('Goal: fix macOS flakes.'));
+  });
+
+  it('falls back to the task description when no summary is available', () => {
+    const plan = makePlan();
+    const subtask = plan.subtasks[1] as SubTask;
+    const prompt = buildNonCodeSubtaskPrompt(subtask, task, plan, previousResults, undefined);
+    assert.ok(prompt.includes('Find why the build flakes on macOS runners.'));
+  });
+
+  it('lists completed steps under Progress', () => {
+    const plan = makePlan();
+    const subtask = plan.subtasks[1] as SubTask;
+    const prompt = buildNonCodeSubtaskPrompt(subtask, task, plan, previousResults, undefined);
+    assert.ok(prompt.includes('Progress'));
+    assert.ok(prompt.includes('Collect failure samples'));
+  });
+
+  it('tells the AI to write output suitable for a ticket comment', () => {
+    const subtask = makePlan().subtasks[0] as SubTask;
+    const prompt = buildNonCodeSubtaskPrompt(subtask, task, makePlan(), [], undefined);
+    assert.ok(prompt.toLowerCase().includes('ticket comment'));
+    assert.ok(prompt.toLowerCase().includes('do not include preambles'));
+  });
+});
+
+// ─── buildNonCodeThinkingCompletionComment ───────────────────────────────────
+
+describe('buildNonCodeThinkingCompletionComment', () => {
+  it('starts with the configured prefix', () => {
+    const out = buildNonCodeThinkingCompletionComment(baseConfig);
+    assert.ok(out.startsWith('[aidev]'));
+  });
+
+  it('mentions the in-review status', () => {
+    const out = buildNonCodeThinkingCompletionComment(baseConfig);
+    assert.ok(out.includes('review'));
+  });
+
+  it('honours a custom comment prefix', () => {
+    const out = buildNonCodeThinkingCompletionComment({ ...baseConfig, commentPrefix: '[mybot]' } as Config);
+    assert.ok(out.startsWith('[mybot]'));
+    assert.ok(!out.includes('[aidev]'));
   });
 });
 
