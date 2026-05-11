@@ -82,6 +82,7 @@ const baseAnswers: Answers = {
   devNotesMode: 'smart',
   triggerWord: 'aidev-continue',
   thinkingTag: '',
+  planningTag: '',
   commentPrefix: '[aidev]',
   aidevEnvExtend: '',
   acceptedTag: '',
@@ -127,6 +128,17 @@ describe('renderEnv', () => {
     const out = renderEnv({ ...baseAnswers, acceptedTag: 'accepted', doneStatus: 'done' });
     assert.ok(out.includes('ACCEPTED_TAG=accepted'));
     assert.ok(out.includes('DONE_STATUS=done'));
+  });
+
+  it('renders PLANNING_TAG with the configured value', () => {
+    const out = renderEnv({ ...baseAnswers, planningTag: 'planning' });
+    assert.ok(out.includes('PLANNING_TAG=planning'));
+    assert.ok(out.includes('# PLANNING_TAG'));
+  });
+
+  it('renders a custom PLANNING_TAG value', () => {
+    const out = renderEnv({ ...baseAnswers, planningTag: 'breakdown' });
+    assert.ok(out.includes('PLANNING_TAG=breakdown'));
   });
 
   it('omits GITHUB_REPO when empty', () => {
@@ -298,6 +310,7 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     devNotesMode: p.DEV_NOTES_MODE || 'smart',
     triggerWord: p.AIDEV_TRIGGER_WORD || 'aidev-continue',
     thinkingTag: p.THINKING_TAG || '',
+    planningTag: p.PLANNING_TAG || '',
     commentPrefix: p.AIDEV_COMMENT_PREFIX || '[aidev]',
     acceptedTag: p.ACCEPTED_TAG || '',
     doneStatus: p.DONE_STATUS || '',
@@ -428,12 +441,22 @@ describe('existing env round-trip (edit flow)', () => {
     assert.equal(second, first);
   });
 
+  it('PLANNING_TAG survives parse → re-render when set', () => {
+    const answers: Answers = { ...baseAnswers, planningTag: 'plan' };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.PLANNING_TAG, 'plan');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+
   it('empty optional fields are absent from parsed output (no stale keys)', () => {
-    const out = renderEnv(baseAnswers); // assigneeTag='', thinkingTag='', aidevEnvExtend='', nonCodeTag=''
+    const out = renderEnv(baseAnswers); // assigneeTag='', thinkingTag='', planningTag='', aidevEnvExtend='', nonCodeTag=''
     const p = dotenv.parse(out);
     assert.ok(!('ASSIGNEE_TAG' in p), 'ASSIGNEE_TAG should be absent when empty');
     assert.ok(!('AIDEV_ENV_EXTEND' in p), 'AIDEV_ENV_EXTEND should be absent when empty');
     assert.ok(!('THINKING_TAG' in p), 'THINKING_TAG should be absent when empty');
+    assert.ok(!('PLANNING_TAG' in p), 'PLANNING_TAG should be absent when empty');
     assert.ok(!('NON_CODE_TAG' in p), 'NON_CODE_TAG should be absent when empty');
     assert.ok(!('NON_CODE_CLICKUP_TEAM_ID' in p), 'NON_CODE_CLICKUP_TEAM_ID should be absent when empty');
     assert.ok(!('NON_CODE_JIRA_PROJECT' in p), 'NON_CODE_JIRA_PROJECT should be absent when empty');

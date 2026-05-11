@@ -168,6 +168,7 @@ export interface Answers {
   devNotesMode: string;
   triggerWord: string;
   thinkingTag: string;
+  planningTag: string;
   commentPrefix: string;
   aidevEnvExtend: string;
   acceptedTag: string;
@@ -386,6 +387,9 @@ export function renderEnv(a: Answers): string {
     ``,
     `# THINKING_TAG: tasks with this tag are analyzed and broken into sub-tasks before execution`,
     line('THINKING_TAG', a.thinkingTag),
+    ``,
+    `# PLANNING_TAG: tasks with this tag are split into self-contained sub-tickets pushed back to the provider`,
+    line('PLANNING_TAG', a.planningTag),
     ``,
     `# NON_CODE_TAG: tasks with this tag run without git branching (no checkout/commit/push)`,
     line('NON_CODE_TAG', a.nonCodeTag),
@@ -808,6 +812,14 @@ export async function initCommand(): Promise<void> {
       existing.THINKING_TAG || 'thinking'
     );
 
+    // ── Planning tag ────────────────────────────────────────
+    section('Planning tasks');
+    const planningTag = await ask(
+      rl,
+      `Planning tag ${hint('tasks with this tag are split into self-contained sub-tickets pushed back to the provider')}`,
+      existing.PLANNING_TAG || 'planning'
+    );
+
     // ── Non-code tasks ──────────────────────────────────────
     section('Non-code tasks');
     console.log(
@@ -944,6 +956,7 @@ export async function initCommand(): Promise<void> {
       devNotesMode,
       triggerWord,
       thinkingTag,
+      planningTag,
       commentPrefix,
       acceptedTag,
       doneStatus,
