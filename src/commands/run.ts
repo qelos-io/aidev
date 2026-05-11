@@ -571,7 +571,9 @@ async function processTask(
     }
   }
 
-  if (isThinkingTask(task, config)) {
+  if (isPlanningTask(task, config)) {
+    await implementPlanningTask(task, config, provider, runners, hooks, vm);
+  } else if (isThinkingTask(task, config)) {
     await implementThinkingTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
   } else {
     await implementTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
@@ -1971,7 +1973,9 @@ async function processNonCodeTask(
     }
   }
 
-  if (isThinkingTask(task, config)) {
+  if (isPlanningTask(task, config)) {
+    await implementPlanningTask(task, config, provider, runners, hooks, vm);
+  } else if (isThinkingTask(task, config)) {
     await implementNonCodeThinkingTask(task, config, provider, runners, hooks, vm);
   } else {
     await implementNonCodeTask(task, config, provider, runners, hooks, vm);
