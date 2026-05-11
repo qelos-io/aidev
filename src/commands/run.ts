@@ -98,7 +98,7 @@ export function getRunSkipReason(status: string, filter: RunFilter, pendingStatu
   return null;
 }
 
-function isThinkingTask(task: Task, config: Config): boolean {
+export function isThinkingTask(task: Task, config: Config): boolean {
   if (!config.thinkingTag) return false;
   const tag = config.thinkingTag.toLowerCase();
   return task.tags.some((t) => t.toLowerCase() === tag);
@@ -1606,7 +1606,7 @@ async function implementThinkingTask(
   logger.success(`Thinking task implemented: branch ${branchName} pushed`);
 }
 
-async function implementPlanningTask(
+export async function implementPlanningTask(
   task: Task,
   config: Config,
   provider: TaskProvider,
