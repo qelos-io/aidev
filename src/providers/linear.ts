@@ -185,6 +185,7 @@ export class LinearProvider implements TaskProvider {
         url: n.url,
         tags: n.labels.nodes.map((l) => l.name),
         priority: n.priority ?? undefined,
+        sourceListId: teamId,
       }));
   }
 

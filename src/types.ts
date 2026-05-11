@@ -6,6 +6,7 @@ export interface Task {
   url: string;
   tags: string[];
   priority?: number;
+  sourceListId?: string;
 }
 
 export interface LocalTask {
@@ -107,6 +108,7 @@ export interface Config {
   devNotesMode: 'smart' | 'always';
   triggerWord: string;
   thinkingTag: string;
+  planningTag: string;
   commentPrefix: string;
   hooksPath: string;
   acceptedTag: string;

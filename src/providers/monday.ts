@@ -165,6 +165,7 @@ export class MondayProvider implements TaskProvider {
         status: statusText,
         url: item.url || `https://${this.boardId}.monday.com`,
         tags: [],
+        sourceListId: this.boardId,
       });
     }
 

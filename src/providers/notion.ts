@@ -185,6 +185,7 @@ export class NotionProvider implements TaskProvider {
         status: statusValue.toLowerCase(),
         url: page.url || `https://notion.so/${page.id.replace(/-/g, '')}`,
         tags,
+        sourceListId: this.databaseId,
       });
     }
 

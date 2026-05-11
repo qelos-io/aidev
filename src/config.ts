@@ -164,6 +164,7 @@ export function loadConfig(customEnvPath?: string): Config {
 
   const triggerWord = process.env.AIDEV_TRIGGER_WORD || 'aidev-continue';
   const thinkingTag = process.env.THINKING_TAG || 'thinking';
+  const planningTag = process.env.PLANNING_TAG || 'planning';
   const commentPrefix = process.env.AIDEV_COMMENT_PREFIX || '[aidev]';
   const nonCodeTag = process.env.NON_CODE_TAG || `${folderName}-other`;
   const hooksPath = process.env.AIDEV_HOOKS_PATH || '';
@@ -228,6 +229,7 @@ export function loadConfig(customEnvPath?: string): Config {
     devNotesMode,
     triggerWord,
     thinkingTag,
+    planningTag,
     commentPrefix,
     hooksPath,
     acceptedTag,

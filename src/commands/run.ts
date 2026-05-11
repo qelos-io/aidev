@@ -20,6 +20,7 @@ import {
   ReviewTaskContext,
 } from '../hooks';
 import { buildCompressedContext } from '../sessions';
+import { resolveDoneStatus } from './accepted';
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
 const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
@@ -97,10 +98,111 @@ export function getRunSkipReason(status: string, filter: RunFilter, pendingStatu
   return null;
 }
 
-function isThinkingTask(task: Task, config: Config): boolean {
+export function isThinkingTask(task: Task, config: Config): boolean {
   if (!config.thinkingTag) return false;
   const tag = config.thinkingTag.toLowerCase();
   return task.tags.some((t) => t.toLowerCase() === tag);
+}
+
+export function isPlanningTask(task: Task, config: Config): boolean {
+  if (!config.planningTag) return false;
+  const tag = config.planningTag.toLowerCase();
+  return task.tags.some((t) => t.toLowerCase() === tag);
+}
+
+export interface PlanningSubtaskDraft {
+  title: string;
+  description: string;
+  priority?: number;
+}
+
+export interface PlanningAnalysisResponse {
+  clarification?: string;
+  subtasks: PlanningSubtaskDraft[];
+}
+
+export function buildPlanningAnalysisPrompt(task: Task, context: string): string {
+  const tagsLine = task.tags.length > 0
+    ? `\nParent task tags: ${task.tags.join(', ')}`
+    : '';
+
+  return `You are a senior software architect operating in PLANNING MODE. Your job is to break a parent task into a list of fully self-contained sub-task tickets that will be pushed to the task management provider and worked on independently — each by a different agent, in isolation, with NO access to the parent task or to its sibling sub-tasks.
+
+Parent task name: ${task.name}
+
+Parent task description:
+${task.description || '(no description provided)'}${tagsLine}
+${context}
+
+Decide one of:
+  (a) If critical information is missing and you cannot produce useful self-contained sub-tasks without it, return a single clarification question.
+  (b) Otherwise, return a list of sub-task drafts.
+
+CRITICAL — each sub-task description MUST be fully isolated:
+  - Do NOT reference the parent task, sibling sub-tasks, or "the plan".
+  - Do NOT use phrases like "as discussed above", "see the parent ticket", "from step 1", or "after the previous sub-task". The agent executing this sub-task will not see any of that.
+  - Include every file path, function name, schema, constraint, reasoning, and reference the executing agent will need to complete the work standalone.
+  - Restate any shared context (architecture decisions, conventions, motivation) that is required to do the work correctly.
+  - Each description should read like its own complete ticket — title, what to change, why, where, and acceptance criteria.
+
+Sub-task priority is optional and uses an integer 1–4 (1 = urgent, 4 = low). Omit the field if you have no opinion.
+
+Respond with valid JSON only — no markdown fences, no extra text:
+{
+  "clarification": "question text, or null if no clarification is needed",
+  "subtasks": [
+    {
+      "title": "Short, specific title",
+      "description": "Fully self-contained ticket body (markdown ok). Include all paths, references, and reasoning needed to do this work without seeing the parent ticket.",
+      "priority": 2
+    }
+  ]
+}
+
+If you set "clarification" to a non-null question, "subtasks" must be an empty array. If you provide sub-tasks, "clarification" must be null.`;
+}
+
+export function parsePlanningResponse(output: string): PlanningAnalysisResponse | null {
+  const jsonMatch = output.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as { clarification?: unknown; subtasks?: unknown };
+
+  let clarification: string | undefined;
+  if (typeof obj.clarification === 'string') {
+    const trimmed = obj.clarification.trim();
+    if (trimmed.length > 0 && trimmed.toLowerCase() !== 'null') {
+      clarification = trimmed;
+    }
+  }
+
+  const rawSubtasks = Array.isArray(obj.subtasks) ? obj.subtasks : [];
+  const subtasks: PlanningSubtaskDraft[] = [];
+  for (const s of rawSubtasks) {
+    if (!s || typeof s !== 'object') continue;
+    const entry = s as { title?: unknown; description?: unknown; priority?: unknown };
+    const title = typeof entry.title === 'string' ? entry.title.trim() : '';
+    const description = typeof entry.description === 'string' ? entry.description.trim() : '';
+    if (!title || !description) continue;
+
+    const draft: PlanningSubtaskDraft = { title, description };
+    if (typeof entry.priority === 'number' && Number.isFinite(entry.priority)) {
+      draft.priority = entry.priority;
+    }
+    subtasks.push(draft);
+  }
+
+  if (!clarification && subtasks.length === 0) return null;
+
+  return clarification ? { clarification, subtasks } : { subtasks };
 }
 
 export function sortTasksByPriority(tasks: Task[]): Task[] {
@@ -469,7 +571,9 @@ async function processTask(
     }
   }
 
-  if (isThinkingTask(task, config)) {
+  if (isPlanningTask(task, config)) {
+    await implementPlanningTask(task, config, provider, runners, hooks, vm);
+  } else if (isThinkingTask(task, config)) {
     await implementThinkingTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
   } else {
     await implementTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
@@ -1502,6 +1606,150 @@ async function implementThinkingTask(
   logger.success(`Thinking task implemented: branch ${branchName} pushed`);
 }
 
+export async function implementPlanningTask(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[],
+  _hooks: AidevHooks = {},
+  _vm?: HookVM
+): Promise<void> {
+  logger.info(`Implementing planning task: ${task.name}`);
+
+  try {
+    await provider.updateStatus(task.id, 'in progress');
+    await provider.postComment(
+      task.id,
+      `${config.commentPrefix} Starting planning mode — analyzing task and drafting sub-tickets`
+    );
+  } catch (err) {
+    logger.warn(`Could not update task status: ${err}`);
+  }
+
+  let context = '';
+  try {
+    const comments = await provider.getComments(task.id);
+    context = await buildConversationContext(task.id, comments, config, runners);
+  } catch {
+    // ignore
+  }
+
+  const prompt = buildPlanningAnalysisPrompt(task, context);
+
+  let parsed: PlanningAnalysisResponse | null = null;
+  let previousNotes = '';
+  for (const runner of runners) {
+    if (!runner.isAvailable()) continue;
+    logger.info(`Running ${runner.name} for planning analysis...`);
+    const result = await runner.run(prompt, previousNotes || undefined);
+    if (!result.success) {
+      logger.warn(`${runner.name} planning analysis failed — trying next runner`);
+      previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
+      continue;
+    }
+    parsed = parsePlanningResponse(result.output);
+    if (parsed) break;
+    logger.warn(`${runner.name} planning analysis returned unparseable output — trying next runner`);
+    previousNotes = `Previous runner (${runner.name}) produced unparseable output:\n${result.output}`;
+  }
+
+  if (!parsed) {
+    logger.error('Planning produced no sub-tasks');
+    try {
+      await provider.postComment(task.id, `${config.commentPrefix} Planning produced no sub-tasks`);
+    } catch { /* ignore */ }
+    return;
+  }
+
+  if (parsed.clarification) {
+    try {
+      await provider.postComment(task.id, `${config.commentPrefix} ${parsed.clarification}`);
+      await provider.updateStatus(task.id, getPendingStatus(config));
+      logger.info(`Posted planning clarification, set status to ${getPendingStatus(config)}`);
+    } catch (err) {
+      logger.warn(`Failed to post clarification or set pending status: ${err instanceof Error ? err.message : err}`);
+    }
+    return;
+  }
+
+  if (parsed.subtasks.length === 0) {
+    logger.error('Planning produced no sub-tasks');
+    try {
+      await provider.postComment(task.id, `${config.commentPrefix} Planning produced no sub-tasks`);
+    } catch { /* ignore */ }
+    return;
+  }
+
+  const planningTagLower = config.planningTag.toLowerCase();
+  const ticketTags = task.tags.filter((t) => t.toLowerCase() !== planningTagLower);
+
+  const created: Array<{ title: string; url: string; id: string }> = [];
+  const failures: Array<{ title: string; error: string }> = [];
+
+  for (const draft of parsed.subtasks) {
+    try {
+      const result = await provider.createTask({
+        title: draft.title,
+        description: draft.description,
+        tags: ticketTags,
+        priority: draft.priority,
+        listId: task.sourceListId,
+      });
+      created.push({ title: draft.title, url: result.url, id: result.id });
+      logger.success(`  Created sub-ticket "${draft.title}" — ${result.url}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`  Failed to create sub-ticket "${draft.title}": ${message}`);
+      failures.push({ title: draft.title, error: message });
+    }
+  }
+
+  const summaryLines: string[] = [
+    `${config.commentPrefix} Planning complete — created ${created.length} ticket${created.length === 1 ? '' : 's'}` +
+      (failures.length > 0 ? ` (${failures.length} failed)` : '') +
+      ':',
+  ];
+  if (created.length > 0) {
+    summaryLines.push('');
+    for (const c of created) {
+      summaryLines.push(`- ${c.title} — ${c.url}`);
+    }
+  }
+  if (failures.length > 0) {
+    summaryLines.push('', 'Failed to create:');
+    for (const f of failures) {
+      summaryLines.push(`- ${f.title} — ${f.error}`);
+    }
+  }
+  try {
+    await provider.postComment(task.id, summaryLines.join('\n'));
+  } catch (err) {
+    logger.warn(`Failed to post planning summary: ${err instanceof Error ? err.message : err}`);
+  }
+
+  if (config.planningTag && provider.removeTag) {
+    try {
+      await provider.removeTag(task.id, config.planningTag);
+    } catch (err) {
+      logger.warn(`Could not remove planning tag: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  const doneStatus = await resolveDoneStatus(config, provider);
+  if (doneStatus) {
+    try {
+      await provider.updateStatus(task.id, doneStatus);
+      logger.info(`Planning task transitioned to "${doneStatus}"`);
+    } catch (err) {
+      logger.warn(`Failed to transition planning task to "${doneStatus}": ${err instanceof Error ? err.message : err}`);
+    }
+  } else {
+    logger.warn('No done status configured or detectable — leaving planning task in current status');
+  }
+
+  logger.success(`Planning task complete: ${task.name}`);
+}
+
 /**
  * Attempts to create a PR via `gh` CLI. Falls back to a compare URL if gh is
  * unavailable or PR creation fails.
@@ -1725,7 +1973,9 @@ async function processNonCodeTask(
     }
   }
 
-  if (isThinkingTask(task, config)) {
+  if (isPlanningTask(task, config)) {
+    await implementPlanningTask(task, config, provider, runners, hooks, vm);
+  } else if (isThinkingTask(task, config)) {
     await implementNonCodeThinkingTask(task, config, provider, runners, hooks, vm);
   } else {
     await implementNonCodeTask(task, config, provider, runners, hooks, vm);

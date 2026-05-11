@@ -120,6 +120,7 @@ export class ClickUpProvider implements TaskProvider {
       priority: { id: string } | null;
       url: string;
       tags: Array<{ name: string }>;
+      list?: { id?: string };
     }
 
     interface TasksResponse {
@@ -156,6 +157,7 @@ export class ClickUpProvider implements TaskProvider {
         url: t.url,
         tags: t.tags.map((tag) => tag.name),
         priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
+        sourceListId: t.list?.id,
       };
     }));
   }
@@ -172,6 +174,7 @@ export class ClickUpProvider implements TaskProvider {
       priority: { id: string } | null;
       url: string;
       tags: Array<{ name: string }>;
+      list?: { id?: string };
     }
 
     interface TasksResponse {
@@ -195,6 +198,7 @@ export class ClickUpProvider implements TaskProvider {
       url: t.url,
       tags: t.tags.map((tag) => tag.name),
       priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
+      sourceListId: t.list?.id,
     }));
   }
 
