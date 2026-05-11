@@ -232,6 +232,7 @@ export class TrelloProvider implements TaskProvider {
           status: sem,
           url: c.url,
           tags: c.labels.map((l) => l.name),
+          sourceListId: c.idList,
         };
       }),
     );
@@ -277,6 +278,7 @@ export class TrelloProvider implements TaskProvider {
       status: listIdToStatus.get(c.idList)!,
       url: c.url,
       tags: c.labels.map((l) => l.name),
+      sourceListId: c.idList,
     }));
   }
 

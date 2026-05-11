@@ -228,6 +228,7 @@ export class JiraProvider implements TaskProvider {
         labels: string[];
         self: string;
         attachment?: JiraRawAttachment[];
+        project?: { key?: string };
       };
     }
 
@@ -237,7 +238,7 @@ export class JiraProvider implements TaskProvider {
 
     const labelClause = this.label === '*' ? '' : ` AND labels = "${this.label}"`;
     const jql = `project = "${this.project}"${labelClause} AND statusCategory != Done ORDER BY created DESC`;
-    const fields = 'summary,description,status,priority,labels,attachment';
+    const fields = 'summary,description,status,priority,labels,attachment,project';
     const data = await this.request<SearchResponse>(
       `/search/jql?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=50`
     );
@@ -260,6 +261,7 @@ export class JiraProvider implements TaskProvider {
         url: `${this.baseUrl}/browse/${issue.key}`,
         tags: issue.fields.labels,
         priority: issue.fields.priority ? parseInt(issue.fields.priority.id, 10) : undefined,
+        sourceListId: issue.fields.project?.key,
       };
     }));
   }
