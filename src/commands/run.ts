@@ -103,6 +103,107 @@ function isThinkingTask(task: Task, config: Config): boolean {
   return task.tags.some((t) => t.toLowerCase() === tag);
 }
 
+export function isPlanningTask(task: Task, config: Config): boolean {
+  if (!config.planningTag) return false;
+  const tag = config.planningTag.toLowerCase();
+  return task.tags.some((t) => t.toLowerCase() === tag);
+}
+
+export interface PlanningSubtaskDraft {
+  title: string;
+  description: string;
+  priority?: number;
+}
+
+export interface PlanningAnalysisResponse {
+  clarification?: string;
+  subtasks: PlanningSubtaskDraft[];
+}
+
+export function buildPlanningAnalysisPrompt(task: Task, context: string): string {
+  const tagsLine = task.tags.length > 0
+    ? `\nParent task tags: ${task.tags.join(', ')}`
+    : '';
+
+  return `You are a senior software architect operating in PLANNING MODE. Your job is to break a parent task into a list of fully self-contained sub-task tickets that will be pushed to the task management provider and worked on independently — each by a different agent, in isolation, with NO access to the parent task or to its sibling sub-tasks.
+
+Parent task name: ${task.name}
+
+Parent task description:
+${task.description || '(no description provided)'}${tagsLine}
+${context}
+
+Decide one of:
+  (a) If critical information is missing and you cannot produce useful self-contained sub-tasks without it, return a single clarification question.
+  (b) Otherwise, return a list of sub-task drafts.
+
+CRITICAL — each sub-task description MUST be fully isolated:
+  - Do NOT reference the parent task, sibling sub-tasks, or "the plan".
+  - Do NOT use phrases like "as discussed above", "see the parent ticket", "from step 1", or "after the previous sub-task". The agent executing this sub-task will not see any of that.
+  - Include every file path, function name, schema, constraint, reasoning, and reference the executing agent will need to complete the work standalone.
+  - Restate any shared context (architecture decisions, conventions, motivation) that is required to do the work correctly.
+  - Each description should read like its own complete ticket — title, what to change, why, where, and acceptance criteria.
+
+Sub-task priority is optional and uses an integer 1–4 (1 = urgent, 4 = low). Omit the field if you have no opinion.
+
+Respond with valid JSON only — no markdown fences, no extra text:
+{
+  "clarification": "question text, or null if no clarification is needed",
+  "subtasks": [
+    {
+      "title": "Short, specific title",
+      "description": "Fully self-contained ticket body (markdown ok). Include all paths, references, and reasoning needed to do this work without seeing the parent ticket.",
+      "priority": 2
+    }
+  ]
+}
+
+If you set "clarification" to a non-null question, "subtasks" must be an empty array. If you provide sub-tasks, "clarification" must be null.`;
+}
+
+export function parsePlanningResponse(output: string): PlanningAnalysisResponse | null {
+  const jsonMatch = output.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as { clarification?: unknown; subtasks?: unknown };
+
+  let clarification: string | undefined;
+  if (typeof obj.clarification === 'string') {
+    const trimmed = obj.clarification.trim();
+    if (trimmed.length > 0 && trimmed.toLowerCase() !== 'null') {
+      clarification = trimmed;
+    }
+  }
+
+  const rawSubtasks = Array.isArray(obj.subtasks) ? obj.subtasks : [];
+  const subtasks: PlanningSubtaskDraft[] = [];
+  for (const s of rawSubtasks) {
+    if (!s || typeof s !== 'object') continue;
+    const entry = s as { title?: unknown; description?: unknown; priority?: unknown };
+    const title = typeof entry.title === 'string' ? entry.title.trim() : '';
+    const description = typeof entry.description === 'string' ? entry.description.trim() : '';
+    if (!title || !description) continue;
+
+    const draft: PlanningSubtaskDraft = { title, description };
+    if (typeof entry.priority === 'number' && Number.isFinite(entry.priority)) {
+      draft.priority = entry.priority;
+    }
+    subtasks.push(draft);
+  }
+
+  if (!clarification && subtasks.length === 0) return null;
+
+  return clarification ? { clarification, subtasks } : { subtasks };
+}
+
 export function sortTasksByPriority(tasks: Task[]): Task[] {
   return [...tasks].sort(
     (a, b) => (a.priority ?? NO_PRIORITY) - (b.priority ?? NO_PRIORITY)
