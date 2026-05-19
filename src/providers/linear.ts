@@ -60,7 +60,7 @@ export class LinearProvider implements TaskProvider {
     this.teamIdInput = config.linearTeamId;
     this.label = config.linearLabel;
     this.assigneeTag = config.assigneeTag;
-    this.pendingStatus = config.linearPendingStatus || 'Backlog';
+    this.pendingStatus = config.linearPendingStatus || 'Pending';
     this.inReviewStatus = config.linearInReviewStatus || 'In Review';
   }
 

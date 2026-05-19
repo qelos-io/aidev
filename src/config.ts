@@ -198,7 +198,7 @@ export function loadConfig(customEnvPath?: string): Config {
     linearApiKey: process.env.LINEAR_API_KEY || '',
     linearTeamId: process.env.LINEAR_TEAM_ID || '',
     linearLabel: process.env.LINEAR_LABEL || folderName,
-    linearPendingStatus: process.env.LINEAR_PENDING_STATUS || 'Backlog',
+    linearPendingStatus: process.env.LINEAR_PENDING_STATUS || 'Pending',
     linearInReviewStatus: process.env.LINEAR_IN_REVIEW_STATUS || 'In Review',
     mondayApiToken: process.env.MONDAY_API_TOKEN || '',
     mondayBoardId: process.env.MONDAY_BOARD_ID || '',
