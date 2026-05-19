@@ -690,7 +690,7 @@ export async function initCommand(): Promise<void> {
         `Label to filter issues ${hint('issues with this label will be picked up')}`,
         existing.LINEAR_LABEL || folderName
       );
-      linearPendingStatus = await ask(rl, 'Pending status name', existing.LINEAR_PENDING_STATUS || 'Backlog');
+      linearPendingStatus = await ask(rl, 'Pending status name', existing.LINEAR_PENDING_STATUS || 'Pending');
       linearInReviewStatus = await ask(rl, 'In-review status name', existing.LINEAR_IN_REVIEW_STATUS || 'In Review');
     } else if (provider === 'monday') {
       section('Monday.com');

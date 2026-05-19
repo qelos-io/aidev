@@ -281,7 +281,7 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     linearApiKey: p.LINEAR_API_KEY || '',
     linearTeamId: p.LINEAR_TEAM_ID || '',
     linearLabel: p.LINEAR_LABEL || folderName,
-    linearPendingStatus: p.LINEAR_PENDING_STATUS || 'Backlog',
+    linearPendingStatus: p.LINEAR_PENDING_STATUS || 'Pending',
     linearInReviewStatus: p.LINEAR_IN_REVIEW_STATUS || 'In Review',
     mondayApiToken: p.MONDAY_API_TOKEN || '',
     mondayBoardId: p.MONDAY_BOARD_ID || '',

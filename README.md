@@ -211,7 +211,7 @@ Linear calls them "labels" — the same concept as `CLICKUP_TAG` / `JIRA_LABEL`.
 | `LINEAR_API_KEY` | — | Personal API key from Linear Settings → API |
 | `LINEAR_TEAM_ID` | — | Team UUID from your workspace |
 | `LINEAR_LABEL` | — | Issues with this label will be picked up (set to `*` to match all issues) |
-| `LINEAR_PENDING_STATUS` | `Backlog` | Status name for "waiting for reply" |
+| `LINEAR_PENDING_STATUS` | `Pending` | Status name for "waiting for reply" |
 | `LINEAR_IN_REVIEW_STATUS` | `In Review` | Status set after implementation |
 | `NON_CODE_LINEAR_TEAM_ID` | same as `LINEAR_TEAM_ID` | Different team for non-code tasks (optional) |
 
