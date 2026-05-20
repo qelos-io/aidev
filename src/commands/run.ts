@@ -1099,6 +1099,8 @@ ${context}
 
 Analyze this task and break it into smaller, independently implementable sub-tasks that should be executed sequentially. Each sub-task should be a coherent unit of work that can be committed separately.
 
+CRITICAL: Every sub-task MUST result in actual file modifications (create, edit, or delete files) that can be committed to git. A sub-task that produces no file changes is treated as a failure. Do NOT create sub-tasks that are pure investigation, verification, or read-only steps — for example "check if this folder exists", "review the existing code", "decide on an approach", "verify the build passes", or "run the tests". Any necessary investigation must happen inside a sub-task that also produces concrete file changes (e.g. fold the discovery into the step that applies the resulting edits). Each sub-task's description must name specific files and functions to add, modify, or remove.
+
 Respond with valid JSON only — no markdown fences, no extra text:
 {
   "taskSummary": "2-5 short sentences: overall goal and constraints only — for reuse in each sub-task prompt (no step-by-step detail; that goes in instructions and subtasks)",
@@ -1107,7 +1109,7 @@ Respond with valid JSON only — no markdown fences, no extra text:
     {
       "id": 1,
       "title": "Short title for the sub-task",
-      "description": "Detailed description of what to implement in this step, including specific files and functions to change"
+      "description": "Detailed description of what to implement in this step, including specific files and functions to change. Must describe concrete file modifications."
     }
   ]
 }
@@ -1211,11 +1213,13 @@ ${diagnostics}
 
 Split the failed sub-task above into exactly two smaller, independently implementable sub-tasks that together achieve the original goal. Each new sub-task should be a coherent unit of work that can be committed separately, ordered by dependency (foundation first). Take the diagnostics into account so the split actually addresses what broke.
 
+CRITICAL: Each new sub-task MUST result in actual file modifications (create, edit, or delete files) that can be committed to git. Do NOT produce sub-tasks that are pure investigation, verification, or read-only steps (e.g. "check if this folder exists", "review the existing code", "verify the build passes"). Each description must name specific files and functions to change.
+
 Respond with valid JSON only — no markdown fences, no extra text:
 {
   "subtasks": [
-    { "title": "Short title for the first new sub-task", "description": "Detailed description of what to implement in this step" },
-    { "title": "Short title for the second new sub-task", "description": "Detailed description of what to implement in this step" }
+    { "title": "Short title for the first new sub-task", "description": "Detailed description of what to implement in this step, including specific files to change" },
+    { "title": "Short title for the second new sub-task", "description": "Detailed description of what to implement in this step, including specific files to change" }
   ]
 }
 
