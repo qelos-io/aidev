@@ -31,6 +31,12 @@ export class AnthropicSdkRunner implements AIRunner {
     return parseAnthropicTokens(process.env.ANTHROPIC_API_KEY || '').length > 0;
   }
 
+  // Dynamic import — SDK is ESM-only and this module is CJS. Exposed as a
+  // method so tests can stub it without touching Node's ESM loader.
+  async loadSdk(): Promise<unknown> {
+    return import(SDK_PACKAGE);
+  }
+
   async run(prompt: string, notes?: string): Promise<AIRunResult> {
     const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
 
@@ -61,8 +67,7 @@ export class AnthropicSdkRunner implements AIRunner {
     }, RUN_TIMEOUT_MS);
 
     try {
-      // Dynamic import — SDK is ESM-only and this module is CJS.
-      const sdk: any = await import(SDK_PACKAGE);
+      const sdk: any = await this.loadSdk();
       const q = sdk.query({
         prompt: fullPrompt,
         options: {

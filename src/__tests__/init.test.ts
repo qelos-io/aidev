@@ -169,6 +169,88 @@ describe('renderEnv', () => {
   });
 });
 
+// ─── renderEnv Anthropic SDK runner ──────────────────────────────────────────
+
+describe('renderEnv anthropic-sdk runner', () => {
+  it('writes ANTHROPIC_API_KEY and CLAUDE_MODEL when anthropic-sdk is in AGENTS', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      agents: 'anthropic-sdk,claude',
+      anthropicApiKey: 'sk-ant-key-1',
+      claudeModel: 'claude-opus-4-6',
+    });
+    assert.ok(out.includes('AGENTS=anthropic-sdk,claude'));
+    assert.ok(out.includes('ANTHROPIC_API_KEY=sk-ant-key-1'));
+    assert.ok(out.includes('CLAUDE_MODEL=claude-opus-4-6'));
+  });
+
+  it('writes ANTHROPIC_BASE_URL when set, otherwise leaves a commented placeholder', () => {
+    const withBase = renderEnv({
+      ...baseAnswers,
+      agents: 'anthropic-sdk',
+      anthropicApiKey: 'sk',
+      anthropicBaseUrl: 'https://proxy.example.com',
+      claudeModel: 'claude-opus-4-6',
+    });
+    assert.ok(withBase.includes('ANTHROPIC_BASE_URL=https://proxy.example.com'));
+
+    const withoutBase = renderEnv({
+      ...baseAnswers,
+      agents: 'anthropic-sdk',
+      anthropicApiKey: 'sk',
+      claudeModel: 'claude-opus-4-6',
+    });
+    assert.ok(!/^ANTHROPIC_BASE_URL=/m.test(withoutBase));
+    assert.ok(withoutBase.includes('# ANTHROPIC_BASE_URL'));
+  });
+
+  it('defaults CLAUDE_MODEL to claude-opus-4-6 when blank', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      agents: 'anthropic-sdk',
+      anthropicApiKey: 'sk',
+      claudeModel: '',
+    });
+    assert.ok(out.includes('CLAUDE_MODEL=claude-opus-4-6'));
+  });
+
+  it('quotes a comma-containing ANTHROPIC_API_KEY value so dotenv keeps it as one entry', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      agents: 'anthropic-sdk',
+      anthropicApiKey: 'sk-1,sk-2,sk-3',
+      claudeModel: 'claude-opus-4-6',
+    });
+    // commas don't trigger envVal's quoting (only whitespace/quotes/#), so a raw line is fine
+    const parsed = dotenv.parse(out);
+    assert.equal(parsed.ANTHROPIC_API_KEY, 'sk-1,sk-2,sk-3');
+  });
+
+  it('omits Anthropic SDK keys when anthropic-sdk is not in AGENTS', () => {
+    const out = renderEnv(baseAnswers);
+    assert.ok(!out.includes('ANTHROPIC_API_KEY'));
+    assert.ok(!out.includes('CLAUDE_MODEL'));
+    assert.ok(!out.includes('ANTHROPIC_BASE_URL'));
+  });
+
+  it('round-trips Anthropic SDK config through parse + re-render', () => {
+    const answers: Answers = {
+      ...baseAnswers,
+      agents: 'anthropic-sdk,claude',
+      anthropicApiKey: 'sk-1,sk-2',
+      anthropicBaseUrl: 'https://proxy.example.com',
+      claudeModel: 'claude-opus-4-6',
+    };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.ANTHROPIC_API_KEY, 'sk-1,sk-2');
+    assert.equal(parsed.ANTHROPIC_BASE_URL, 'https://proxy.example.com');
+    assert.equal(parsed.CLAUDE_MODEL, 'claude-opus-4-6');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+});
+
 // ─── renderEnv local provider ─────────────────────────────────────────────────
 
 describe('renderEnv local provider', () => {

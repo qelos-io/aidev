@@ -1,12 +1,15 @@
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { Interface as ReadlineInterface } from 'node:readline/promises';
+import { logger } from '../logger';
 import {
   permissionCovers,
   getMissingPermissions,
   readClaudeSettings,
+  validateAgentPermissions,
 } from '../permissions';
 
 // ─── permissionCovers ─────────────────────────────────────────────────────
@@ -94,6 +97,73 @@ function withTmpDir(fn: (dir: string) => void): void {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
+
+// ─── validateAgentPermissions: anthropic-sdk ─────────────────────────────
+
+function spyLogger() {
+  return {
+    info: mock.method(logger, 'info', () => {}),
+    warn: mock.method(logger, 'warn', () => {}),
+  };
+}
+
+// readline is only used by the Claude flow; anthropic-sdk does not consult it.
+const stubRl = {} as ReadlineInterface;
+
+describe('validateAgentPermissions (anthropic-sdk)', () => {
+  const savedKey = process.env.ANTHROPIC_API_KEY;
+
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => {
+    mock.restoreAll();
+    if (savedKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = savedKey;
+  });
+
+  it('warns when no ANTHROPIC_API_KEY is configured', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const spies = spyLogger();
+
+    await validateAgentPermissions(['anthropic-sdk'], stubRl);
+
+    const warnings = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(
+      warnings.some((m) => m?.includes('ANTHROPIC_API_KEY')),
+      `expected an ANTHROPIC_API_KEY warning, got: ${warnings.join(' | ')}`,
+    );
+  });
+
+  it('logs success info with the token count when SDK and key are present', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-1,sk-2,sk-3';
+    const spies = spyLogger();
+
+    await validateAgentPermissions(['anthropic-sdk'], stubRl);
+
+    const infos = spies.info.mock.calls.map((c) => c.arguments[0]);
+    const warnings = spies.warn.mock.calls.map((c) => c.arguments[0]);
+
+    // Should not warn about missing key
+    assert.ok(!warnings.some((m) => m?.includes('no ANTHROPIC_API_KEY')));
+    // Should report token count (3 keys)
+    assert.ok(
+      infos.some((m) => m?.includes('3 API keys')),
+      `expected info mentioning 3 API keys, got: ${infos.join(' | ')}`,
+    );
+  });
+
+  it('uses singular "key" wording when exactly one token is configured', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-only';
+    const spies = spyLogger();
+
+    await validateAgentPermissions(['anthropic-sdk'], stubRl);
+
+    const infos = spies.info.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(
+      infos.some((m) => m?.includes('1 API key') && !m.includes('1 API keys')),
+      `expected singular "1 API key", got: ${infos.join(' | ')}`,
+    );
+  });
+});
 
 describe('readClaudeSettings', () => {
   it('returns empty when no settings files exist', () => {
