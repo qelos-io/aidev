@@ -87,6 +87,9 @@ const baseAnswers: Answers = {
   aidevEnvExtend: '',
   acceptedTag: '',
   doneStatus: '',
+  anthropicApiKey: '',
+  anthropicBaseUrl: '',
+  claudeModel: '',
 };
 
 describe('renderEnv', () => {
@@ -307,6 +310,9 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     githubBaseBranch: p.GITHUB_BASE_BRANCH || 'main',
     githubRepo: p.GITHUB_REPO || '',
     agents: p.AGENTS || '',
+    anthropicApiKey: p.ANTHROPIC_API_KEY || '',
+    anthropicBaseUrl: p.ANTHROPIC_BASE_URL || '',
+    claudeModel: p.CLAUDE_MODEL || '',
     devNotesMode: p.DEV_NOTES_MODE || 'smart',
     triggerWord: p.AIDEV_TRIGGER_WORD || 'aidev-continue',
     thinkingTag: p.THINKING_TAG || '',

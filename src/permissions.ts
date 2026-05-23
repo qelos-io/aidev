@@ -179,6 +179,44 @@ async function validateAntigravityPermissions(
   logger.info('Antigravity: CLI found (no additional permissions needed).');
 }
 
+// ── Anthropic Agent SDK ────────────────────────────────────────────────────
+
+async function validateAnthropicSdkPermissions(
+  _rl: readline.Interface,
+  _dir: string
+): Promise<void> {
+  let sdkInstalled = true;
+  try {
+    require.resolve('@anthropic-ai/claude-agent-sdk');
+  } catch {
+    sdkInstalled = false;
+  }
+
+  if (!sdkInstalled) {
+    logger.warn(
+      'Anthropic Agent SDK not found — install with: npm install @anthropic-ai/claude-agent-sdk'
+    );
+  }
+
+  const tokens = (process.env.ANTHROPIC_API_KEY || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  if (tokens.length === 0) {
+    logger.warn(
+      'anthropic-sdk: no ANTHROPIC_API_KEY configured — set one (or a comma-separated pool) in .env.aidev.'
+    );
+    return;
+  }
+
+  if (sdkInstalled) {
+    logger.info(
+      `anthropic-sdk: SDK installed, ${tokens.length} API key${tokens.length === 1 ? '' : 's'} configured.`
+    );
+  }
+}
+
 // ── Codex ──────────────────────────────────────────────────────────────────
 
 async function validateCodexPermissions(
@@ -212,6 +250,8 @@ export async function validateAgentPermissions(
       await validateAntigravityPermissions(rl, dir);
     } else if (agent === 'codex') {
       await validateCodexPermissions(rl, dir);
+    } else if (agent === 'anthropic-sdk') {
+      await validateAnthropicSdkPermissions(rl, dir);
     }
   }
 }
