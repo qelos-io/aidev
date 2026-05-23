@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { sourceShellProfile, mergeNullDelimited, applyEnvFiles, resolveEnvPath, loadConfig } from '../config';
+import { sourceShellProfile, mergeNullDelimited, applyEnvFiles, resolveEnvPath, loadConfig, parseAnthropicTokens, pickNextToken } from '../config';
 
 // ─── mergeNullDelimited ────────────────────────────────────────────────────────
 
@@ -500,5 +500,88 @@ describe('loadConfig AGENTS parsing', () => {
     const config = loadConfig();
     assert.deepEqual(config.agents, ['claude']);
     delete process.env.AGENTS;
+  });
+
+  it('accepts anthropic-sdk as a valid agent', () => {
+    writeEnv('AGENTS=anthropic-sdk');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['anthropic-sdk']);
+  });
+
+  it('accepts anthropic-sdk alongside other agents', () => {
+    writeEnv('AGENTS=claude,anthropic-sdk,cursor');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['claude', 'anthropic-sdk', 'cursor']);
+  });
+});
+
+// ─── parseAnthropicTokens ─────────────────────────────────────────────────────
+
+describe('parseAnthropicTokens', () => {
+  it('returns an empty array for an empty string', () => {
+    assert.deepEqual(parseAnthropicTokens(''), []);
+  });
+
+  it('parses a single token', () => {
+    assert.deepEqual(parseAnthropicTokens('sk-ant-key-1'), ['sk-ant-key-1']);
+  });
+
+  it('parses multiple comma-separated tokens', () => {
+    assert.deepEqual(
+      parseAnthropicTokens('sk-ant-key-1,sk-ant-key-2,sk-ant-key-3'),
+      ['sk-ant-key-1', 'sk-ant-key-2', 'sk-ant-key-3'],
+    );
+  });
+
+  it('trims whitespace around tokens', () => {
+    assert.deepEqual(
+      parseAnthropicTokens(' sk-ant-key-1 , sk-ant-key-2 '),
+      ['sk-ant-key-1', 'sk-ant-key-2'],
+    );
+  });
+
+  it('drops empty entries from trailing or consecutive commas', () => {
+    assert.deepEqual(
+      parseAnthropicTokens('sk-ant-key-1,,sk-ant-key-2,'),
+      ['sk-ant-key-1', 'sk-ant-key-2'],
+    );
+  });
+
+  it('returns an empty array for a string of only commas and whitespace', () => {
+    assert.deepEqual(parseAnthropicTokens(' , , , '), []);
+  });
+});
+
+// ─── pickNextToken ────────────────────────────────────────────────────────────
+
+describe('pickNextToken', () => {
+  it('returns undefined token and cursor 0 for an empty list', () => {
+    assert.deepEqual(pickNextToken([], 0), { token: undefined, nextCursor: 0 });
+    assert.deepEqual(pickNextToken([], 5), { token: undefined, nextCursor: 0 });
+  });
+
+  it('returns the only token and wraps cursor to 0 for a single-token list', () => {
+    assert.deepEqual(pickNextToken(['a'], 0), { token: 'a', nextCursor: 0 });
+    assert.deepEqual(pickNextToken(['a'], 1), { token: 'a', nextCursor: 0 });
+  });
+
+  it('rotates through tokens in order', () => {
+    const tokens = ['a', 'b', 'c'];
+    let cursor = 0;
+    const seen: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const { token, nextCursor } = pickNextToken(tokens, cursor);
+      seen.push(token!);
+      cursor = nextCursor;
+    }
+    assert.deepEqual(seen, ['a', 'b', 'c', 'a', 'b', 'c']);
+  });
+
+  it('wraps cursor back to 0 after the last token', () => {
+    assert.deepEqual(pickNextToken(['a', 'b'], 1), { token: 'b', nextCursor: 0 });
+  });
+
+  it('normalizes an out-of-range cursor via modulo', () => {
+    assert.deepEqual(pickNextToken(['a', 'b', 'c'], 7), { token: 'b', nextCursor: 2 });
   });
 });

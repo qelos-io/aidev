@@ -103,6 +103,32 @@ export function applyEnvFiles(localPath: string | undefined, envExtend?: string)
   }
 }
 
+/**
+ * Parse a comma-separated `ANTHROPIC_API_KEY` value into a list of tokens.
+ * Trims whitespace and drops empty entries so trailing commas / blank slots
+ * don't introduce phantom tokens.
+ */
+export function parseAnthropicTokens(raw: string): string[] {
+  return (raw || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Round-robin token selector. Returns the token at `cursor` and the next
+ * cursor position. When the list is empty, `token` is `undefined` and the
+ * cursor stays at 0.
+ */
+export function pickNextToken(
+  tokens: string[],
+  cursor: number,
+): { token: string | undefined; nextCursor: number } {
+  if (tokens.length === 0) return { token: undefined, nextCursor: 0 };
+  const idx = ((cursor % tokens.length) + tokens.length) % tokens.length;
+  return { token: tokens[idx], nextCursor: (idx + 1) % tokens.length };
+}
+
 export function loadConfig(customEnvPath?: string): Config {
   sourceShellProfile();
 
@@ -143,7 +169,7 @@ export function loadConfig(customEnvPath?: string): Config {
     }
   }
 
-  const validAgents: AgentName[] = ['antigravity', 'claude', 'codex', 'cursor', 'windsurf'];
+  const validAgents: AgentName[] = ['antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'windsurf'];
   const agentsRaw = process.env.AGENTS || 'claude,cursor';
   const agents = agentsRaw
     .split(',')
