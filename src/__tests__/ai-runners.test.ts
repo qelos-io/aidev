@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { logger } from '../logger';
 import { AntigravityRunner } from '../ai/antigravity';
-import { AnthropicSdkRunner } from '../ai/anthropicSdk';
+import { AnthropicSdkRunner, getAnthropicSdkMaxRetries } from '../ai/anthropicSdk';
 import { ClaudeRunner } from '../ai/claude';
 import { CodexRunner } from '../ai/codex';
 import { CursorRunner } from '../ai/cursor';
@@ -456,13 +456,14 @@ function fakeSdk(messages: SdkMessage[]): { sdk: unknown; calls: QueryCall[] } {
 }
 
 function withAnthropicEnv<T>(
-  env: { apiKey?: string; baseUrl?: string; model?: string },
+  env: { apiKey?: string; baseUrl?: string; model?: string; maxRetries?: string },
   fn: () => Promise<T>,
 ): Promise<T> {
   const prev = {
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseUrl: process.env.ANTHROPIC_BASE_URL,
     model: process.env.CLAUDE_MODEL,
+    maxRetries: process.env.ANTHROPIC_SDK_MAX_RETRIES,
   };
   if (env.apiKey !== undefined) process.env.ANTHROPIC_API_KEY = env.apiKey;
   else delete process.env.ANTHROPIC_API_KEY;
@@ -470,6 +471,8 @@ function withAnthropicEnv<T>(
   else delete process.env.ANTHROPIC_BASE_URL;
   if (env.model !== undefined) process.env.CLAUDE_MODEL = env.model;
   else delete process.env.CLAUDE_MODEL;
+  if (env.maxRetries !== undefined) process.env.ANTHROPIC_SDK_MAX_RETRIES = env.maxRetries;
+  else delete process.env.ANTHROPIC_SDK_MAX_RETRIES;
 
   return fn().finally(() => {
     if (prev.apiKey === undefined) delete process.env.ANTHROPIC_API_KEY;
@@ -478,6 +481,8 @@ function withAnthropicEnv<T>(
     else process.env.ANTHROPIC_BASE_URL = prev.baseUrl;
     if (prev.model === undefined) delete process.env.CLAUDE_MODEL;
     else process.env.CLAUDE_MODEL = prev.model;
+    if (prev.maxRetries === undefined) delete process.env.ANTHROPIC_SDK_MAX_RETRIES;
+    else process.env.ANTHROPIC_SDK_MAX_RETRIES = prev.maxRetries;
   });
 }
 
@@ -630,7 +635,7 @@ describe('AnthropicSdkRunner', () => {
   it('returns success=false and logs a warning when the SDK throws', async () => {
     const spies = spyLogger();
 
-    await withAnthropicEnv({ apiKey: 'sk-x' }, async () => {
+    await withAnthropicEnv({ apiKey: 'sk-x', maxRetries: '0' }, async () => {
       const runner = new AnthropicSdkRunner();
       mock.method(runner, 'loadSdk', async () => {
         throw new Error('auth failed');
@@ -650,6 +655,133 @@ describe('AnthropicSdkRunner', () => {
       const runner = new AnthropicSdkRunner();
       assert.equal(runner.isAvailable(), false);
     });
+  });
+});
+
+// ─── AnthropicSdkRunner – retry behavior ─────────────────────────────────────
+
+describe('AnthropicSdkRunner – retries', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('retries transient SDK errors and eventually succeeds', async () => {
+    spyLogger();
+    const { sdk } = fakeSdk([
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'recovered' }] } },
+      { type: 'result', result: 'ok' },
+    ]);
+
+    await withAnthropicEnv({ apiKey: 'sk-x', maxRetries: '3' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'retryDelayMs', () => 0);
+
+      // Fail the first two loadSdk calls; succeed on the third.
+      let calls = 0;
+      mock.method(runner, 'loadSdk', async () => {
+        calls += 1;
+        if (calls < 3) throw new Error('ECONNRESET');
+        return sdk;
+      });
+
+      const result = await runner.run('p');
+      assert.equal(result.success, true);
+      assert.equal(result.output, 'recovered\nok');
+      assert.equal(result.error, '');
+      assert.equal(calls, 3);
+    });
+  });
+
+  it('honors ANTHROPIC_SDK_MAX_RETRIES and surfaces the last error after exhausting attempts', async () => {
+    spyLogger();
+
+    await withAnthropicEnv({ apiKey: 'sk-x', maxRetries: '2' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'retryDelayMs', () => 0);
+
+      let calls = 0;
+      mock.method(runner, 'loadSdk', async () => {
+        calls += 1;
+        throw new Error(`fail ${calls}`);
+      });
+
+      const result = await runner.run('p');
+      assert.equal(result.success, false);
+      // 1 initial + 2 retries = 3 attempts
+      assert.equal(calls, 3);
+      assert.equal(result.error, 'fail 3');
+    });
+  });
+
+  it('does not retry when ANTHROPIC_SDK_MAX_RETRIES=0', async () => {
+    spyLogger();
+
+    await withAnthropicEnv({ apiKey: 'sk-x', maxRetries: '0' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'retryDelayMs', () => 0);
+
+      let calls = 0;
+      mock.method(runner, 'loadSdk', async () => {
+        calls += 1;
+        throw new Error('boom');
+      });
+
+      const result = await runner.run('p');
+      assert.equal(result.success, false);
+      assert.equal(calls, 1);
+      assert.equal(result.error, 'boom');
+    });
+  });
+
+  it('rotates to the next token on each retry attempt', async () => {
+    spyLogger();
+
+    await withAnthropicEnv({ apiKey: 'k1,k2,k3', maxRetries: '2' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'retryDelayMs', () => 0);
+
+      const seenKeys: Array<string | undefined> = [];
+      mock.method(runner, 'loadSdk', async () => {
+        seenKeys.push(process.env.ANTHROPIC_API_KEY);
+        throw new Error('nope');
+      });
+
+      const result = await runner.run('p');
+      assert.equal(result.success, false);
+      assert.deepEqual(seenKeys, ['k1', 'k2', 'k3']);
+    });
+  });
+});
+
+describe('getAnthropicSdkMaxRetries', () => {
+  const prev = process.env.ANTHROPIC_SDK_MAX_RETRIES;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.ANTHROPIC_SDK_MAX_RETRIES;
+    else process.env.ANTHROPIC_SDK_MAX_RETRIES = prev;
+  });
+
+  it('defaults to 3 when the env var is unset', () => {
+    delete process.env.ANTHROPIC_SDK_MAX_RETRIES;
+    assert.equal(getAnthropicSdkMaxRetries(), 3);
+  });
+
+  it('returns the parsed env value when valid', () => {
+    process.env.ANTHROPIC_SDK_MAX_RETRIES = '7';
+    assert.equal(getAnthropicSdkMaxRetries(), 7);
+  });
+
+  it('accepts 0 as a valid value (disables retries)', () => {
+    process.env.ANTHROPIC_SDK_MAX_RETRIES = '0';
+    assert.equal(getAnthropicSdkMaxRetries(), 0);
+  });
+
+  it('falls back to the default on non-numeric input', () => {
+    process.env.ANTHROPIC_SDK_MAX_RETRIES = 'foo';
+    assert.equal(getAnthropicSdkMaxRetries(), 3);
+  });
+
+  it('falls back to the default on negative numbers', () => {
+    process.env.ANTHROPIC_SDK_MAX_RETRIES = '-1';
+    assert.equal(getAnthropicSdkMaxRetries(), 3);
   });
 });
 
