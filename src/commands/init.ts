@@ -11,7 +11,9 @@ import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
 import { commandExists, isWindows } from '../platform';
 import chalk from 'chalk';
 
-const VALID_AGENTS = ['antigravity', 'claude', 'codex', 'cursor', 'windsurf'] as const;
+const VALID_AGENTS = ['antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'windsurf'] as const;
+
+const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-6';
 
 // Patterns we want guaranteed in .gitignore.
 // Each entry: [pattern to write, regex that matches equivalent existing lines]
@@ -165,6 +167,10 @@ export interface Answers {
   githubBaseBranch: string;
   githubRepo: string;
   agents: string;
+  // Anthropic SDK runner (when agent list includes 'anthropic-sdk')
+  anthropicApiKey: string;
+  anthropicBaseUrl: string;
+  claudeModel: string;
   devNotesMode: string;
   triggerWord: string;
   thinkingTag: string;
@@ -373,9 +379,21 @@ export function renderEnv(a: Answers): string {
     `GITHUB_BASE_BRANCH=${envVal(a.githubBaseBranch)}`,
     line('GITHUB_REPO', a.githubRepo),
     ``,
-    `# Agents to use, in fallback order (comma-separated: antigravity, claude, codex, cursor, windsurf)`,
+    `# Agents to use, in fallback order (comma-separated: antigravity, anthropic-sdk, claude, codex, cursor, windsurf)`,
     `AGENTS=${a.agents}`,
     ``,
+    ...(a.agents.split(',').map((s) => s.trim()).includes('anthropic-sdk')
+      ? [
+          `# Anthropic Agent SDK runner — drives Claude in-process via @anthropic-ai/claude-agent-sdk.`,
+          `# ANTHROPIC_API_KEY accepts a comma-separated pool of tokens; the runner rotates round-robin.`,
+          `ANTHROPIC_API_KEY=${envVal(a.anthropicApiKey)}`,
+          a.anthropicBaseUrl
+            ? `ANTHROPIC_BASE_URL=${envVal(a.anthropicBaseUrl)}`
+            : `# ANTHROPIC_BASE_URL=https://api.anthropic.com`,
+          `CLAUDE_MODEL=${envVal(a.claudeModel || DEFAULT_CLAUDE_MODEL)}`,
+          ``,
+        ]
+      : []),
     `# DEV_NOTES_MODE: smart (only ask when unclear) | always (ask before every task)`,
     `DEV_NOTES_MODE=${a.devNotesMode}`,
     ``,
@@ -777,9 +795,40 @@ export async function initCommand(): Promise<void> {
     section('AI agents');
     const agents = await pickAgents(rl, existing.AGENTS || '');
 
+    // ── Anthropic Agent SDK ─────────────────────────────────
+    let anthropicApiKey = '';
+    let anthropicBaseUrl = '';
+    let claudeModel = '';
+    const agentList = agents.split(',').map((s) => s.trim());
+    if (agentList.includes('anthropic-sdk')) {
+      section('Anthropic Agent SDK');
+      console.log(
+        chalk.dim(
+          `  Drives Claude in-process via @anthropic-ai/claude-agent-sdk.\n` +
+          `  ANTHROPIC_API_KEY accepts a single key or a comma-separated pool — the runner rotates round-robin.`
+        )
+      );
+      anthropicApiKey = await ask(
+        rl,
+        `ANTHROPIC_API_KEY ${hint('comma-separated for multiple keys')}`,
+        existing.ANTHROPIC_API_KEY || '',
+        true
+      );
+      anthropicBaseUrl = await ask(
+        rl,
+        `ANTHROPIC_BASE_URL ${hint('optional — leave blank for default')}`,
+        existing.ANTHROPIC_BASE_URL || ''
+      );
+      claudeModel = await ask(
+        rl,
+        `CLAUDE_MODEL`,
+        existing.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL
+      );
+    }
+
     // ── Validate agent permissions ──────────────────────────
     section('Agent permissions');
-    await validateAgentPermissions(agents.split(','), rl);
+    await validateAgentPermissions(agentList, rl);
 
     const devNotesMode = await choose(
       rl,
@@ -953,6 +1002,9 @@ export async function initCommand(): Promise<void> {
       githubBaseBranch,
       githubRepo,
       agents,
+      anthropicApiKey,
+      anthropicBaseUrl,
+      claudeModel,
       devNotesMode,
       triggerWord,
       thinkingTag,

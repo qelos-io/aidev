@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { logger } from '../logger';
 import { AntigravityRunner } from '../ai/antigravity';
+import { AnthropicSdkRunner } from '../ai/anthropicSdk';
 import { ClaudeRunner } from '../ai/claude';
 import { CodexRunner } from '../ai/codex';
 import { CursorRunner } from '../ai/cursor';
@@ -411,6 +412,244 @@ describe('WindsurfRunner – Docker mode (Windows)', { skip: !isWindows }, () =>
   it('isAvailable returns boolean on Windows', () => {
     const runner = new WindsurfRunner();
     assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+// ─── AnthropicSdkRunner ──────────────────────────────────────────────────────
+
+type SdkMessage =
+  | { type: 'assistant'; message: { content: Array<{ type: string; text?: string }> } }
+  | { type: 'result'; result: string }
+  | { type: 'system'; subtype: string };
+
+interface QueryCall {
+  prompt: string;
+  options: {
+    cwd: string;
+    allowedTools: string[];
+    permissionMode: string;
+    systemPrompt: { type: string; preset: string };
+    maxTurns: number;
+    model: string;
+  };
+  envSnapshot: { apiKey: string | undefined; baseUrl: string | undefined };
+}
+
+function fakeSdk(messages: SdkMessage[]): { sdk: unknown; calls: QueryCall[] } {
+  const calls: QueryCall[] = [];
+  const sdk = {
+    query(args: QueryCall) {
+      calls.push({
+        prompt: args.prompt,
+        options: args.options,
+        envSnapshot: {
+          apiKey: process.env.ANTHROPIC_API_KEY,
+          baseUrl: process.env.ANTHROPIC_BASE_URL,
+        },
+      });
+      return (async function* () {
+        for (const m of messages) yield m;
+      })();
+    },
+  };
+  return { sdk, calls };
+}
+
+function withAnthropicEnv<T>(
+  env: { apiKey?: string; baseUrl?: string; model?: string },
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prev = {
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    baseUrl: process.env.ANTHROPIC_BASE_URL,
+    model: process.env.CLAUDE_MODEL,
+  };
+  if (env.apiKey !== undefined) process.env.ANTHROPIC_API_KEY = env.apiKey;
+  else delete process.env.ANTHROPIC_API_KEY;
+  if (env.baseUrl !== undefined) process.env.ANTHROPIC_BASE_URL = env.baseUrl;
+  else delete process.env.ANTHROPIC_BASE_URL;
+  if (env.model !== undefined) process.env.CLAUDE_MODEL = env.model;
+  else delete process.env.CLAUDE_MODEL;
+
+  return fn().finally(() => {
+    if (prev.apiKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = prev.apiKey;
+    if (prev.baseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = prev.baseUrl;
+    if (prev.model === undefined) delete process.env.CLAUDE_MODEL;
+    else process.env.CLAUDE_MODEL = prev.model;
+  });
+}
+
+describe('AnthropicSdkRunner', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('returns failure when no ANTHROPIC_API_KEY is configured', async () => {
+    spyLogger();
+    await withAnthropicEnv({}, async () => {
+      const runner = new AnthropicSdkRunner();
+      const result = await runner.run('do something');
+      assert.equal(result.success, false);
+      assert.equal(result.output, '');
+      assert.match(result.error, /No ANTHROPIC_API_KEY/);
+    });
+  });
+
+  it('concatenates assistant text and result into output', async () => {
+    spyLogger();
+    const { sdk } = fakeSdk([
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'hello ' }] } },
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'world' }] } },
+      { type: 'result', result: 'final-summary' },
+    ]);
+
+    await withAnthropicEnv({ apiKey: 'sk-test' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => sdk);
+
+      const result = await runner.run('please help');
+      assert.equal(result.success, true);
+      assert.equal(result.error, '');
+      assert.equal(result.output, 'hello world\nfinal-summary');
+    });
+  });
+
+  it('forwards cwd, claude_code preset, and default model to the SDK', async () => {
+    spyLogger();
+    const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
+
+    await withAnthropicEnv({ apiKey: 'sk-test' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => sdk);
+      await runner.run('the prompt');
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].prompt, 'the prompt');
+    assert.equal(calls[0].options.cwd, process.cwd());
+    assert.equal(calls[0].options.systemPrompt.type, 'preset');
+    assert.equal(calls[0].options.systemPrompt.preset, 'claude_code');
+    assert.equal(calls[0].options.permissionMode, 'acceptEdits');
+    assert.equal(calls[0].options.model, 'claude-opus-4-6');
+    assert.deepEqual(calls[0].options.allowedTools, ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash']);
+  });
+
+  it('uses CLAUDE_MODEL from env when set', async () => {
+    spyLogger();
+    const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
+
+    await withAnthropicEnv({ apiKey: 'sk-test', model: 'claude-sonnet-4-6' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => sdk);
+      await runner.run('p');
+    });
+
+    assert.equal(calls[0].options.model, 'claude-sonnet-4-6');
+  });
+
+  it('sets ANTHROPIC_API_KEY during the call and restores it after', async () => {
+    spyLogger();
+    const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
+
+    await withAnthropicEnv({ apiKey: 'sk-original' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => sdk);
+      await runner.run('p');
+
+      // While the SDK was being called, the chosen token (the only one) was in env
+      assert.equal(calls[0].envSnapshot.apiKey, 'sk-original');
+      // After the call, env is restored to the original value
+      assert.equal(process.env.ANTHROPIC_API_KEY, 'sk-original');
+    });
+  });
+
+  it('sets ANTHROPIC_BASE_URL during the call when configured and restores after', async () => {
+    spyLogger();
+    const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
+
+    await withAnthropicEnv(
+      { apiKey: 'sk-x', baseUrl: 'https://proxy.example.com' },
+      async () => {
+        const runner = new AnthropicSdkRunner();
+        mock.method(runner, 'loadSdk', async () => sdk);
+        await runner.run('p');
+
+        assert.equal(calls[0].envSnapshot.baseUrl, 'https://proxy.example.com');
+        assert.equal(process.env.ANTHROPIC_BASE_URL, 'https://proxy.example.com');
+      },
+    );
+  });
+
+  it('does not set ANTHROPIC_BASE_URL when not configured (and leaves it absent afterwards)', async () => {
+    spyLogger();
+    const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
+
+    await withAnthropicEnv({ apiKey: 'sk-x' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => sdk);
+      await runner.run('p');
+
+      assert.equal(calls[0].envSnapshot.baseUrl, undefined);
+      assert.equal(process.env.ANTHROPIC_BASE_URL, undefined);
+    });
+  });
+
+  it('rotates round-robin through a comma-separated token pool', async () => {
+    spyLogger();
+    const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
+
+    await withAnthropicEnv({ apiKey: 'k1,k2,k3' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => sdk);
+      await runner.run('a');
+      await runner.run('b');
+      await runner.run('c');
+      await runner.run('d');
+    });
+
+    assert.deepEqual(
+      calls.map((c) => c.envSnapshot.apiKey),
+      ['k1', 'k2', 'k3', 'k1'],
+    );
+  });
+
+  it('appends notes to the prompt as "Additional context"', async () => {
+    spyLogger();
+    const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
+
+    await withAnthropicEnv({ apiKey: 'sk-x' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => sdk);
+      await runner.run('do X', 'be careful about Y');
+    });
+
+    assert.equal(calls[0].prompt, 'do X\n\nAdditional context:\nbe careful about Y');
+  });
+
+  it('returns success=false and logs a warning when the SDK throws', async () => {
+    const spies = spyLogger();
+
+    await withAnthropicEnv({ apiKey: 'sk-x' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => {
+        throw new Error('auth failed');
+      });
+      const result = await runner.run('p');
+      assert.equal(result.success, false);
+      assert.equal(result.error, 'auth failed');
+    });
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(warnCalls.some((m) => m?.includes('auth failed')));
+  });
+
+  it('isAvailable returns false when no token is set even if the SDK is installed', async () => {
+    spyLogger();
+    await withAnthropicEnv({}, async () => {
+      const runner = new AnthropicSdkRunner();
+      assert.equal(runner.isAvailable(), false);
+    });
   });
 });
 
