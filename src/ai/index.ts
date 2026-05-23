@@ -1,6 +1,7 @@
 import { Config } from '../types';
 import { AIRunner } from './base';
 import { AntigravityRunner } from './antigravity';
+import { AnthropicSdkRunner } from './anthropicSdk';
 import { ClaudeRunner } from './claude';
 import { CodexRunner } from './codex';
 import { CursorRunner } from './cursor';
@@ -9,6 +10,7 @@ import { logger } from '../logger';
 
 const registry: Record<string, AIRunner> = {
   antigravity: new AntigravityRunner(),
+  'anthropic-sdk': new AnthropicSdkRunner(),
   claude: new ClaudeRunner(),
   codex: new CodexRunner(),
   cursor: new CursorRunner(),
