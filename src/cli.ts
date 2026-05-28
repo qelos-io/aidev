@@ -42,7 +42,7 @@ program
     helpCommand();
   });
 
-async function runWithFilter(filter: string | undefined): Promise<void> {
+async function runWithFilter(filter: string | undefined, taskId?: string): Promise<void> {
   const validFilters = ['all', 'open', 'pending', 'tasks', 'accepted'];
 
   if (filter && !validFilters.includes(filter)) {
@@ -61,8 +61,10 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
       return;
     }
 
+    // Single-task execution skips the local-push/non-code/accepted machinery:
+    // the UI's "Execute" action targets exactly one remote task.
     let nonCodeProvider: TaskProvider | undefined;
-    if (config.nonCodeTag) {
+    if (config.nonCodeTag && !taskId) {
       const nonCodeConfig: Config = {
         ...config,
         clickupTag: config.nonCodeTag,
@@ -76,10 +78,12 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
       nonCodeProvider = createProvider(nonCodeConfig, 'non-code');
     }
 
-    // Always process local tasks (aidev.tasks.json)
-    const localResult = await processLocalTasks(config, provider, nonCodeProvider);
-    if (localResult.pushed > 0 || localResult.skipped > 0) {
-      logger.info(`Local tasks: ${localResult.pushed} pushed, ${localResult.skipped} skipped`);
+    if (!taskId) {
+      // Always process local tasks (aidev.tasks.json)
+      const localResult = await processLocalTasks(config, provider, nonCodeProvider);
+      if (localResult.pushed > 0 || localResult.skipped > 0) {
+        logger.info(`Local tasks: ${localResult.pushed} pushed, ${localResult.skipped} skipped`);
+      }
     }
 
     if (filter === 'tasks') return;
@@ -88,10 +92,10 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
     const runners = createRunners(config);
     const hooks = loadHooks(config.hooksPath);
     const hookVM = createHookVM(provider, runners);
-    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, hooks, hookVM);
+    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, hooks, hookVM, taskId);
 
     // Auto-merge accepted PRs if configured (requires gh CLI)
-    if (config.acceptedTag && isGhInstalled()) {
+    if (!taskId && config.acceptedTag && isGhInstalled()) {
       await acceptedCommand(config, provider);
     }
   } catch (err) {
@@ -103,8 +107,9 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
 program
   .command('run [filter]', { isDefault: true })
   .description('Process tasks: all (default), open, pending, tasks, or accepted. Also checks review tasks for unresolved PR comments.')
-  .action(async (filter?: string) => {
-    await runWithFilter(filter);
+  .option('--task <id>', 'process only the task with this provider id (skips local-task push, non-code, accepted, and review phases)')
+  .action(async (filter: string | undefined, opts: { task?: string }) => {
+    await runWithFilter(filter, opts.task);
   });
 
 program
