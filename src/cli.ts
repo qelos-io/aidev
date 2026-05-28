@@ -6,6 +6,7 @@ import { scheduleSetCommand, scheduleGetCommand, scheduleRemoveCommand, schedule
 import { tasksAddCommand, tasksRemoveCommand, tasksLsCommand, tasksPushCommand, tasksUpdateCommand } from './commands/tasks';
 import { helpCommand } from './commands/help';
 import { stopCommand } from './commands/stop';
+import { uiCommand } from './commands/ui';
 import { loadConfig } from './config';
 import { createProvider, TaskProvider } from './providers';
 import { createRunners } from './ai';
@@ -111,6 +112,20 @@ program
   .description('Stop any running aidev process in the current directory')
   .action(() => {
     stopCommand();
+  });
+
+program
+  .command('ui')
+  .description('Run the aidev dashboard UI (Nuxt app) on a local port')
+  .option('--port <number>', 'port to bind on 127.0.0.1', '19422')
+  .option('--prod', 'serve the built Nuxt output if present (falls back to dev)')
+  .action(async (opts: { port?: string; prod?: boolean }) => {
+    try {
+      await uiCommand(opts);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
   });
 
 const scheduleCmd = program
