@@ -3,15 +3,26 @@
 The dashboard is a Nuxt 3 (ESM) app that lives at the repo root under `ui/`.
 It is launched by the `aidev ui` CLI command and stays loopback-only.
 
+## Per-screen handover
+
+- [config.md](./config.md) — `.env.aidev` editor + provider/AI ping.
+- [logs.md](./logs.md) — log viewer with search and clear.
+- [tasks.md](./tasks.md) — provider task board + per-task execute.
+- [run.md](./run.md) — Open / Pending / Review / All buttons with live SSE.
+
 ## Launch
 
-From a directory containing `.env.aidev`:
+From a directory containing `.env.aidev` (and after `npm run build` at the
+aidev repo root so `dist/cli.js` exists):
 
 ```bash
-aidev ui                # dev mode, port 19422
-aidev ui --port 19500   # custom port
-aidev ui --prod         # serve built output if present, fall back to dev
+node dist/cli.js ui                # dev mode, port 19422 (default)
+node dist/cli.js ui --port 19500   # custom port
+node dist/cli.js ui --prod         # serve built Nuxt output if present, fall back to dev
 ```
+
+When aidev is installed globally (or via `npm link`), `aidev ui …` works the
+same way.
 
 The CLI:
 
@@ -27,7 +38,26 @@ Each launch generates a new token; restarting `aidev ui` invalidates the old log
 
 ## Auth flow
 
-1. User opens the printed `…/login?token=…` URL.
+```
+  ┌─────────────┐  prints token URL   ┌────────────────────┐
+  │ aidev ui    │ ──────────────────▶ │ user's terminal    │
+  │  (CLI)      │                     └─────────┬──────────┘
+  │             │                               │ click
+  │  spawns ▼   │                               ▼
+  │  Nitro      │      GET /login?token=…  ┌──────────┐
+  │  (Nuxt)     │ ◀──────────────────────  │ browser  │
+  │             │                          └────┬─────┘
+  │  middleware │   stores token in localStorage│
+  │  rejects    │      (key: aidev-ui-token)    │
+  │  non-loop / │                               │
+  │  bad token  │   Authorization: Bearer …     │
+  │             │ ◀──────────────────────────── │
+  └─────────────┘     every /api/* request      │
+                                                ▼
+                                         redirects to / 
+```
+
+1. User opens the printed `http://127.0.0.1:<port>/login?token=…` URL.
 2. `ui/pages/login.vue` reads the `?token=` query, stores it in `localStorage`
    under the key `aidev-ui-token`, and redirects to `/`.
 3. All API calls are wrapped by `ui/composables/useApi.ts`, which injects
@@ -54,9 +84,9 @@ ui/
     login.vue                   # token handshake (no layout)
     index.vue                   # Dashboard
     config.vue                  # .env.aidev editor
-    logs.vue                    # log viewer + search (stub)
-    tasks.vue                   # provider task board (stub)
-    run.vue                     # run buttons + SSE viewer (stub)
+    logs.vue                    # log viewer + search + clear
+    tasks.vue                   # provider task board + per-task execute
+    run.vue                     # Open/Pending/Review/All buttons + SSE viewer
   composables/
     useApi.ts                   # $fetch wrapper that injects bearer + handles 401
   server/
@@ -64,11 +94,24 @@ ui/
       auth.ts                   # loopback + bearer enforcement
     utils/
       envFile.ts                # read/write .env.aidev preserving comments + order
+      logFile.ts                # locate + tail the aidev log file
+      provider.ts               # lazy-load aidev's CJS provider into Nitro
+      currentRun.ts             # module-level slot tracking the active `aidev run`
     api/
       config.get.ts             # GET /api/config
       config.put.ts             # PUT /api/config
       config/
         test.post.ts            # POST /api/config/test
+      logs.get.ts               # GET /api/logs?q=…
+      logs.delete.ts            # DELETE /api/logs
+      tasks.get.ts              # GET /api/tasks
+      tasks/[id].get.ts         # GET /api/tasks/:id
+      tasks/[id].patch.ts       # PATCH /api/tasks/:id
+      tasks/[id]/comment.post.ts# POST /api/tasks/:id/comment
+      tasks/[id]/status.post.ts # POST /api/tasks/:id/status
+      tasks/[id]/execute.post.ts# POST /api/tasks/:id/execute  (SSE)
+      run.post.ts               # POST /api/run                (SSE)
+      run/cancel.post.ts        # POST /api/run/cancel
   docs/handover/                # one md per screen — this directory
 ```
 
@@ -114,4 +157,6 @@ and stream stdout via h3's `eventStream`.
 | 1    | done   | CLI command + Nuxt scaffold                                        |
 | 2    | done   | Auth middleware, login, layout, stub pages, handover docs          |
 | 3    | done   | Config screen — env file routes + dynamic form                     |
-| 4+   | todo   | Logs / Tasks / Run screens — see per-screen handover docs          |
+| 4    | done   | Logs screen — read / search / clear                                |
+| 5    | done   | Tasks screen — provider wrap + per-task execute (SSE)              |
+| 6    | done   | Run screen — Open / Pending / Review / All buttons with SSE        |

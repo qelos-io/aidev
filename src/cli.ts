@@ -43,10 +43,10 @@ program
   });
 
 async function runWithFilter(filter: string | undefined, taskId?: string): Promise<void> {
-  const validFilters = ['all', 'open', 'pending', 'tasks', 'accepted'];
+  const validFilters = ['all', 'open', 'pending', 'review', 'tasks', 'accepted'];
 
   if (filter && !validFilters.includes(filter)) {
-    logger.error(`Unknown filter: ${filter}. Valid options: all, open, pending, tasks, accepted`);
+    logger.error(`Unknown filter: ${filter}. Valid options: all, open, pending, review, tasks, accepted`);
     process.exit(1);
   }
 
@@ -106,10 +106,15 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
 
 program
   .command('run [filter]', { isDefault: true })
-  .description('Process tasks: all (default), open, pending, tasks, or accepted. Also checks review tasks for unresolved PR comments.')
+  .description('Process tasks: all (default), open, pending, review, tasks, or accepted. Also checks review tasks for unresolved PR comments.')
   .option('--task <id>', 'process only the task with this provider id (skips local-task push, non-code, accepted, and review phases)')
-  .action(async (filter: string | undefined, opts: { task?: string }) => {
-    await runWithFilter(filter, opts.task);
+  .option('--status <status>', 'alias for the positional filter — used by the aidev ui dashboard (open, pending, review, all)')
+  .action(async (filter: string | undefined, opts: { task?: string; status?: string }) => {
+    // --status is just a long-form alias for the positional filter so the UI's
+    // Run screen can spawn `aidev run --status <status>` without worrying about
+    // commander positional parsing. Explicit positional wins if both are given.
+    const effectiveFilter = filter ?? opts.status;
+    await runWithFilter(effectiveFilter, opts.task);
   });
 
 program

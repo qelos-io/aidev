@@ -53,7 +53,7 @@ export function getInReviewStatus(config: Config): string {
   return config.clickupInReviewStatus;
 }
 
-export type RunFilter = 'all' | 'open' | 'pending';
+export type RunFilter = 'all' | 'open' | 'pending' | 'review';
 
 export interface SubTask {
   id: number | string;
@@ -93,6 +93,12 @@ export function getRunSkipReason(status: string, filter: RunFilter, pendingStatu
 
   if (filter === 'pending' && !isPending) {
     return 'filter=pending but task is not pending';
+  }
+
+  // The UI exposes a dedicated 'review' button that only walks the in-review
+  // queue (see runCommand's review phase). All other tasks must be skipped.
+  if (filter === 'review') {
+    return 'filter=review skips open/pending tasks';
   }
 
   return null;
