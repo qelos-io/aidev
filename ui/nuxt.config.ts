@@ -18,11 +18,11 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     aidevUiToken: process.env.AIDEV_UI_TOKEN ?? '',
-    aidevCwd: process.env.AIDEV_CWD ?? '',
     public: {
       // Only non-secret values go here. The token lives server-side and is
       // delivered to the SPA via the /login?token=... handshake.
       port: process.env.AIDEV_UI_PORT ?? '19422',
+      aidevCwd: process.env.AIDEV_CWD ?? '',
     },
   },
 });
