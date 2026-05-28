@@ -2,6 +2,8 @@ import { AIRunner, AIRunResult } from './base';
 import { logger } from '../logger';
 import { commandExists, getUserShellEnv, shouldRetryAgentCliAttempt, spawnCommand } from '../platform';
 
+const DEFAULT_MODEL = 'opusplan';
+
 export class ClaudeRunner implements AIRunner {
   readonly name = 'claude';
 
@@ -15,9 +17,14 @@ export class ClaudeRunner implements AIRunner {
     logger.info('Running Claude CLI...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
+    const model = (process.env.CLAUDE_MODEL || '').trim() || DEFAULT_MODEL;
+
     const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions'];
-    // Prefer default model from CLI/settings first; `--model auto` fails on some installs/plans.
+    // Default to CLAUDE_MODEL (opusplan routes plan→opus and code→sonnet, saving tokens).
+    // Fall back to the CLI's own default model, then `--model auto` — both fail on
+    // some installs/plans, so they come last.
     const attempts: string[][] = [
+      [...baseArgs, '--model', model],
       baseArgs,
       [...baseArgs, '--reasoning', 'auto'],
       [...baseArgs, '--model', 'auto'],
