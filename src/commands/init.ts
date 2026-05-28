@@ -13,7 +13,8 @@ import chalk from 'chalk';
 
 const VALID_AGENTS = ['antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'windsurf'] as const;
 
-const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-6';
+const DEFAULT_CLAUDE_MODEL = 'opusplan';
+const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-4-6';
 
 // Patterns we want guaranteed in .gitignore.
 // Each entry: [pattern to write, regex that matches equivalent existing lines]
@@ -167,10 +168,12 @@ export interface Answers {
   githubBaseBranch: string;
   githubRepo: string;
   agents: string;
+  // Claude CLI runner (when agent list includes 'claude')
+  claudeModel: string;
   // Anthropic SDK runner (when agent list includes 'anthropic-sdk')
   anthropicApiKey: string;
   anthropicBaseUrl: string;
-  claudeModel: string;
+  anthropicModel: string;
   devNotesMode: string;
   triggerWord: string;
   thinkingTag: string;
@@ -382,6 +385,14 @@ export function renderEnv(a: Answers): string {
     `# Agents to use, in fallback order (comma-separated: antigravity, anthropic-sdk, claude, codex, cursor, windsurf)`,
     `AGENTS=${a.agents}`,
     ``,
+    ...(a.agents.split(',').map((s) => s.trim()).includes('claude')
+      ? [
+          `# Claude CLI runner — model passed to \`claude --model\`.`,
+          `# Default \`opusplan\` routes plan→opus, code→sonnet (saves tokens vs. opus-only).`,
+          `CLAUDE_MODEL=${envVal(a.claudeModel || DEFAULT_CLAUDE_MODEL)}`,
+          ``,
+        ]
+      : []),
     ...(a.agents.split(',').map((s) => s.trim()).includes('anthropic-sdk')
       ? [
           `# Anthropic Agent SDK runner — drives Claude in-process via @anthropic-ai/claude-agent-sdk.`,
@@ -390,7 +401,7 @@ export function renderEnv(a: Answers): string {
           a.anthropicBaseUrl
             ? `ANTHROPIC_BASE_URL=${envVal(a.anthropicBaseUrl)}`
             : `# ANTHROPIC_BASE_URL=https://api.anthropic.com`,
-          `CLAUDE_MODEL=${envVal(a.claudeModel || DEFAULT_CLAUDE_MODEL)}`,
+          `ANTHROPIC_MODEL=${envVal(a.anthropicModel || DEFAULT_ANTHROPIC_MODEL)}`,
           ``,
         ]
       : []),
@@ -795,11 +806,28 @@ export async function initCommand(): Promise<void> {
     section('AI agents');
     const agents = await pickAgents(rl, existing.AGENTS || '');
 
+    // ── Claude CLI model ────────────────────────────────────
+    let claudeModel = '';
+    const agentList = agents.split(',').map((s) => s.trim());
+    if (agentList.includes('claude')) {
+      section('Claude CLI');
+      console.log(
+        chalk.dim(
+          `  Model passed to \`claude --model\`. Default \`opusplan\` routes plan→opus,\n` +
+          `  code→sonnet — saves tokens vs. running opus end-to-end.`
+        )
+      );
+      claudeModel = await ask(
+        rl,
+        `CLAUDE_MODEL`,
+        existing.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL
+      );
+    }
+
     // ── Anthropic Agent SDK ─────────────────────────────────
     let anthropicApiKey = '';
     let anthropicBaseUrl = '';
-    let claudeModel = '';
-    const agentList = agents.split(',').map((s) => s.trim());
+    let anthropicModel = '';
     if (agentList.includes('anthropic-sdk')) {
       section('Anthropic Agent SDK');
       console.log(
@@ -819,10 +847,10 @@ export async function initCommand(): Promise<void> {
         `ANTHROPIC_BASE_URL ${hint('optional — leave blank for default')}`,
         existing.ANTHROPIC_BASE_URL || ''
       );
-      claudeModel = await ask(
+      anthropicModel = await ask(
         rl,
-        `CLAUDE_MODEL`,
-        existing.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL
+        `ANTHROPIC_MODEL`,
+        existing.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL
       );
     }
 
@@ -1002,9 +1030,10 @@ export async function initCommand(): Promise<void> {
       githubBaseBranch,
       githubRepo,
       agents,
+      claudeModel,
       anthropicApiKey,
       anthropicBaseUrl,
-      claudeModel,
+      anthropicModel,
       devNotesMode,
       triggerWord,
       thinkingTag,

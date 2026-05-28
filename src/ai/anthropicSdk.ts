@@ -37,10 +37,12 @@ type RunAttemptResult = {
  *
  * Honors a comma-separated pool of `ANTHROPIC_API_KEY` values via round-robin
  * rotation across `run()` calls — and also across retries, so a flaky token
- * gets swapped out on the next attempt. Forwards `ANTHROPIC_BASE_URL` /
- * `CLAUDE_MODEL` when set. The `claude_code` system prompt preset combined
- * with `cwd: process.cwd()` is what makes the SDK pick up `.claude/skills`,
- * `.claude/commands`, and `.claude/agents` from the project — do not override.
+ * gets swapped out on the next attempt. Forwards `ANTHROPIC_BASE_URL` when set
+ * and selects the model via `ANTHROPIC_MODEL` (kept separate from the Claude
+ * CLI's `CLAUDE_MODEL` so each runner can target a different model). The
+ * `claude_code` system prompt preset combined with `cwd: process.cwd()` is
+ * what makes the SDK pick up `.claude/skills`, `.claude/commands`, and
+ * `.claude/agents` from the project — do not override.
  *
  * Transient SDK errors (connection drops, mid-stream failures) are retried up
  * to `ANTHROPIC_SDK_MAX_RETRIES` times (default 3) with capped exponential
@@ -84,7 +86,7 @@ export class AnthropicSdkRunner implements AIRunner {
     const prevApiKey = process.env.ANTHROPIC_API_KEY;
     const prevBaseUrl = process.env.ANTHROPIC_BASE_URL;
     const baseUrl = (process.env.ANTHROPIC_BASE_URL || '').trim();
-    const model = (process.env.CLAUDE_MODEL || '').trim() || DEFAULT_MODEL;
+    const model = (process.env.ANTHROPIC_MODEL || '').trim() || DEFAULT_MODEL;
 
     let lastError = '';
     let lastOutput = '';

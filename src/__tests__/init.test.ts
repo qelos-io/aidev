@@ -90,6 +90,7 @@ const baseAnswers: Answers = {
   anthropicApiKey: '',
   anthropicBaseUrl: '',
   claudeModel: '',
+  anthropicModel: '',
 };
 
 describe('renderEnv', () => {
@@ -172,16 +173,16 @@ describe('renderEnv', () => {
 // ─── renderEnv Anthropic SDK runner ──────────────────────────────────────────
 
 describe('renderEnv anthropic-sdk runner', () => {
-  it('writes ANTHROPIC_API_KEY and CLAUDE_MODEL when anthropic-sdk is in AGENTS', () => {
+  it('writes ANTHROPIC_API_KEY and ANTHROPIC_MODEL when anthropic-sdk is in AGENTS', () => {
     const out = renderEnv({
       ...baseAnswers,
       agents: 'anthropic-sdk,claude',
       anthropicApiKey: 'sk-ant-key-1',
-      claudeModel: 'claude-opus-4-6',
+      anthropicModel: 'claude-opus-4-6',
     });
     assert.ok(out.includes('AGENTS=anthropic-sdk,claude'));
     assert.ok(out.includes('ANTHROPIC_API_KEY=sk-ant-key-1'));
-    assert.ok(out.includes('CLAUDE_MODEL=claude-opus-4-6'));
+    assert.ok(out.includes('ANTHROPIC_MODEL=claude-opus-4-6'));
   });
 
   it('writes ANTHROPIC_BASE_URL when set, otherwise leaves a commented placeholder', () => {
@@ -190,7 +191,7 @@ describe('renderEnv anthropic-sdk runner', () => {
       agents: 'anthropic-sdk',
       anthropicApiKey: 'sk',
       anthropicBaseUrl: 'https://proxy.example.com',
-      claudeModel: 'claude-opus-4-6',
+      anthropicModel: 'claude-opus-4-6',
     });
     assert.ok(withBase.includes('ANTHROPIC_BASE_URL=https://proxy.example.com'));
 
@@ -198,20 +199,20 @@ describe('renderEnv anthropic-sdk runner', () => {
       ...baseAnswers,
       agents: 'anthropic-sdk',
       anthropicApiKey: 'sk',
-      claudeModel: 'claude-opus-4-6',
+      anthropicModel: 'claude-opus-4-6',
     });
     assert.ok(!/^ANTHROPIC_BASE_URL=/m.test(withoutBase));
     assert.ok(withoutBase.includes('# ANTHROPIC_BASE_URL'));
   });
 
-  it('defaults CLAUDE_MODEL to claude-opus-4-6 when blank', () => {
+  it('defaults ANTHROPIC_MODEL to claude-opus-4-6 when blank', () => {
     const out = renderEnv({
       ...baseAnswers,
       agents: 'anthropic-sdk',
       anthropicApiKey: 'sk',
-      claudeModel: '',
+      anthropicModel: '',
     });
-    assert.ok(out.includes('CLAUDE_MODEL=claude-opus-4-6'));
+    assert.ok(out.includes('ANTHROPIC_MODEL=claude-opus-4-6'));
   });
 
   it('quotes a comma-containing ANTHROPIC_API_KEY value so dotenv keeps it as one entry', () => {
@@ -219,7 +220,7 @@ describe('renderEnv anthropic-sdk runner', () => {
       ...baseAnswers,
       agents: 'anthropic-sdk',
       anthropicApiKey: 'sk-1,sk-2,sk-3',
-      claudeModel: 'claude-opus-4-6',
+      anthropicModel: 'claude-opus-4-6',
     });
     // commas don't trigger envVal's quoting (only whitespace/quotes/#), so a raw line is fine
     const parsed = dotenv.parse(out);
@@ -227,9 +228,9 @@ describe('renderEnv anthropic-sdk runner', () => {
   });
 
   it('omits Anthropic SDK keys when anthropic-sdk is not in AGENTS', () => {
-    const out = renderEnv(baseAnswers);
+    const out = renderEnv({ ...baseAnswers, agents: 'cursor' });
     assert.ok(!out.includes('ANTHROPIC_API_KEY'));
-    assert.ok(!out.includes('CLAUDE_MODEL'));
+    assert.ok(!out.includes('ANTHROPIC_MODEL'));
     assert.ok(!out.includes('ANTHROPIC_BASE_URL'));
   });
 
@@ -239,15 +240,38 @@ describe('renderEnv anthropic-sdk runner', () => {
       agents: 'anthropic-sdk,claude',
       anthropicApiKey: 'sk-1,sk-2',
       anthropicBaseUrl: 'https://proxy.example.com',
-      claudeModel: 'claude-opus-4-6',
+      anthropicModel: 'claude-opus-4-6',
+      claudeModel: 'opusplan',
     };
     const first = renderEnv(answers);
     const parsed = dotenv.parse(first);
     assert.equal(parsed.ANTHROPIC_API_KEY, 'sk-1,sk-2');
     assert.equal(parsed.ANTHROPIC_BASE_URL, 'https://proxy.example.com');
-    assert.equal(parsed.CLAUDE_MODEL, 'claude-opus-4-6');
+    assert.equal(parsed.ANTHROPIC_MODEL, 'claude-opus-4-6');
+    assert.equal(parsed.CLAUDE_MODEL, 'opusplan');
     const second = renderEnv(answersFromParsed(parsed));
     assert.equal(second, first);
+  });
+});
+
+describe('renderEnv claude CLI runner', () => {
+  it('writes CLAUDE_MODEL defaulting to opusplan when claude is in AGENTS', () => {
+    const out = renderEnv({ ...baseAnswers, agents: 'claude,cursor', claudeModel: '' });
+    assert.ok(out.includes('CLAUDE_MODEL=opusplan'));
+  });
+
+  it('writes a custom CLAUDE_MODEL when set', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      agents: 'claude',
+      claudeModel: 'claude-sonnet-4-6',
+    });
+    assert.ok(out.includes('CLAUDE_MODEL=claude-sonnet-4-6'));
+  });
+
+  it('omits CLAUDE_MODEL when claude is not in AGENTS', () => {
+    const out = renderEnv({ ...baseAnswers, agents: 'cursor,codex' });
+    assert.ok(!out.includes('CLAUDE_MODEL'));
   });
 });
 
@@ -394,6 +418,7 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     agents: p.AGENTS || '',
     anthropicApiKey: p.ANTHROPIC_API_KEY || '',
     anthropicBaseUrl: p.ANTHROPIC_BASE_URL || '',
+    anthropicModel: p.ANTHROPIC_MODEL || '',
     claudeModel: p.CLAUDE_MODEL || '',
     devNotesMode: p.DEV_NOTES_MODE || 'smart',
     triggerWord: p.AIDEV_TRIGGER_WORD || 'aidev-continue',

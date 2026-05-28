@@ -106,7 +106,7 @@ describe('ClaudeRunner – argv order', () => {
   beforeEach(() => mock.restoreAll());
   afterEach(() => mock.restoreAll());
 
-  it('first attempt omits --model so default CLI model is used', async () => {
+  it('first attempt passes --model opusplan (the default CLAUDE_MODEL)', async () => {
     const argvSnapshots: string[][] = [];
     mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
       // On Windows, spawnCommand calls findBin which may invoke where.exe —
@@ -127,7 +127,14 @@ describe('ClaudeRunner – argv order', () => {
     });
     spyLogger();
 
-    await new ClaudeRunner().run('fix the bug');
+    const prev = process.env.CLAUDE_MODEL;
+    delete process.env.CLAUDE_MODEL;
+    try {
+      await new ClaudeRunner().run('fix the bug');
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_MODEL;
+      else process.env.CLAUDE_MODEL = prev;
+    }
 
     assert.equal(argvSnapshots.length, 1);
     const args = argvSnapshots[0];
@@ -135,7 +142,42 @@ describe('ClaudeRunner – argv order', () => {
     assert.ok(pIdx >= 0, 'expected -p in spawn argv (after any Windows node cli.js prefix)');
     assert.equal(args[pIdx + 1], 'fix the bug');
     assert.ok(args.includes('--dangerously-skip-permissions'));
-    assert.ok(!args.includes('--model'));
+    const modelIdx = args.indexOf('--model');
+    assert.ok(modelIdx >= 0, 'expected --model in spawn argv');
+    assert.equal(args[modelIdx + 1], 'opusplan');
+  });
+
+  it('uses CLAUDE_MODEL from env when set', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return {
+        pid: 1,
+        output: [],
+        stdout: 'ok',
+        stderr: '',
+        status: 0,
+        signal: null,
+        error: undefined,
+      };
+    });
+    spyLogger();
+
+    const prev = process.env.CLAUDE_MODEL;
+    process.env.CLAUDE_MODEL = 'claude-sonnet-4-6';
+    try {
+      await new ClaudeRunner().run('do it');
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_MODEL;
+      else process.env.CLAUDE_MODEL = prev;
+    }
+
+    const args = argvSnapshots[0];
+    const modelIdx = args.indexOf('--model');
+    assert.equal(args[modelIdx + 1], 'claude-sonnet-4-6');
   });
 });
 
@@ -462,15 +504,15 @@ function withAnthropicEnv<T>(
   const prev = {
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseUrl: process.env.ANTHROPIC_BASE_URL,
-    model: process.env.CLAUDE_MODEL,
+    model: process.env.ANTHROPIC_MODEL,
     maxRetries: process.env.ANTHROPIC_SDK_MAX_RETRIES,
   };
   if (env.apiKey !== undefined) process.env.ANTHROPIC_API_KEY = env.apiKey;
   else delete process.env.ANTHROPIC_API_KEY;
   if (env.baseUrl !== undefined) process.env.ANTHROPIC_BASE_URL = env.baseUrl;
   else delete process.env.ANTHROPIC_BASE_URL;
-  if (env.model !== undefined) process.env.CLAUDE_MODEL = env.model;
-  else delete process.env.CLAUDE_MODEL;
+  if (env.model !== undefined) process.env.ANTHROPIC_MODEL = env.model;
+  else delete process.env.ANTHROPIC_MODEL;
   if (env.maxRetries !== undefined) process.env.ANTHROPIC_SDK_MAX_RETRIES = env.maxRetries;
   else delete process.env.ANTHROPIC_SDK_MAX_RETRIES;
 
@@ -479,8 +521,8 @@ function withAnthropicEnv<T>(
     else process.env.ANTHROPIC_API_KEY = prev.apiKey;
     if (prev.baseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL;
     else process.env.ANTHROPIC_BASE_URL = prev.baseUrl;
-    if (prev.model === undefined) delete process.env.CLAUDE_MODEL;
-    else process.env.CLAUDE_MODEL = prev.model;
+    if (prev.model === undefined) delete process.env.ANTHROPIC_MODEL;
+    else process.env.ANTHROPIC_MODEL = prev.model;
     if (prev.maxRetries === undefined) delete process.env.ANTHROPIC_SDK_MAX_RETRIES;
     else process.env.ANTHROPIC_SDK_MAX_RETRIES = prev.maxRetries;
   });
@@ -540,7 +582,7 @@ describe('AnthropicSdkRunner', () => {
     assert.deepEqual(calls[0].options.allowedTools, ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash']);
   });
 
-  it('uses CLAUDE_MODEL from env when set', async () => {
+  it('uses ANTHROPIC_MODEL from env when set', async () => {
     spyLogger();
     const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
 
