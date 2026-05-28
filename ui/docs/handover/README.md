@@ -53,7 +53,7 @@ ui/
   pages/
     login.vue                   # token handshake (no layout)
     index.vue                   # Dashboard
-    config.vue                  # .env.aidev editor (stub)
+    config.vue                  # .env.aidev editor
     logs.vue                    # log viewer + search (stub)
     tasks.vue                   # provider task board (stub)
     run.vue                     # run buttons + SSE viewer (stub)
@@ -62,6 +62,13 @@ ui/
   server/
     middleware/
       auth.ts                   # loopback + bearer enforcement
+    utils/
+      envFile.ts                # read/write .env.aidev preserving comments + order
+    api/
+      config.get.ts             # GET /api/config
+      config.put.ts             # PUT /api/config
+      config/
+        test.post.ts            # POST /api/config/test
   docs/handover/                # one md per screen — this directory
 ```
 
@@ -106,4 +113,5 @@ and stream stdout via h3's `eventStream`.
 |------|--------|--------------------------------------------------------------------|
 | 1    | done   | CLI command + Nuxt scaffold                                        |
 | 2    | done   | Auth middleware, login, layout, stub pages, handover docs          |
-| 3+   | todo   | Config / Logs / Tasks / Run screens — see per-screen handover docs |
+| 3    | done   | Config screen — env file routes + dynamic form                     |
+| 4+   | todo   | Logs / Tasks / Run screens — see per-screen handover docs          |

@@ -23,7 +23,7 @@ export function useApi() {
     if (token) headers.Authorization = `Bearer ${token}`;
 
     try {
-      return await $fetch<T>(url, { ...opts, headers } as Parameters<typeof $fetch>[1]);
+      return (await $fetch(url, { ...opts, headers } as Parameters<typeof $fetch>[1])) as T;
     } catch (err: unknown) {
       const status =
         (err as { response?: { status?: number }; statusCode?: number })?.response?.status ??
