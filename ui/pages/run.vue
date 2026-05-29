@@ -204,7 +204,17 @@ async function startRun(status: RunStatus) {
     });
 
     if (!res.ok || !res.body) {
-      const detail = await res.text().catch(() => res.statusText);
+      // h3 serializes createError() as JSON `{ statusCode, statusMessage, ... }`.
+      // Prefer statusMessage for the inline banner; fall back to raw body so a
+      // non-JSON error (proxy 502, etc.) is still surfaced.
+      const raw = await res.text().catch(() => '');
+      let detail = raw;
+      try {
+        const parsed = JSON.parse(raw) as { statusMessage?: string; message?: string };
+        detail = parsed.statusMessage || parsed.message || raw;
+      } catch {
+        // raw stays as-is.
+      }
       error.value = `HTTP ${res.status}: ${detail || res.statusText}`;
       running.value = false;
       activeStatus.value = null;
