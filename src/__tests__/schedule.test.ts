@@ -5,6 +5,7 @@ import {
   windowsTaskName,
   buildUnixCronLine,
   cronToLaunchdSchedule,
+  launchdScheduleToCron,
   buildLaunchAgentPlist,
   extractLaunchdSchedule,
   extractUnixCronArgs,
@@ -14,6 +15,22 @@ import {
   cmdQuoteForSchtasks,
 } from '../commands/schedule';
 import type { LaunchdSchedule } from '../commands/schedule';
+
+describe('launchdScheduleToCron', () => {
+  it('round-trips preset interval schedules', () => {
+    for (const preset of [
+      '*/15 * * * *',
+      '*/30 * * * *',
+      '0 * * * *',
+      '0 */5 * * *',
+      '0 8 * * *',
+    ]) {
+      const schedule = cronToLaunchdSchedule(preset);
+      assert.ok(schedule);
+      assert.equal(launchdScheduleToCron(schedule), preset);
+    }
+  });
+});
 
 describe('cronToSchtasksArgs', () => {
   it('every 15 minutes', () => {

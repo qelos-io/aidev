@@ -10,13 +10,15 @@ import chalk from 'chalk';
 
 // ─── Preset schedules ────────────────────────────────────────────────────────
 
-const PRESETS: Array<{ label: string; cron: string }> = [
+export const SCHEDULE_PRESETS: ReadonlyArray<{ readonly label: string; readonly cron: string }> = [
   { label: 'Every 15 minutes', cron: '*/15 * * * *' },
   { label: 'Every 30 minutes', cron: '*/30 * * * *' },
   { label: 'Every hour',       cron: '0 * * * *'    },
   { label: 'Every 5 hours',    cron: '0 */5 * * *'  },
   { label: 'Every day at 8am', cron: '0 8 * * *'    },
 ];
+
+const PRESETS = SCHEDULE_PRESETS;
 
 async function pickCron(): Promise<string> {
   console.log('\n  Select a schedule:');
@@ -116,8 +118,7 @@ export function extractUnixCronArgs(line: string): string[] {
   return seg ? tokenizeShellArgs(seg) : [];
 }
 
-function scheduleSetUnix(cronExpr: string, extraArgs: string[]): void {
-  const cwd = process.cwd();
+function scheduleSetUnix(cronExpr: string, extraArgs: string[], cwd: string): void {
   const aidevBin = getAidevBin();
   const nodeBin = findBin('node') ?? 'node';
   const newLine = buildUnixCronLine(cronExpr, cwd, nodeBin, aidevBin, extraArgs);
@@ -135,8 +136,7 @@ function scheduleSetUnix(cronExpr: string, extraArgs: string[]): void {
     logger.success(`Cron schedule set: ${cronExpr}`);
     logger.info(`Entry: ${newLine}`);
   } else {
-    logger.error('Failed to update crontab');
-    process.exit(1);
+    throw new Error('Failed to update crontab');
   }
 }
 
@@ -283,6 +283,24 @@ export type LaunchdSchedule =
  * Maps a cron expression to a launchd schedule.
  * Supports the same subset as cronToSchtasksArgs.
  */
+/** Inverse of {@link cronToLaunchdSchedule} for supported preset expressions. */
+export function launchdScheduleToCron(schedule: LaunchdSchedule): string | null {
+  if (schedule.key === 'StartInterval') {
+    const { seconds } = schedule;
+    if (seconds % 3600 === 0 && seconds >= 3600) {
+      const hours = seconds / 3600;
+      if (hours === 1) return '0 * * * *';
+      return `0 */${hours} * * *`;
+    }
+    if (seconds % 60 === 0 && seconds >= 60) {
+      const minutes = seconds / 60;
+      return `*/${minutes} * * * *`;
+    }
+    return null;
+  }
+  return `0 ${schedule.hour} * * *`;
+}
+
 export function cronToLaunchdSchedule(cron: string): LaunchdSchedule | null {
   // */N * * * * → every N minutes
   const everyMin = cron.match(/^\*\/(\d+) \* \* \* \*$/);
@@ -361,17 +379,15 @@ export function buildLaunchAgentPlist(
   ].join('\n');
 }
 
-function scheduleSetDarwin(cronExpr: string, extraArgs: string[]): void {
+function scheduleSetDarwin(cronExpr: string, extraArgs: string[], cwd: string): void {
   const schedule = cronToLaunchdSchedule(cronExpr);
   if (!schedule) {
-    logger.error(
-      `Cron expression "${cronExpr}" cannot be mapped to a launchd schedule.\n` +
-        '  Use "aidev schedule set" (no argument) to choose a supported preset.',
+    throw new Error(
+      `Cron expression "${cronExpr}" cannot be mapped to a launchd schedule. ` +
+        'Choose a supported preset.',
     );
-    process.exit(1);
   }
 
-  const cwd = process.cwd();
   const label = launchdLabel(cwd);
   const aidevBin = getAidevBin();
   const nodeBin = findBin('node') ?? 'node';
@@ -392,8 +408,7 @@ function scheduleSetDarwin(cronExpr: string, extraArgs: string[]): void {
 
   const loadResult = spawnSync('launchctl', ['load', '-w', plistPath], { encoding: 'utf8' });
   if (loadResult.status !== 0) {
-    logger.error(`Failed to load Launch Agent:\n${loadResult.stderr}`);
-    process.exit(1);
+    throw new Error(`Failed to load Launch Agent: ${loadResult.stderr?.trim() || 'unknown error'}`);
   }
 
   logger.success(`Launch Agent scheduled: ${cronExpr}`);
@@ -570,15 +585,13 @@ export function windowsTaskName(cwd: string, cronExpr?: string): string {
   return `aidev\\${sanitized}--${cronTag}`;
 }
 
-function scheduleSetWindows(cronExpr: string, extraArgs: string[]): void {
-  const cwd = process.cwd();
+function scheduleSetWindows(cronExpr: string, extraArgs: string[], cwd: string): void {
   const schtasksArgs = cronToSchtasksArgs(cronExpr);
   if (!schtasksArgs) {
-    logger.error(
-      `Cron expression "${cronExpr}" cannot be mapped to Windows Task Scheduler.\n` +
-      '  Use "aidev schedule set" (no argument) to choose a supported preset.'
+    throw new Error(
+      `Cron expression "${cronExpr}" cannot be mapped to Windows Task Scheduler. ` +
+        'Choose a supported preset.',
     );
-    process.exit(1);
   }
 
   const taskName = windowsTaskName(cwd, cronExpr);
@@ -597,8 +610,7 @@ function scheduleSetWindows(cronExpr: string, extraArgs: string[]): void {
     logger.success(`Task Scheduler entry created: ${taskName}`);
     logger.info(`Schedule: ${cronExpr}`);
   } else {
-    logger.error(`Failed to create Task Scheduler entry:\n${result.stderr}`);
-    process.exit(1);
+    throw new Error(`Failed to create Task Scheduler entry: ${result.stderr?.trim() || 'unknown error'}`);
   }
 }
 
@@ -801,9 +813,15 @@ function scheduleFixWindows(): void {
 
 export async function scheduleSetCommand(cronExpr?: string, extraArgs: string[] = []): Promise<void> {
   if (!cronExpr) cronExpr = await pickCron();
-  if (isWindows) scheduleSetWindows(cronExpr, extraArgs);
-  else if (process.platform === 'darwin') scheduleSetDarwin(cronExpr, extraArgs);
-  else scheduleSetUnix(cronExpr, extraArgs);
+  const cwd = process.cwd();
+  try {
+    if (isWindows) scheduleSetWindows(cronExpr, extraArgs, cwd);
+    else if (process.platform === 'darwin') scheduleSetDarwin(cronExpr, extraArgs, cwd);
+    else scheduleSetUnix(cronExpr, extraArgs, cwd);
+  } catch (err) {
+    logger.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
 }
 
 export async function scheduleGetCommand(): Promise<void> {
@@ -822,4 +840,305 @@ export function scheduleFixCommand(): void {
   if (isWindows) scheduleFixWindows();
   else if (process.platform === 'darwin') scheduleFixDarwin();
   else scheduleFixUnix();
+}
+
+// ─── Programmatic API (dashboard / tests) ─────────────────────────────────────
+
+export type ScheduleBackend = 'cron' | 'launchd' | 'schtasks';
+
+export interface ScheduleEntry {
+  id: number;
+  cwd: string;
+  cron: string | null;
+  label: string;
+  extraArgs: string[];
+  current: boolean;
+}
+
+export interface SchedulesSnapshot {
+  platform: NodeJS.Platform;
+  backend: ScheduleBackend;
+  presets: ReadonlyArray<{ readonly label: string; readonly cron: string }>;
+  entries: ScheduleEntry[];
+  currentCwd: string;
+  fixSupported: boolean;
+}
+
+export interface ScheduleMutationResult {
+  ok: boolean;
+  message: string;
+}
+
+export interface ScheduleFixResult {
+  ok: boolean;
+  message: string;
+  fixed: number;
+  unchanged: number;
+}
+
+function scheduleBackend(): ScheduleBackend {
+  if (isWindows) return 'schtasks';
+  if (process.platform === 'darwin') return 'launchd';
+  return 'cron';
+}
+
+function presetLabelForCron(cron: string): string {
+  const preset = SCHEDULE_PRESETS.find((p) => p.cron === cron);
+  return preset?.label ?? cron;
+}
+
+function darwinScheduleLabel(xml: string): { label: string; cron: string | null } {
+  const schedule = extractLaunchdSchedule(xml);
+  if (!schedule) return { label: '(custom)', cron: null };
+  const cron = launchdScheduleToCron(schedule);
+  if (cron) return { label: presetLabelForCron(cron), cron };
+  if (schedule.key === 'StartInterval') {
+    const secs = schedule.seconds;
+    const label = secs % 3600 === 0 ? `every ${secs / 3600}h` : `every ${secs / 60}m`;
+    return { label, cron: null };
+  }
+  const label = `daily at ${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}`;
+  return { label, cron: null };
+}
+
+function windowsSanitizedCwd(cwd: string): string {
+  return cwd.replace(/[:\\\/]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function windowsTaskMatchesCwd(taskName: string, cwd: string): boolean {
+  const base = `aidev\\${windowsSanitizedCwd(cwd)}`;
+  return taskName === base || taskName.startsWith(`${base}--`);
+}
+
+function cronFromWindowsTaskName(taskName: string, cwd: string): string | null {
+  const base = `aidev\\${windowsSanitizedCwd(cwd)}--`;
+  if (!taskName.startsWith(base)) return null;
+  const tag = taskName.slice(base.length);
+  for (const preset of SCHEDULE_PRESETS) {
+    const expected = preset.cron.replace(/\*/g, 'x').replace(/\//g, 'e').replace(/\s+/g, '_');
+    if (tag === expected) return preset.cron;
+  }
+  return null;
+}
+
+function listUnixScheduleEntries(currentCwd: string): ScheduleEntry[] {
+  return parseAidevEntries(getCrontab()).map((e, i) => ({
+    id: i + 1,
+    cwd: e.cwd,
+    cron: e.cron,
+    label: presetLabelForCron(e.cron),
+    extraArgs: e.extraArgs,
+    current: e.cwd === currentCwd,
+  }));
+}
+
+function listDarwinScheduleEntries(currentCwd: string): ScheduleEntry[] {
+  return parseDarwinEntries().map((e, i) => {
+    const xml = fs.readFileSync(e.plistPath, 'utf8');
+    const { label, cron } = darwinScheduleLabel(xml);
+    return {
+      id: i + 1,
+      cwd: e.cwd,
+      cron,
+      label,
+      extraArgs: e.extraArgs,
+      current: e.cwd === currentCwd,
+    };
+  });
+}
+
+function listWindowsScheduleEntries(currentCwd: string): ScheduleEntry[] {
+  return listWindowsAidevTasks().map((e, i) => {
+    const cwd = e.taskName.replace(/^aidev\\/, '').split('--')[0]?.replace(/-/g, '/') ?? e.taskName;
+    const cron = cronFromWindowsTaskName(e.taskName, currentCwd);
+    return {
+      id: i + 1,
+      cwd,
+      cron,
+      label: cron ? presetLabelForCron(cron) : e.taskName,
+      extraArgs: [],
+      current: windowsTaskMatchesCwd(e.taskName, currentCwd),
+    };
+  });
+}
+
+export function listSchedules(currentCwd: string): SchedulesSnapshot {
+  const backend = scheduleBackend();
+  const entries =
+    backend === 'launchd'
+      ? listDarwinScheduleEntries(currentCwd)
+      : backend === 'schtasks'
+        ? listWindowsScheduleEntries(currentCwd)
+        : listUnixScheduleEntries(currentCwd);
+
+  return {
+    platform: process.platform,
+    backend,
+    presets: SCHEDULE_PRESETS,
+    entries,
+    currentCwd,
+    fixSupported: !isWindows,
+  };
+}
+
+export function setScheduleForCwd(
+  cwd: string,
+  cronExpr: string,
+  extraArgs: string[] = [],
+): ScheduleMutationResult {
+  try {
+    if (isWindows) scheduleSetWindows(cronExpr, extraArgs, cwd);
+    else if (process.platform === 'darwin') scheduleSetDarwin(cronExpr, extraArgs, cwd);
+    else scheduleSetUnix(cronExpr, extraArgs, cwd);
+    return { ok: true, message: `Schedule set for ${cwd}: ${cronExpr}` };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, message };
+  }
+}
+
+export function removeScheduleById(id: number): ScheduleMutationResult {
+  if (!Number.isInteger(id) || id < 1) {
+    return { ok: false, message: `Invalid schedule id: ${id}` };
+  }
+
+  try {
+    if (isWindows) {
+      const entries = listWindowsAidevTasks();
+      if (id > entries.length) {
+        return { ok: false, message: `Invalid schedule id: ${id}` };
+      }
+      const toRemove = entries[id - 1]!;
+      const result = spawnSync('schtasks', ['/delete', '/f', '/tn', toRemove.taskName], {
+        encoding: 'utf8',
+      });
+      if (result.status !== 0) {
+        return { ok: false, message: result.stderr?.trim() || 'Failed to remove Task Scheduler entry' };
+      }
+      return { ok: true, message: `Removed ${toRemove.taskName}` };
+    }
+
+    if (process.platform === 'darwin') {
+      const entries = parseDarwinEntries();
+      if (id > entries.length) {
+        return { ok: false, message: `Invalid schedule id: ${id}` };
+      }
+      const toRemove = entries[id - 1]!;
+      spawnSync('launchctl', ['unload', '-w', toRemove.plistPath], { encoding: 'utf8' });
+      try {
+        fs.unlinkSync(toRemove.plistPath);
+      } catch { /* already removed */ }
+      return { ok: true, message: `Removed schedule for ${toRemove.cwd}` };
+    }
+
+    const crontab = getCrontab();
+    const entries = parseAidevEntries(crontab);
+    if (id > entries.length) {
+      return { ok: false, message: `Invalid schedule id: ${id}` };
+    }
+    const toRemove = entries[id - 1]!;
+    const updated = crontab
+      .split('\n')
+      .filter((l) => l !== toRemove.line)
+      .join('\n')
+      .replace(/\n+$/, '') + '\n';
+    if (!setCrontab(updated)) {
+      return { ok: false, message: 'Failed to update crontab' };
+    }
+    return { ok: true, message: `Removed schedule for ${toRemove.cwd}` };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, message };
+  }
+}
+
+export function fixSchedules(): ScheduleFixResult {
+  if (isWindows) {
+    return {
+      ok: false,
+      message: 'schedule fix is not supported on Windows — re-run schedule set for each project.',
+      fixed: 0,
+      unchanged: 0,
+    };
+  }
+
+  if (process.platform === 'darwin') {
+    const entries = parseDarwinEntries();
+    if (entries.length === 0) {
+      return { ok: true, message: 'No aidev schedules found', fixed: 0, unchanged: 0 };
+    }
+
+    const aidevBin = getAidevBin();
+    const nodeBin = findBin('node') ?? 'node';
+    let fixed = 0;
+    let unchanged = 0;
+
+    for (const entry of entries) {
+      const xml = fs.readFileSync(entry.plistPath, 'utf8');
+      const schedule = extractLaunchdSchedule(xml);
+      if (!schedule) continue;
+
+      const expected = buildLaunchAgentPlist(entry.label, nodeBin, aidevBin, entry.cwd, schedule, entry.extraArgs);
+      if (expected === xml) {
+        unchanged++;
+        continue;
+      }
+
+      spawnSync('launchctl', ['unload', '-w', entry.plistPath], { encoding: 'utf8' });
+      fs.writeFileSync(entry.plistPath, expected, 'utf8');
+      const loadResult = spawnSync('launchctl', ['load', '-w', entry.plistPath], { encoding: 'utf8' });
+      if (loadResult.status !== 0) {
+        return {
+          ok: false,
+          message: loadResult.stderr?.trim() || `Failed to reload ${entry.plistPath}`,
+          fixed,
+          unchanged,
+        };
+      }
+      fixed++;
+    }
+
+    return {
+      ok: true,
+      message: `${fixed} fixed, ${unchanged} already up to date`,
+      fixed,
+      unchanged,
+    };
+  }
+
+  const crontab = getCrontab();
+  const entries = parseAidevEntries(crontab);
+  if (entries.length === 0) {
+    return { ok: true, message: 'No aidev schedules found', fixed: 0, unchanged: 0 };
+  }
+
+  const aidevBin = getAidevBin();
+  const nodeBin = findBin('node') ?? 'node';
+  let lines = crontab.split('\n');
+  let fixed = 0;
+  let unchanged = 0;
+
+  for (const entry of entries) {
+    const expected = buildUnixCronLine(entry.cron, entry.cwd, nodeBin, aidevBin, entry.extraArgs);
+    if (entry.line === expected) {
+      unchanged++;
+      continue;
+    }
+    lines = lines.map((l) => (l === entry.line ? expected : l));
+    fixed++;
+  }
+
+  if (fixed > 0) {
+    const updated = lines.join('\n').replace(/\n+$/, '') + '\n';
+    if (!setCrontab(updated)) {
+      return { ok: false, message: 'Failed to update crontab', fixed: 0, unchanged };
+    }
+  }
+
+  return {
+    ok: true,
+    message: `${fixed} fixed, ${unchanged} already up to date`,
+    fixed,
+    unchanged,
+  };
 }

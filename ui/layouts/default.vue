@@ -47,6 +47,7 @@ const cwd = computed(() => config.public.aidevCwd as string);
 const nav = [
   { to: '/', label: 'Dashboard', icon: '◇' },
   { to: '/config', label: 'Config', icon: '⚙' },
+  { to: '/schedule', label: 'Schedule', icon: '⏱' },
   { to: '/logs', label: 'Logs', icon: '≡' },
   { to: '/tasks', label: 'Tasks', icon: '☰' },
   { to: '/run', label: 'Run', icon: '▶' },

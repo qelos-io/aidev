@@ -133,28 +133,92 @@
         </div>
       </template>
 
-      <div class="grid gap-4 md:grid-cols-2">
-        <UFormGroup
-          label="AGENTS"
-          help="Comma-separated agents in fallback order (first is primary)."
+      <p class="text-sm text-gray-500 mb-3">
+        Agents in fallback order — first is primary, rest are tried when the previous fails.
+      </p>
+
+      <div class="space-y-3">
+        <div
+          v-for="(block, index) in agentBlocks"
+          :key="block.uid"
+          class="agent-block rounded-lg border border-gray-200 dark:border-gray-700 p-4"
         >
-          <UInput v-model="kv.AGENTS" placeholder="claude,cursor" />
-        </UFormGroup>
-        <UFormGroup label="CLAUDE_MODEL" help="Model passed to `claude --model`.">
-          <UInput v-model="kv.CLAUDE_MODEL" placeholder="opusplan" />
-        </UFormGroup>
-        <UFormGroup
-          label="ANTHROPIC_API_KEY"
-          help="Used by the anthropic-sdk runner. Accepts a comma-separated pool."
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div class="flex items-center gap-2 min-w-0">
+              <div class="flex flex-col gap-0.5">
+                <UButton
+                  size="xs"
+                  color="gray"
+                  variant="ghost"
+                  icon="i-heroicons-chevron-up"
+                  :disabled="index === 0"
+                  aria-label="Move up"
+                  @click="moveAgent(index, -1)"
+                />
+                <UButton
+                  size="xs"
+                  color="gray"
+                  variant="ghost"
+                  icon="i-heroicons-chevron-down"
+                  :disabled="index === agentBlocks.length - 1"
+                  aria-label="Move down"
+                  @click="moveAgent(index, 1)"
+                />
+              </div>
+              <USelect
+                v-model="block.type"
+                :options="agentTypeOptions"
+                class="w-52"
+                @update:model-value="syncAgentsToKv"
+              />
+              <UBadge v-if="index === 0" color="primary" variant="subtle" size="xs">
+                primary
+              </UBadge>
+              <span v-else class="text-xs text-gray-400">fallback {{ index }}</span>
+            </div>
+            <UButton
+              size="xs"
+              color="red"
+              variant="ghost"
+              icon="i-heroicons-trash"
+              :disabled="agentBlocks.length <= 1"
+              aria-label="Remove agent"
+              @click="removeAgent(index)"
+            />
+          </div>
+
+          <div
+            v-if="fieldsForAgent(block.type).length > 0"
+            class="grid gap-4 md:grid-cols-2"
+          >
+            <UFormGroup
+              v-for="field in fieldsForAgent(block.type)"
+              :key="field.key"
+              :label="field.key"
+              :help="field.help"
+            >
+              <UInput
+                v-model="kv[field.key]"
+                :type="field.secret ? 'password' : 'text'"
+                :placeholder="field.placeholder ?? ''"
+                autocomplete="off"
+              />
+            </UFormGroup>
+          </div>
+          <p v-else-if="agentCliHelp[block.type]" class="text-sm text-gray-500">
+            {{ agentCliHelp[block.type] }}
+          </p>
+        </div>
+
+        <UButton
+          size="sm"
+          color="gray"
+          variant="soft"
+          icon="i-heroicons-plus"
+          @click="addAgent"
         >
-          <UInput v-model="kv.ANTHROPIC_API_KEY" type="password" autocomplete="off" />
-        </UFormGroup>
-        <UFormGroup label="ANTHROPIC_MODEL">
-          <UInput v-model="kv.ANTHROPIC_MODEL" placeholder="claude-opus-4-6" />
-        </UFormGroup>
-        <UFormGroup label="ANTHROPIC_BASE_URL" help="Optional — leave blank for default.">
-          <UInput v-model="kv.ANTHROPIC_BASE_URL" placeholder="https://api.anthropic.com" />
-        </UFormGroup>
+          Add agent
+        </UButton>
       </div>
 
       <UAlert
@@ -319,6 +383,11 @@ interface KnownField {
   secret?: boolean;
 }
 
+interface AgentBlock {
+  uid: number;
+  type: string;
+}
+
 const api = useApi();
 
 const filePath = ref('');
@@ -356,14 +425,76 @@ const providerOptions = [
   { label: 'Local', value: 'local' },
 ];
 
-const agentTestOptions = [
-  { label: 'claude', value: 'claude' },
-  { label: 'cursor', value: 'cursor' },
-  { label: 'codex', value: 'codex' },
-  { label: 'antigravity', value: 'antigravity' },
-  { label: 'windsurf', value: 'windsurf' },
-  { label: 'anthropic-sdk', value: 'anthropic-sdk' },
-];
+const VALID_AGENTS = [
+  'antigravity',
+  'anthropic-sdk',
+  'claude',
+  'codex',
+  'cursor',
+  'windsurf',
+] as const;
+
+const agentTypeOptions = VALID_AGENTS.map((id) => ({ label: id, value: id }));
+
+const AGENT_FIELDS: Record<string, KnownField[]> = {
+  claude: [
+    {
+      key: 'CLAUDE_MODEL',
+      help: 'Model passed to `claude --model`. Default routes plan→opus and code→sonnet.',
+      placeholder: 'opusplan',
+    },
+  ],
+  'anthropic-sdk': [
+    {
+      key: 'ANTHROPIC_API_KEY',
+      help: 'Accepts a single key or comma-separated pool; the runner rotates round-robin.',
+      secret: true,
+    },
+    { key: 'ANTHROPIC_MODEL', placeholder: 'claude-opus-4-6' },
+    {
+      key: 'ANTHROPIC_BASE_URL',
+      help: 'Optional — leave blank for default.',
+      placeholder: 'https://api.anthropic.com',
+    },
+    {
+      key: 'ANTHROPIC_SDK_MAX_RETRIES',
+      help: 'Retries after transient SDK errors. Set 0 to disable. Default: 3.',
+      placeholder: '3',
+    },
+  ],
+  windsurf: [
+    {
+      key: 'WINDSURF_TOKEN',
+      help: 'Required for Docker mode on Windows.',
+      secret: true,
+    },
+    {
+      key: 'WINDSURF_DOCKER_IMAGE',
+      help: 'Docker image for headless Windsurf on Windows.',
+      placeholder: 'windsurfinabox',
+    },
+    {
+      key: 'WINDSURF_CONFIG_DIR',
+      help: 'Optional — defaults to ~/.config/Windsurf.',
+    },
+  ],
+  cursor: [],
+  codex: [],
+  antigravity: [],
+};
+
+const agentCliHelp: Record<string, string> = {
+  cursor: 'Uses the `agent` CLI — no extra env keys.',
+  codex: 'Uses the `codex` CLI. Set OPENAI_API_KEY or run `codex login`.',
+  antigravity: 'Uses the `agy` or `antigravity` CLI — no extra env keys.',
+};
+
+let nextAgentUid = 0;
+const agentBlocks = ref<AgentBlock[]>([]);
+
+const agentTestOptions = computed(() =>
+  agentBlocks.value.map((b) => ({ label: b.type, value: b.type })),
+);
 
 // Provider-specific field sets. The form always renders the active provider's
 // keys so the user can switch backends without leaving the page.
@@ -425,6 +556,10 @@ const KNOWN_AI_KEYS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_SDK_MAX_RETRIES',
+  'WINDSURF_TOKEN',
+  'WINDSURF_DOCKER_IMAGE',
+  'WINDSURF_CONFIG_DIR',
 ];
 const devNotesModeOptions = [
   { label: 'smart', value: 'smart' },
@@ -488,6 +623,50 @@ function isSecretKey(key: string): boolean {
   return /(KEY|TOKEN|SECRET|PASSWORD)$/i.test(key);
 }
 
+function fieldsForAgent(type: string): KnownField[] {
+  return AGENT_FIELDS[type] ?? [];
+}
+
+function parseAgentBlocks(agentsRaw: string): AgentBlock[] {
+  const types = agentsRaw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((t) => (VALID_AGENTS as readonly string[]).includes(t));
+  if (types.length === 0) {
+    return [{ uid: nextAgentUid++, type: 'claude' }, { uid: nextAgentUid++, type: 'cursor' }];
+  }
+  return types.map((type) => ({ uid: nextAgentUid++, type }));
+}
+
+function syncAgentsToKv(): void {
+  kv.AGENTS = agentBlocks.value.map((b) => b.type).join(',');
+}
+
+function addAgent(): void {
+  const used = new Set(agentBlocks.value.map((b) => b.type));
+  const next = VALID_AGENTS.find((a) => !used.has(a)) ?? 'claude';
+  agentBlocks.value.push({ uid: nextAgentUid++, type: next });
+  syncAgentsToKv();
+}
+
+function removeAgent(index: number): void {
+  if (agentBlocks.value.length <= 1) return;
+  agentBlocks.value.splice(index, 1);
+  syncAgentsToKv();
+}
+
+function moveAgent(index: number, delta: -1 | 1): void {
+  const target = index + delta;
+  const item = agentBlocks.value[index];
+  if (!item || target < 0 || target >= agentBlocks.value.length) return;
+  const blocks = [...agentBlocks.value];
+  blocks.splice(index, 1);
+  blocks.splice(target, 0, item);
+  agentBlocks.value = blocks;
+  syncAgentsToKv();
+}
+
 function applyData(data: EnvFileResult) {
   filePath.value = data.path;
   fileExists.value = data.exists;
@@ -505,9 +684,11 @@ function applyData(data: EnvFileResult) {
     kv[k] = v;
     original[k] = v;
   }
-  if (!testAgent.value) {
-    const first = (kv.AGENTS || '').split(',').map((s) => s.trim()).filter(Boolean)[0];
-    if (first) testAgent.value = first;
+  agentBlocks.value = parseAgentBlocks(kv.AGENTS || '');
+  syncAgentsToKv();
+  const configured = agentBlocks.value.map((b) => b.type);
+  if (!testAgent.value || !configured.includes(testAgent.value)) {
+    testAgent.value = configured[0] ?? '';
   }
 }
 
@@ -636,5 +817,13 @@ onMounted(reload);
 .config-page {
   display: flex;
   flex-direction: column;
+}
+
+.agent-block {
+  background: rgb(var(--color-gray-50) / 0.5);
+}
+
+:root.dark .agent-block {
+  background: rgb(var(--color-gray-900) / 0.35);
 }
 </style>
