@@ -5,6 +5,9 @@ interface PatchBody {
   status?: string;
   // Tag names to remove from the task. Provider must implement `removeTag`.
   removeTags?: string[];
+  title?: string;
+  description?: string;
+  name?: string;
 }
 
 export interface PatchResponse {
@@ -33,6 +36,17 @@ export default defineEventHandler(async (event): Promise<PatchResponse> => {
   }
 
   const body = (await readBody<PatchBody>(event)) ?? {};
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'title') ||
+    Object.prototype.hasOwnProperty.call(body, 'description') ||
+    Object.prototype.hasOwnProperty.call(body, 'name')
+  ) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Title/description edits are not supported by the provider interface.',
+    });
+  }
+
   const status = typeof body.status === 'string' ? body.status.trim() : '';
   const removeTags = Array.isArray(body.removeTags)
     ? body.removeTags.filter((t): t is string => typeof t === 'string' && t.length > 0)
