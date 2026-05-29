@@ -1,0 +1,5 @@
+# This file exists solely to override ui/.gitignore for `npm publish`.
+# Without it, npm-packlist falls back to ui/.gitignore, which excludes
+# `.output/` — the very thing we want to ship. The root package.json
+# `files` field is the real whitelist; nothing extra needs to be ignored
+# here because everything outside the whitelist is already excluded.

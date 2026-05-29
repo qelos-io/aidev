@@ -6,6 +6,7 @@ import { scheduleSetCommand, scheduleGetCommand, scheduleRemoveCommand, schedule
 import { tasksAddCommand, tasksRemoveCommand, tasksLsCommand, tasksPushCommand, tasksUpdateCommand } from './commands/tasks';
 import { helpCommand } from './commands/help';
 import { stopCommand } from './commands/stop';
+import { uiCommand } from './commands/ui';
 import { loadConfig } from './config';
 import { createProvider, TaskProvider } from './providers';
 import { createRunners } from './ai';
@@ -41,11 +42,11 @@ program
     helpCommand();
   });
 
-async function runWithFilter(filter: string | undefined): Promise<void> {
-  const validFilters = ['all', 'open', 'pending', 'tasks', 'accepted'];
+async function runWithFilter(filter: string | undefined, taskId?: string): Promise<void> {
+  const validFilters = ['all', 'open', 'pending', 'review', 'tasks', 'accepted'];
 
   if (filter && !validFilters.includes(filter)) {
-    logger.error(`Unknown filter: ${filter}. Valid options: all, open, pending, tasks, accepted`);
+    logger.error(`Unknown filter: ${filter}. Valid options: all, open, pending, review, tasks, accepted`);
     process.exit(1);
   }
 
@@ -60,8 +61,10 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
       return;
     }
 
+    // Single-task execution skips the local-push/non-code/accepted machinery:
+    // the UI's "Execute" action targets exactly one remote task.
     let nonCodeProvider: TaskProvider | undefined;
-    if (config.nonCodeTag) {
+    if (config.nonCodeTag && !taskId) {
       const nonCodeConfig: Config = {
         ...config,
         clickupTag: config.nonCodeTag,
@@ -75,10 +78,12 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
       nonCodeProvider = createProvider(nonCodeConfig, 'non-code');
     }
 
-    // Always process local tasks (aidev.tasks.json)
-    const localResult = await processLocalTasks(config, provider, nonCodeProvider);
-    if (localResult.pushed > 0 || localResult.skipped > 0) {
-      logger.info(`Local tasks: ${localResult.pushed} pushed, ${localResult.skipped} skipped`);
+    if (!taskId) {
+      // Always process local tasks (aidev.tasks.json)
+      const localResult = await processLocalTasks(config, provider, nonCodeProvider);
+      if (localResult.pushed > 0 || localResult.skipped > 0) {
+        logger.info(`Local tasks: ${localResult.pushed} pushed, ${localResult.skipped} skipped`);
+      }
     }
 
     if (filter === 'tasks') return;
@@ -87,10 +92,10 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
     const runners = createRunners(config);
     const hooks = loadHooks(config.hooksPath);
     const hookVM = createHookVM(provider, runners);
-    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, hooks, hookVM);
+    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, hooks, hookVM, taskId);
 
     // Auto-merge accepted PRs if configured (requires gh CLI)
-    if (config.acceptedTag && isGhInstalled()) {
+    if (!taskId && config.acceptedTag && isGhInstalled()) {
       await acceptedCommand(config, provider);
     }
   } catch (err) {
@@ -101,9 +106,15 @@ async function runWithFilter(filter: string | undefined): Promise<void> {
 
 program
   .command('run [filter]', { isDefault: true })
-  .description('Process tasks: all (default), open, pending, tasks, or accepted. Also checks review tasks for unresolved PR comments.')
-  .action(async (filter?: string) => {
-    await runWithFilter(filter);
+  .description('Process tasks: all (default), open, pending, review, tasks, or accepted. Also checks review tasks for unresolved PR comments.')
+  .option('--task <id>', 'process only the task with this provider id (skips local-task push, non-code, accepted, and review phases)')
+  .option('--status <status>', 'alias for the positional filter — used by the aidev ui dashboard (open, pending, review, all)')
+  .action(async (filter: string | undefined, opts: { task?: string; status?: string }) => {
+    // --status is just a long-form alias for the positional filter so the UI's
+    // Run screen can spawn `aidev run --status <status>` without worrying about
+    // commander positional parsing. Explicit positional wins if both are given.
+    const effectiveFilter = filter ?? opts.status;
+    await runWithFilter(effectiveFilter, opts.task);
   });
 
 program
@@ -111,6 +122,20 @@ program
   .description('Stop any running aidev process in the current directory')
   .action(() => {
     stopCommand();
+  });
+
+program
+  .command('ui')
+  .description('Run the aidev dashboard UI (Nuxt app) on a local port')
+  .option('--port <number>', 'port to bind on 127.0.0.1', '19422')
+  .option('--prod', 'serve the built Nuxt output if present (falls back to dev)')
+  .action(async (opts: { port?: string; prod?: boolean }) => {
+    try {
+      await uiCommand(opts);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
   });
 
 const scheduleCmd = program

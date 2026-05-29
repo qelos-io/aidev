@@ -53,7 +53,7 @@ export function getInReviewStatus(config: Config): string {
   return config.clickupInReviewStatus;
 }
 
-export type RunFilter = 'all' | 'open' | 'pending';
+export type RunFilter = 'all' | 'open' | 'pending' | 'review';
 
 export interface SubTask {
   id: number | string;
@@ -93,6 +93,12 @@ export function getRunSkipReason(status: string, filter: RunFilter, pendingStatu
 
   if (filter === 'pending' && !isPending) {
     return 'filter=pending but task is not pending';
+  }
+
+  // The UI exposes a dedicated 'review' button that only walks the in-review
+  // queue (see runCommand's review phase). All other tasks must be skipped.
+  if (filter === 'review') {
+    return 'filter=review skips open/pending tasks';
   }
 
   return null;
@@ -407,7 +413,8 @@ export async function runCommand(
   runners: AIRunner[],
   nonCodeProvider?: TaskProvider,
   hooks: AidevHooks = {},
-  vm?: HookVM
+  vm?: HookVM,
+  taskId?: string
 ): Promise<void> {
   const cwd = process.cwd();
   if (!acquireLock(cwd)) {
@@ -425,7 +432,14 @@ export async function runCommand(
     }
 
     logger.info(`Fetching tasks (filter: ${filter})...`);
-    const tasks = sortTasksByPriority(await provider.fetchTasks());
+    let tasks = sortTasksByPriority(await provider.fetchTasks());
+    if (taskId) {
+      const before = tasks.length;
+      tasks = tasks.filter((t) => t.id === taskId);
+      if (tasks.length === 0) {
+        logger.warn(`Task ${taskId} not found among ${before} tagged task(s) — nothing to do`);
+      }
+    }
     logger.info(`Found ${tasks.length} tagged task(s)`);
 
     // beforeRun hook
@@ -443,7 +457,7 @@ export async function runCommand(
       else skipped++;
     }
 
-    if (nonCodeProvider) {
+    if (nonCodeProvider && !taskId) {
       logger.info(`Fetching non-code tasks (filter: ${filter})...`);
       const nonCodeTasks = sortTasksByPriority(await nonCodeProvider.fetchTasks());
       logger.info(`Found ${nonCodeTasks.length} non-code task(s)`);
@@ -456,7 +470,7 @@ export async function runCommand(
     }
 
     // Review task phase: check tasks in review status for unresolved code review comments
-    if (isGitHubRemote(config.gitRemote) && isGhInstalled() && isGhAuthenticated() && config.githubRepo) {
+    if (!taskId && isGitHubRemote(config.gitRemote) && isGhInstalled() && isGhAuthenticated() && config.githubRepo) {
       const reviewStatus = getInReviewStatus(config);
       logger.info(`Fetching tasks in "${reviewStatus}" status for code review checks...`);
       try {
@@ -484,7 +498,7 @@ export async function runCommand(
 
       // Checkout back to base branch after processing review tasks
       git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch);
-    } else {
+    } else if (!taskId) {
       if (!isGhInstalled() || !isGhAuthenticated()) {
         logger.debug('gh CLI not available — skipping review task checks');
       }
