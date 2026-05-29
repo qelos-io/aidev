@@ -138,20 +138,28 @@ export function getProvider(event: H3Event): ProviderBundle {
  * empty array when the mapping is unconfigured so the caller can fall back to
  * a full task fetch instead of querying with a missing status.
  */
-export function statusesForFilter(config: UiConfig, filter: string): string[] {
+export function statusesForFilter(
+  config: UiConfig,
+  filter: 'open' | 'pending' | 'review' | 'all' | string,
+): string[] | null {
+  if (filter === 'all' || filter === '') return null;
+
   const p = (config.provider || '').toLowerCase();
   switch (filter) {
     case 'open':
+      if (p === 'local') return ['open'];
       if (p === 'jira' || p === 'linear') return ['open'];
       if (p === 'trello') return [config.trelloOpenStatus || 'open'];
       return [config.clickupOpenStatus || 'open'];
     case 'pending':
+      if (p === 'local') return ['pending'];
       if (p === 'jira') return config.jiraPendingStatus ? [config.jiraPendingStatus] : [];
       if (p === 'linear') return config.linearPendingStatus ? [config.linearPendingStatus] : [];
       if (p === 'notion') return config.notionPendingStatus ? [config.notionPendingStatus] : [];
       if (p === 'trello') return config.trelloPendingStatus ? [config.trelloPendingStatus] : [];
       return config.clickupPendingStatus ? [config.clickupPendingStatus] : [];
     case 'review':
+      if (p === 'local') return ['review'];
       if (p === 'jira') return config.jiraInReviewStatus ? [config.jiraInReviewStatus] : [];
       if (p === 'linear') return config.linearInReviewStatus ? [config.linearInReviewStatus] : [];
       if (p === 'notion') return config.notionInReviewStatus ? [config.notionInReviewStatus] : [];

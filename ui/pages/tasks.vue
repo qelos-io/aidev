@@ -575,6 +575,13 @@ function stopExecute() {
   }
 }
 
+watch(drawerOpen, (open) => {
+  if (!open) {
+    activeId.value = null;
+    resetExecute();
+  }
+});
+
 onMounted(reload);
 onBeforeUnmount(() => {
   if (execAbort) {

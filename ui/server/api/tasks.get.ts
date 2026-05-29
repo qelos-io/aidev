@@ -28,7 +28,7 @@ export default defineEventHandler(async (event): Promise<TasksResponse> => {
     tasks = await provider.fetchTasks();
   } else {
     const mapped = statusesForFilter(config, filter);
-    if (mapped.length === 0) {
+    if (!mapped || mapped.length === 0) {
       // Filter is recognised but unconfigured (e.g. user picked "pending" but
       // never set PENDING_STATUS). Returning [] would hide all their tasks, so
       // fall back to a full fetch — the client can filter client-side.
@@ -54,9 +54,9 @@ export default defineEventHandler(async (event): Promise<TasksResponse> => {
     tasks,
     statuses,
     filters: {
-      open: statusesForFilter(config, 'open'),
-      pending: statusesForFilter(config, 'pending'),
-      review: statusesForFilter(config, 'review'),
+      open: statusesForFilter(config, 'open') ?? [],
+      pending: statusesForFilter(config, 'pending') ?? [],
+      review: statusesForFilter(config, 'review') ?? [],
       done: config.doneStatus ? [config.doneStatus] : [],
     },
   };
