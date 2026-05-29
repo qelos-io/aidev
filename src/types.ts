@@ -9,6 +9,14 @@ export interface Task {
   sourceListId?: string;
 }
 
+/** Controls how much task payload providers fetch (UI board vs CLI run). */
+export interface FetchTasksOptions {
+  /** Do not download attachment files to `.aidev/assets`. */
+  skipAttachments?: boolean;
+  /** Leave `description` empty (Kanban cards load details on demand). */
+  omitDescription?: boolean;
+}
+
 export interface LocalTask {
   id: string;
   title: string;

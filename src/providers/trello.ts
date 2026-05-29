@@ -1,4 +1,4 @@
-import { Task, Comment, Config, CreateTaskParams, CreateTaskResult } from '../types';
+import { Task, Comment, Config, CreateTaskParams, CreateTaskResult, FetchTasksOptions } from '../types';
 import { TaskProvider } from './base';
 import { logger } from '../logger';
 import {
@@ -192,10 +192,12 @@ export class TrelloProvider implements TaskProvider {
     }
   }
 
-  async fetchTasks(): Promise<Task[]> {
+  async fetchTasks(options?: FetchTasksOptions): Promise<Task[]> {
     logger.debug(
       `Fetching Trello cards on board ${this.boardId} with label "${this.labelName}" (assigned to token user)`,
     );
+    const skipAttachments = options?.skipAttachments === true;
+    const omitDescription = options?.omitDescription === true;
 
     const [lists, myId] = await Promise.all([this.fetchLists(), this.fetchMyMemberId()]);
     const openListId = this.findListId(lists, this.openListName);
@@ -214,21 +216,23 @@ export class TrelloProvider implements TaskProvider {
 
     return Promise.all(
       eligible.map(async (c) => {
-        let attachments: DownloadedAttachment[] = [];
-        try {
-          attachments = await this.fetchCardAttachments(c.id);
-        } catch (err) {
-          logger.warn(
-            `[${c.id}] Failed to fetch Trello attachments: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-
         const sem = this.listIdToSemantic(c.idList, openListId, pendingListId)!;
+        let description = omitDescription ? '' : (c.desc || '');
+        if (!skipAttachments && !omitDescription) {
+          try {
+            const attachments = await this.fetchCardAttachments(c.id);
+            description = appendAttachmentPaths(description, attachments);
+          } catch (err) {
+            logger.warn(
+              `[${c.id}] Failed to fetch Trello attachments: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
 
         return {
           id: c.id,
           name: c.name,
-          description: appendAttachmentPaths(c.desc || '', attachments),
+          description,
           status: sem,
           url: c.url,
           tags: c.labels.map((l) => l.name),
@@ -238,7 +242,7 @@ export class TrelloProvider implements TaskProvider {
     );
   }
 
-  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+  async fetchTasksByStatus(statuses: string[], _options?: FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
 
     const [lists, myId] = await Promise.all([this.fetchLists(), this.fetchMyMemberId()]);

@@ -169,7 +169,7 @@ export class LocalProvider implements TaskProvider {
     ensureTaskFolders(this.baseDir);
   }
 
-  async fetchTasks(): Promise<Task[]> {
+  async fetchTasks(_options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     logger.debug(`Fetching ${this.mode} tasks from local .aidev/tasks folders`);
 
     const tasks: Task[] = [];
@@ -207,7 +207,7 @@ export class LocalProvider implements TaskProvider {
     return tasks;
   }
 
-  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+  async fetchTasksByStatus(statuses: string[], _options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
     const all = await this.fetchTasks();
     return all.filter((t) => normalized.includes(t.status.toLowerCase()));

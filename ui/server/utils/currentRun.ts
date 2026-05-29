@@ -11,6 +11,8 @@ import type { ChildProcess } from 'node:child_process';
 interface ActiveRun {
   child: ChildProcess;
   status: string;
+  /** Set for single-task execute streams; batch `/api/run` has no task id. */
+  taskId?: string;
   startedAt: number;
 }
 
@@ -23,8 +25,8 @@ export function getActiveRun(): ActiveRun | null {
   return null;
 }
 
-export function setActiveRun(child: ChildProcess, status: string): void {
-  active = { child, status, startedAt: Date.now() };
+export function setActiveRun(child: ChildProcess, status: string, taskId?: string): void {
+  active = { child, status, taskId, startedAt: Date.now() };
 }
 
 export function clearActiveRun(child: ChildProcess): void {

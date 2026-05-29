@@ -14,6 +14,7 @@ import {
 } from '../github';
 import { collectAndLogDiagnostics } from '../diagnostics';
 import { acquireLock, releaseLock, readLock } from '../lockfile';
+import { writeActiveTask, clearActiveTask } from '../activeTask';
 import {
   AidevHooks, HookVM, executeHook,
   RunContext, TaskContext, ResolveConflictsContext, NonCodeTaskContext, ThinkingTaskContext,
@@ -51,6 +52,11 @@ export function getInReviewStatus(config: Config): string {
   if (p === 'notion') return config.notionInReviewStatus;
   if (p === 'trello') return config.trelloInReviewStatus;
   return config.clickupInReviewStatus;
+}
+
+/** Semantic status written when aidev starts implementing a task. */
+export function getInProgressStatus(_config: Config): string {
+  return 'in progress';
 }
 
 export type RunFilter = 'all' | 'open' | 'pending' | 'review';
@@ -514,6 +520,7 @@ export async function runCommand(
 
     logger.success(`Done. Processed: ${processed}, Skipped: ${skipped}`);
   } finally {
+    clearActiveTask(cwd);
     releaseLock(cwd);
   }
 }
@@ -585,14 +592,19 @@ async function processTask(
     }
   }
 
-  if (isPlanningTask(task, config)) {
-    await implementPlanningTask(task, config, provider, runners, hooks, vm);
-  } else if (isThinkingTask(task, config)) {
-    await implementThinkingTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
-  } else {
-    await implementTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
+  writeActiveTask(process.cwd(), task.id);
+  try {
+    if (isPlanningTask(task, config)) {
+      await implementPlanningTask(task, config, provider, runners, hooks, vm);
+    } else if (isThinkingTask(task, config)) {
+      await implementThinkingTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
+    } else {
+      await implementTask(task, branchName, branchExists, config, provider, runners, hooks, vm);
+    }
+    return 'processed';
+  } finally {
+    clearActiveTask(process.cwd());
   }
-  return 'processed';
 }
 
 export function isAidevComment(text: string, commentPrefix: string = '[aidev]'): boolean {
@@ -1991,14 +2003,19 @@ async function processNonCodeTask(
     }
   }
 
-  if (isPlanningTask(task, config)) {
-    await implementPlanningTask(task, config, provider, runners, hooks, vm);
-  } else if (isThinkingTask(task, config)) {
-    await implementNonCodeThinkingTask(task, config, provider, runners, hooks, vm);
-  } else {
-    await implementNonCodeTask(task, config, provider, runners, hooks, vm);
+  writeActiveTask(process.cwd(), task.id);
+  try {
+    if (isPlanningTask(task, config)) {
+      await implementPlanningTask(task, config, provider, runners, hooks, vm);
+    } else if (isThinkingTask(task, config)) {
+      await implementNonCodeThinkingTask(task, config, provider, runners, hooks, vm);
+    } else {
+      await implementNonCodeTask(task, config, provider, runners, hooks, vm);
+    }
+    return 'processed';
+  } finally {
+    clearActiveTask(process.cwd());
   }
-  return 'processed';
 }
 
 async function implementNonCodeTask(

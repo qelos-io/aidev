@@ -1,4 +1,4 @@
-import { Task, Comment, Config, CreateTaskParams, CreateTaskResult } from '../types';
+import { Task, Comment, Config, CreateTaskParams, CreateTaskResult, FetchTasksOptions } from '../types';
 import { TaskProvider } from './base';
 import { logger } from '../logger';
 import {
@@ -214,8 +214,10 @@ export class JiraProvider implements TaskProvider {
     return value && typeof value === 'object' ? value as Record<string, unknown> : null;
   }
 
-  async fetchTasks(): Promise<Task[]> {
+  async fetchTasks(options?: FetchTasksOptions): Promise<Task[]> {
     logger.debug(`Fetching Jira issues in project "${this.project}" with label "${this.label}"`);
+    const skipAttachments = options?.skipAttachments === true;
+    const omitDescription = options?.omitDescription === true;
 
     interface RawIssue {
       id: string;
@@ -244,19 +246,25 @@ export class JiraProvider implements TaskProvider {
     );
 
     return Promise.all(data.issues.map(async (issue) => {
-      let attachments: DownloadedAttachment[] = [];
-      try {
-        attachments = await this.downloadIssueAttachments(issue.key, issue.fields.attachment || []);
-      } catch (err) {
-        logger.warn(
-          `[${issue.key}] Failed to download Jira attachments: ${err instanceof Error ? err.message : String(err)}`
-        );
+      let description = omitDescription ? '' : this.adfToText(issue.fields.description);
+      if (!skipAttachments && !omitDescription) {
+        try {
+          const attachments = await this.downloadIssueAttachments(
+            issue.key,
+            issue.fields.attachment || [],
+          );
+          description = appendAttachmentPaths(description, attachments);
+        } catch (err) {
+          logger.warn(
+            `[${issue.key}] Failed to download Jira attachments: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
 
       return {
         id: issue.key,
         name: issue.fields.summary,
-        description: appendAttachmentPaths(this.adfToText(issue.fields.description), attachments),
+        description,
         status: issue.fields.status.name.toLowerCase(),
         url: `${this.baseUrl}/browse/${issue.key}`,
         tags: issue.fields.labels,
@@ -266,9 +274,9 @@ export class JiraProvider implements TaskProvider {
     }));
   }
 
-  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+  async fetchTasksByStatus(statuses: string[], options?: FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
-    const all = await this.fetchTasks();
+    const all = await this.fetchTasks(options);
     return all.filter((t) => normalized.includes(t.status.toLowerCase()));
   }
 

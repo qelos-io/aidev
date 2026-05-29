@@ -166,6 +166,56 @@ describe('ClickUpProvider.fetchTasks', () => {
   });
 });
 
+describe('ClickUpProvider.fetchBoardTasks', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('uses one team list call and does not download attachments', async () => {
+    let taskListCalls = 0;
+    let taskDetailCalls = 0;
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/team/team1/task')) {
+        taskListCalls += 1;
+        return jsonResponse({
+          tasks: [
+            {
+              id: 'open1',
+              name: 'Open task',
+              markdown_description: 'Long body',
+              status: { status: 'open' },
+              priority: null,
+              url: 'https://app.clickup.com/t/open1',
+              tags: [],
+            },
+            {
+              id: 'prog1',
+              name: 'In progress task',
+              markdown_description: 'Also long',
+              status: { status: 'in progress' },
+              priority: null,
+              url: 'https://app.clickup.com/t/prog1',
+              tags: [],
+            },
+          ],
+        });
+      }
+      if (url.includes('/task/')) {
+        taskDetailCalls += 1;
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const tasks = await provider.fetchBoardTasks();
+
+    assert.equal(taskListCalls, 1);
+    assert.equal(taskDetailCalls, 0);
+    assert.equal(tasks.length, 2);
+    assert.equal(tasks.find((t) => t.id === 'prog1')?.description, '');
+    assert.equal(tasks.find((t) => t.id === 'open1')?.description, '');
+  });
+});
+
 describe('ClickUpProvider.fetchTasks — wildcard tag', () => {
   afterEach(() => mock.restoreAll());
 

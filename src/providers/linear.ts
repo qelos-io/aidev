@@ -131,7 +131,7 @@ export class LinearProvider implements TaskProvider {
     return data.workflowStates.nodes;
   }
 
-  async fetchTasks(): Promise<Task[]> {
+  async fetchTasks(_options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const teamId = await this.resolveTeamId();
     logger.debug(`Fetching Linear issues for team ${teamId} with label "${this.label}"`);
 
@@ -189,7 +189,7 @@ export class LinearProvider implements TaskProvider {
       }));
   }
 
-  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+  async fetchTasksByStatus(statuses: string[], _options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
     const all = await this.fetchTasks();
     return all.filter((t) => normalized.includes(t.status.toLowerCase()));

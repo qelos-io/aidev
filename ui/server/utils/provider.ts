@@ -25,9 +25,16 @@ export interface UiComment {
   date: number;
 }
 
+export interface FetchTasksOptions {
+  skipAttachments?: boolean;
+  omitDescription?: boolean;
+}
+
 export interface UiProvider {
-  fetchTasks(): Promise<UiTask[]>;
-  fetchTasksByStatus(statuses: string[]): Promise<UiTask[]>;
+  fetchTasks(options?: FetchTasksOptions): Promise<UiTask[]>;
+  fetchTasksByStatus(statuses: string[], options?: FetchTasksOptions): Promise<UiTask[]>;
+  fetchTaskById?(taskId: string, options?: FetchTasksOptions): Promise<UiTask | null>;
+  fetchBoardTasks?(options?: FetchTasksOptions): Promise<UiTask[]>;
   postComment(taskId: string, text: string): Promise<void>;
   getComments(taskId: string): Promise<UiComment[]>;
   updateStatus(taskId: string, status: string): Promise<void>;
@@ -165,6 +172,9 @@ export function statusesForFilter(
       if (p === 'notion') return config.notionInReviewStatus ? [config.notionInReviewStatus] : [];
       if (p === 'trello') return config.trelloInReviewStatus ? [config.trelloInReviewStatus] : [];
       return config.clickupInReviewStatus ? [config.clickupInReviewStatus] : [];
+    case 'inprogress':
+    case 'in_progress':
+      return ['in progress'];
     default:
       return [];
   }

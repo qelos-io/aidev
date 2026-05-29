@@ -121,7 +121,7 @@ export class MondayProvider implements TaskProvider {
     return json.data;
   }
 
-  async fetchTasks(): Promise<Task[]> {
+  async fetchTasks(_options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     logger.debug(`Fetching items from Monday board ${this.boardId}`);
 
     const query = `
@@ -172,7 +172,7 @@ export class MondayProvider implements TaskProvider {
     return tasks;
   }
 
-  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+  async fetchTasksByStatus(statuses: string[], _options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
     const all = await this.fetchTasks();
     return all.filter((t) => normalized.includes(t.status.toLowerCase()));

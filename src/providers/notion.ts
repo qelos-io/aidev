@@ -147,7 +147,7 @@ export class NotionProvider implements TaskProvider {
     };
   }
 
-  async fetchTasks(): Promise<Task[]> {
+  async fetchTasks(_options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     await this.ensureSchema();
     logger.debug(`Fetching tasks from Notion database ${this.databaseId}`);
 
@@ -192,7 +192,7 @@ export class NotionProvider implements TaskProvider {
     return tasks;
   }
 
-  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+  async fetchTasksByStatus(statuses: string[], _options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
     const all = await this.fetchTasks();
     return all.filter((t) => normalized.includes(t.status.toLowerCase()));

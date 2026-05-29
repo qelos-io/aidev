@@ -1,21 +1,19 @@
 import { defineEventHandler, createError, getRequestHeader, getQuery } from 'h3';
+import { isLoopbackClient } from '../utils/loopback';
 
 // Loopback-only listener is enforced by NITRO_HOST=127.0.0.1 in src/commands/ui.ts,
-// but we double-check the socket here so a misconfigured deploy can't silently
-// expose the dashboard.
-const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-
+// but we double-check the client on protected API routes so a misconfigured deploy
+// can't silently expose the dashboard.
 export default defineEventHandler((event) => {
-  const remote = event.node.req.socket.remoteAddress ?? '';
-  if (!LOOPBACK.has(remote)) {
+  const url = event.node.req.url ?? '';
+  // Only enforce on our own API surface. Nuxt reserves `/api/_*` for internal
+  // endpoints (icon proxy, devtools probes, etc.). Page routes are public HTML;
+  // data access still requires bearer auth below.
+  if (!url.startsWith('/api/') || url.startsWith('/api/_')) return;
+
+  if (!isLoopbackClient(event)) {
     throw createError({ statusCode: 403, statusMessage: 'Forbidden' });
   }
-
-  const url = event.node.req.url ?? '';
-  // Only enforce bearer on our own API surface. Nuxt reserves `/api/_*` for
-  // internal endpoints (icon proxy, devtools probes, etc.) — gating those
-  // would break the SPA before the user even reaches the login screen.
-  if (!url.startsWith('/api/') || url.startsWith('/api/_')) return;
 
   const expected = process.env.AIDEV_UI_TOKEN ?? '';
   if (!expected) {

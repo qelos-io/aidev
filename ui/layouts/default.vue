@@ -62,7 +62,8 @@ function logout() {
 .app-shell {
   display: grid;
   grid-template-columns: 220px 1fr;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background: var(--ui-bg, #f8f9fb);
 }
 
@@ -73,6 +74,7 @@ function logout() {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  overflow-y: auto;
 }
 
 .brand {
@@ -105,12 +107,19 @@ nav { display: flex; flex-direction: column; gap: 0.125rem; }
   opacity: 0.85;
 }
 
-.main { display: flex; flex-direction: column; min-width: 0; }
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid #e5e7eb;
   background: #fff;
@@ -128,5 +137,10 @@ nav { display: flex; flex-direction: column; gap: 0.125rem; }
   max-width: 60vw;
 }
 
-.content { padding: 1.5rem; }
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
 </style>

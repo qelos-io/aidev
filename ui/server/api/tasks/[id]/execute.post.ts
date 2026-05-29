@@ -2,6 +2,7 @@ import { defineEventHandler, getRouterParam, createEventStream, createError } fr
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { getActiveRun, setActiveRun, clearActiveRun } from '../../../utils/currentRun';
 
 /**
  * Stream `aidev run --task <id>` stdout/stderr to the browser as SSE.
@@ -37,6 +38,13 @@ export default defineEventHandler(async (event) => {
     });
   }
 
+  if (getActiveRun()) {
+    throw createError({
+      statusCode: 409,
+      statusMessage: 'Another aidev run is already in progress. Cancel it before starting a new one.',
+    });
+  }
+
   const stream = createEventStream(event);
 
   const child = spawn(process.execPath, [cli, 'run', '--task', id], {
@@ -44,6 +52,7 @@ export default defineEventHandler(async (event) => {
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  setActiveRun(child, 'task', id);
 
   // Line-buffer stdout/stderr separately so a partial chunk that splits mid-
   // line doesn't get pushed as two events. Anything remaining when the stream
@@ -71,11 +80,13 @@ export default defineEventHandler(async (event) => {
   pump(child.stderr, 'stderr');
 
   child.on('error', (err: NodeJS.ErrnoException) => {
+    clearActiveRun(child);
     stream.push({ event: 'error', data: JSON.stringify({ message: err.message, code: err.code }) });
     stream.close();
   });
 
   child.on('exit', (code, signal) => {
+    clearActiveRun(child);
     stream.push({ event: 'exit', data: JSON.stringify({ code, signal }) });
     stream.close();
   });
@@ -87,6 +98,7 @@ export default defineEventHandler(async (event) => {
     if (!child.killed && child.exitCode === null) {
       child.kill('SIGTERM');
     }
+    clearActiveRun(child);
   });
 
   return stream.send();

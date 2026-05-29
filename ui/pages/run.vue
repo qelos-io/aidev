@@ -6,7 +6,7 @@
           <div>
             <h1 class="text-lg font-semibold">Run</h1>
             <p class="text-xs text-gray-500 mt-1">
-              Spawns <code>aidev run --status &lt;status&gt;</code> in
+              Spawns <code>aidev run &lt;status&gt;</code> in
               <code>{{ cwd || '—' }}</code> and streams output live below.
             </p>
           </div>
@@ -115,7 +115,7 @@ const stateKey = computed(() => {
 
 const statusText = computed(() => {
   if (running.value && activeStatus.value) {
-    return `Running aidev run --status ${activeStatus.value}…`;
+    return `Running aidev run ${activeStatus.value}…`;
   }
   if (lastExit.value) {
     const { code, signal, durationMs } = lastExit.value;

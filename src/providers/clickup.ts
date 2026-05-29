@@ -1,4 +1,4 @@
-import { Task, Comment, Config, CreateTaskParams, CreateTaskResult } from '../types';
+import { Task, Comment, Config, CreateTaskParams, CreateTaskResult, FetchTasksOptions } from '../types';
 import { TaskProvider } from './base';
 import { logger } from '../logger';
 import {
@@ -12,6 +12,18 @@ import {
   clickupBlocksToMarkdown,
   markdownToClickupBlocks,
 } from './clickup-format';
+
+interface ClickUpRawTask {
+  id: string;
+  name: string;
+  description?: string;
+  markdown_description?: string;
+  status: { status: string };
+  priority: { id: string } | null;
+  url: string;
+  tags: Array<{ name: string }>;
+  list?: { id?: string };
+}
 
 export class ClickUpProvider implements TaskProvider {
   private apiKey: string;
@@ -83,6 +95,59 @@ export class ClickUpProvider implements TaskProvider {
     };
   }
 
+  private static readonly IN_PROGRESS_STATUS = 'in progress';
+
+  private async fetchTaggedTeamTasks(): Promise<ClickUpRawTask[]> {
+    interface TasksResponse {
+      tasks: ClickUpRawTask[];
+    }
+
+    const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
+    const data = await this.request<TasksResponse>(
+      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false&include_markdown_description=true`,
+    );
+    return data.tasks;
+  }
+
+  private async mapRawTasks(tasks: ClickUpRawTask[], options?: FetchTasksOptions): Promise<Task[]> {
+    const skipAttachments = options?.skipAttachments === true;
+    const omitDescription = options?.omitDescription === true;
+
+    if (skipAttachments && omitDescription) {
+      return tasks.map((t) => this.mapRawTaskSync(t, '', options));
+    }
+
+    return Promise.all(
+      tasks.map(async (t) => {
+        let description = omitDescription ? '' : (t.markdown_description || t.description || '');
+        if (!skipAttachments) {
+          try {
+            const attachments = await this.fetchTaskAttachments(t.id);
+            description = appendAttachmentPaths(description, attachments);
+          } catch (err) {
+            logger.warn(
+              `[${t.id}] Failed to fetch ClickUp attachments: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+        return this.mapRawTaskSync(t, description, options);
+      }),
+    );
+  }
+
+  private mapRawTaskSync(t: ClickUpRawTask, description: string, _options?: FetchTasksOptions): Task {
+    return {
+      id: t.id,
+      name: t.name,
+      description,
+      status: t.status.status.toLowerCase(),
+      url: t.url,
+      tags: t.tags.map((tag) => tag.name),
+      priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
+      sourceListId: t.list?.id,
+    };
+  }
+
   private async fetchTaskAttachments(taskId: string): Promise<DownloadedAttachment[]> {
     interface RawTaskAttachment {
       id?: string | number;
@@ -108,98 +173,59 @@ export class ClickUpProvider implements TaskProvider {
     });
   }
 
-  async fetchTasks(): Promise<Task[]> {
+  async fetchBoardTasks(options?: FetchTasksOptions): Promise<Task[]> {
+    logger.debug(`Fetching board tasks with tag "${this.tag}" from team ${this.teamId}`);
+    const boardOpts: FetchTasksOptions = {
+      skipAttachments: true,
+      omitDescription: true,
+      ...options,
+    };
+    const pendingStatus = this.pendingStatus.toLowerCase();
+    const openStatus = this.openStatus.toLowerCase();
+    const inProgress = ClickUpProvider.IN_PROGRESS_STATUS;
+    const all = await this.fetchTaggedTeamTasks();
+    const eligible = all.filter((t) => {
+      const status = t.status.status.toLowerCase();
+      return status === openStatus || status === pendingStatus || status === inProgress;
+    });
+    return this.mapRawTasks(eligible, boardOpts);
+  }
+
+  async fetchTaskById(taskId: string, options?: FetchTasksOptions): Promise<Task | null> {
+    interface TaskDetailsResponse extends ClickUpRawTask {}
+
+    try {
+      const t = await this.request<TaskDetailsResponse>(
+        `/task/${taskId}?include_markdown_description=true`,
+      );
+      const mapped = await this.mapRawTasks([t], options);
+      return mapped[0] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async fetchTasks(options?: FetchTasksOptions): Promise<Task[]> {
     logger.debug(`Fetching tasks with tag "${this.tag}" from team ${this.teamId}`);
-
-    interface RawTask {
-      id: string;
-      name: string;
-      description?: string;
-      markdown_description?: string;
-      status: { status: string };
-      priority: { id: string } | null;
-      url: string;
-      tags: Array<{ name: string }>;
-      list?: { id?: string };
-    }
-
-    interface TasksResponse {
-      tasks: RawTask[];
-    }
-
-    const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
-    const data = await this.request<TasksResponse>(
-      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false&include_markdown_description=true`
-    );
 
     const pendingStatus = this.pendingStatus.toLowerCase();
     const openStatus = this.openStatus.toLowerCase();
-    const eligibleTasks = data.tasks.filter((t) => {
+    const all = await this.fetchTaggedTeamTasks();
+    const eligibleTasks = all.filter((t) => {
       const status = t.status.status.toLowerCase();
       return status === openStatus || status === pendingStatus;
     });
 
-    return Promise.all(eligibleTasks.map(async (t) => {
-      let attachments: DownloadedAttachment[] = [];
-      try {
-        attachments = await this.fetchTaskAttachments(t.id);
-      } catch (err) {
-        logger.warn(
-          `[${t.id}] Failed to fetch ClickUp attachments: ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
-
-      return {
-        id: t.id,
-        name: t.name,
-        description: appendAttachmentPaths(t.markdown_description || t.description || '', attachments),
-        status: t.status.status.toLowerCase(),
-        url: t.url,
-        tags: t.tags.map((tag) => tag.name),
-        priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
-        sourceListId: t.list?.id,
-      };
-    }));
+    return this.mapRawTasks(eligibleTasks, options);
   }
 
-  async fetchTasksByStatus(statuses: string[]): Promise<Task[]> {
+  async fetchTasksByStatus(statuses: string[], options?: FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
-
-    interface RawTask {
-      id: string;
-      name: string;
-      description?: string;
-      markdown_description?: string;
-      status: { status: string };
-      priority: { id: string } | null;
-      url: string;
-      tags: Array<{ name: string }>;
-      list?: { id?: string };
-    }
-
-    interface TasksResponse {
-      tasks: RawTask[];
-    }
-
-    const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
-    const data = await this.request<TasksResponse>(
-      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false&include_markdown_description=true`
+    const all = await this.fetchTaggedTeamTasks();
+    const eligibleTasks = all.filter((t) =>
+      normalized.includes(t.status.status.toLowerCase()),
     );
-
-    const eligibleTasks = data.tasks.filter((t) =>
-      normalized.includes(t.status.status.toLowerCase())
-    );
-
-    return eligibleTasks.map((t) => ({
-      id: t.id,
-      name: t.name,
-      description: t.markdown_description || t.description || '',
-      status: t.status.status.toLowerCase(),
-      url: t.url,
-      tags: t.tags.map((tag) => tag.name),
-      priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
-      sourceListId: t.list?.id,
-    }));
+    return this.mapRawTasks(eligibleTasks, options);
   }
 
   async postComment(taskId: string, text: string): Promise<void> {
