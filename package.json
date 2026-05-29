@@ -7,14 +7,21 @@
     "aidev": "dist/cli.js"
   },
   "main": "./dist/cli.js",
+  "files": [
+    "dist",
+    "ui/.output",
+    "ui/package.json",
+    ".env.aidev.example"
+  ],
   "engines": {
     "node": ">=22.0.0"
   },
   "scripts": {
     "build": "tsc && node -e \"if(process.platform!=='win32')require('node:fs').chmodSync('dist/cli.js',0o755)\"",
+    "build:ui": "npm --prefix ui ci && npm --prefix ui run build",
     "dev": "tsx src/cli.ts",
     "test": "node scripts/run-tests.cjs",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm run build:ui"
   },
   "keywords": [
     "ai",

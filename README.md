@@ -749,19 +749,14 @@ Downloaded task attachments are stored in `.aidev/assets/<task-id>/`, and `aidev
 
 `aidev ui` starts a local Nuxt dashboard for managing `.env.aidev`, browsing the log file, working with provider tasks, and triggering `aidev run` from a browser. The server binds to `127.0.0.1` only and requires a one-shot token printed when the command starts — nothing is exposed beyond your machine.
 
-**First time setup** (install the UI's dependencies once):
-
-```bash
-cd ui && npm install
-```
-
 **Run it:**
 
 ```bash
-aidev ui                 # dev mode on http://127.0.0.1:19422
+aidev ui                 # http://127.0.0.1:19422
 aidev ui --port 19500    # pick a different port
-aidev ui --prod          # serve the built output (cd ui && npm run build first)
 ```
+
+If you installed aidev from npm (e.g. `npm install -g @qelos/aidev`), the prebuilt Nuxt output is included in the package and `aidev ui` serves it directly — no extra setup. If you're hacking on the dashboard from a source checkout, install dev deps once (`cd ui && npm install`) and `aidev ui` will run Nuxt in dev mode with hot reload; pass `--prod` to serve the built output instead (after `cd ui && npm run build`).
 
 The command prints a `http://127.0.0.1:<port>/login?token=<token>` URL — click it to authenticate. The token is regenerated on every launch and stored in the browser's `localStorage` for the session.
 

@@ -16,13 +16,38 @@ From a directory containing `.env.aidev` (and after `npm run build` at the
 aidev repo root so `dist/cli.js` exists):
 
 ```bash
-node dist/cli.js ui                # dev mode, port 19422 (default)
+node dist/cli.js ui                # dev if ui/node_modules exists, else prod
 node dist/cli.js ui --port 19500   # custom port
-node dist/cli.js ui --prod         # serve built Nuxt output if present, fall back to dev
+node dist/cli.js ui --prod         # force serving the built .output (errors if missing)
 ```
 
-When aidev is installed globally (or via `npm link`), `aidev ui …` works the
-same way.
+Mode resolution (in `src/commands/ui.ts`):
+
+1. `--prod` forces prod mode; if `ui/.output/server/index.mjs` is missing the
+   command errors out.
+2. Otherwise, if `ui/node_modules` exists (source checkout), dev mode runs
+   `npm run dev` inside `ui/` for hot reload.
+3. Otherwise, if `ui/.output/` exists (the npm-installed case — see below),
+   prod mode spawns `node ui/.output/server/index.mjs`.
+4. Otherwise, error: nothing is runnable.
+
+## npm packaging
+
+The root `package.json` `files` whitelist publishes only:
+
+- `dist/` — the CLI build.
+- `ui/.output/` — the Nuxt build (fully self-contained, including its own
+  `node_modules`).
+- `ui/package.json` — kept for debuggability; not loaded at runtime.
+- `.env.aidev.example`.
+
+UI source files (`pages/`, `server/`, `composables/`, `layouts/`,
+`nuxt.config.ts`, `tsconfig.json`, `node_modules/`, `.nuxt/`) are **not**
+shipped. A stub `ui/.npmignore` exists solely to stop npm from falling back
+to `ui/.gitignore` (which would otherwise exclude `.output/`).
+
+`prepublishOnly` builds both: `npm run build && npm run build:ui` (the
+latter runs `npm ci && npm run build` inside `ui/`).
 
 The CLI:
 

@@ -58,22 +58,34 @@ export async function uiCommand(options: UICommandOptions): Promise<void> {
     process.exit(1);
   }
 
-  if (!fs.existsSync(path.join(uiDir, 'node_modules'))) {
+  const outputEntry = path.join(uiDir, '.output', 'server', 'index.mjs');
+  const hasBuild = fs.existsSync(outputEntry);
+  const hasDevDeps = fs.existsSync(path.join(uiDir, 'node_modules'));
+
+  // Published npm packages ship only ui/.output (see "files" in package.json),
+  // so prod mode is the default whenever the build is present. Dev mode is for
+  // the source repo and requires ui/node_modules.
+  const prodRequested = options.prod === true;
+  let useProd: boolean;
+  if (prodRequested) {
+    if (!hasBuild) {
+      logger.error(
+        `--prod requested but ${outputEntry} is missing. ` +
+          `Build with: cd ${uiDir} && npm run build`
+      );
+      process.exit(1);
+    }
+    useProd = true;
+  } else if (hasDevDeps) {
+    useProd = false;
+  } else if (hasBuild) {
+    useProd = true;
+  } else {
     logger.error(
-      `UI dependencies are not installed. Run:\n  cd ${uiDir} && npm install`
+      `UI is not runnable. Either install dev deps (cd ${uiDir} && npm install) ` +
+        `or build the app (cd ${uiDir} && npm run build).`
     );
     process.exit(1);
-  }
-
-  const prod = options.prod === true;
-  const outputEntry = path.join(uiDir, '.output', 'server', 'index.mjs');
-  const useProd = prod && fs.existsSync(outputEntry);
-
-  if (prod && !useProd) {
-    logger.warn(
-      `--prod requested but ${outputEntry} is missing. Falling back to dev mode. ` +
-        `Build with: cd ${uiDir} && npm run build`
-    );
   }
 
   const token = crypto.randomBytes(32).toString('hex');
