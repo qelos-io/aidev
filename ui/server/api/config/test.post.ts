@@ -96,14 +96,42 @@ async function testProvider(): Promise<TestResult> {
   };
 }
 
+function testAnthropicSdk(): TestResult {
+  const cwd = process.env.AIDEV_CWD as string;
+  const env = readEnvFile(cwd);
+  if (!env.exists) {
+    return { ok: false, message: `.env.aidev not found at ${env.path}` };
+  }
+
+  // Match testProvider: clear file keys so loadConfig() sees the on-disk state.
+  for (const key of env.keys) {
+    delete process.env[key];
+  }
+
+  const configMod = loadAidev('config') as {
+    loadConfig: (envPath?: string) => unknown;
+    parseAnthropicTokens: (raw: string) => string[];
+  };
+  configMod.loadConfig(env.path);
+
+  const tokens = configMod.parseAnthropicTokens(process.env.ANTHROPIC_API_KEY ?? '');
+  return tokens.length > 0
+    ? {
+        ok: true,
+        message: `anthropic-sdk: ${tokens.length} API key(s) configured (validated at run time)`,
+      }
+    : { ok: false, message: 'anthropic-sdk: ANTHROPIC_API_KEY is not set' };
+}
+
 function testAi(name: string): TestResult {
   if (name === 'anthropic-sdk') {
-    // No CLI to probe — the SDK runner only needs ANTHROPIC_API_KEY at run
-    // time. Surface that to the user so they don't expect a --version probe.
-    const hasKey = !!(process.env.ANTHROPIC_API_KEY ?? '').trim();
-    return hasKey
-      ? { ok: true, message: 'anthropic-sdk: ANTHROPIC_API_KEY is set (validated at run time)' }
-      : { ok: false, message: 'anthropic-sdk: ANTHROPIC_API_KEY is not set' };
+    try {
+      return testAnthropicSdk();
+    } catch (err) {
+      if (err && typeof err === 'object' && 'statusCode' in err) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, message };
+    }
   }
 
   const cmd = AGENT_CLI[name];
