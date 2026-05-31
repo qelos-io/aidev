@@ -15,6 +15,12 @@ export default defineNuxtConfig({
     experimental: {
       asyncContext: true,
     },
+    // entities v7 uses package.json `exports` subpath maps that Nitro's file
+    // copier doesn't fully preserve when externalising the package. Inlining it
+    // lets Rollup resolve `entities/decode` at build time instead of at runtime.
+    externals: {
+      inline: ['entities'],
+    },
   },
   runtimeConfig: {
     aidevUiToken: process.env.AIDEV_UI_TOKEN ?? '',
