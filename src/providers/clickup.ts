@@ -106,14 +106,15 @@ export class ClickUpProvider implements TaskProvider {
 
   private static readonly IN_PROGRESS_STATUS = 'in progress';
 
-  private async fetchTaggedTeamTasks(): Promise<ClickUpRawTask[]> {
+  private async fetchTaggedTeamTasks(updatedAfter?: number): Promise<ClickUpRawTask[]> {
     interface TasksResponse {
       tasks: ClickUpRawTask[];
     }
 
     const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
+    const dateFilter = updatedAfter ? `&date_updated_gt=${updatedAfter}` : '';
     const data = await this.request<TasksResponse>(
-      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false&include_markdown_description=true`,
+      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false&include_markdown_description=true${dateFilter}`,
     );
     return data.tasks;
   }
@@ -203,7 +204,7 @@ export class ClickUpProvider implements TaskProvider {
     const inProgress = ClickUpProvider.IN_PROGRESS_STATUS;
     const inReviewStatus = this.inReviewStatus.toLowerCase();
 
-    const tagged = await this.fetchTaggedTeamTasks();
+    const tagged = await this.fetchTaggedTeamTasks(options?.updatedAfter);
     const eligible = tagged.filter((t) => {
       const status = t.status.status.toLowerCase();
       return status === openStatus || status === pendingStatus || status === inProgress || status === inReviewStatus;
@@ -231,7 +232,7 @@ export class ClickUpProvider implements TaskProvider {
 
     const pendingStatus = this.pendingStatus.toLowerCase();
     const openStatus = this.openStatus.toLowerCase();
-    const all = await this.fetchTaggedTeamTasks();
+    const all = await this.fetchTaggedTeamTasks(options?.updatedAfter);
     const eligibleTasks = all.filter((t) => {
       const status = t.status.status.toLowerCase();
       return status === openStatus || status === pendingStatus;
@@ -242,7 +243,7 @@ export class ClickUpProvider implements TaskProvider {
 
   async fetchTasksByStatus(statuses: string[], options?: FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
-    const all = await this.fetchTaggedTeamTasks();
+    const all = await this.fetchTaggedTeamTasks(options?.updatedAfter);
     const eligibleTasks = all.filter((t) =>
       normalized.includes(t.status.status.toLowerCase()),
     );

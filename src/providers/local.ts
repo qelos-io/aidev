@@ -169,7 +169,7 @@ export class LocalProvider implements TaskProvider {
     ensureTaskFolders(this.baseDir);
   }
 
-  async fetchTasks(_options?: import('../types').FetchTasksOptions): Promise<Task[]> {
+  async fetchTasks(options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     logger.debug(`Fetching ${this.mode} tasks from local .aidev/tasks folders`);
 
     const tasks: Task[] = [];
@@ -182,7 +182,14 @@ export class LocalProvider implements TaskProvider {
       );
 
       for (const file of files) {
-        const content = fs.readFileSync(path.join(dir, file), 'utf8');
+        const filePath = path.join(dir, file);
+
+        if (options?.updatedAfter !== undefined) {
+          const mtime = fs.statSync(filePath).mtimeMs;
+          if (mtime < options.updatedAfter) continue;
+        }
+
+        const content = fs.readFileSync(filePath, 'utf8');
         const { meta, body } = parseFrontmatter(content);
 
         const taskType: TaskMode = meta.type === 'non-code' ? 'non-code' : 'code';
@@ -196,7 +203,7 @@ export class LocalProvider implements TaskProvider {
           name: meta.title || file.replace(/\.md$/, ''),
           description: body,
           status: FOLDER_TO_STATUS[folder],
-          url: path.join(dir, file),
+          url: filePath,
           tags: meta.tags ? meta.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
           priority: meta.priority ? parseInt(meta.priority, 10) : undefined,
           sourceListId: meta.listId || meta.list_id || undefined,
@@ -207,9 +214,9 @@ export class LocalProvider implements TaskProvider {
     return tasks;
   }
 
-  async fetchTasksByStatus(statuses: string[], _options?: import('../types').FetchTasksOptions): Promise<Task[]> {
+  async fetchTasksByStatus(statuses: string[], options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
-    const all = await this.fetchTasks();
+    const all = await this.fetchTasks(options);
     return all.filter((t) => normalized.includes(t.status.toLowerCase()));
   }
 
