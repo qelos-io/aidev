@@ -1,4 +1,4 @@
-import { cpSync, existsSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
@@ -26,9 +26,13 @@ export default defineNuxtConfig({
       compiled(nitro) {
         const src = join(nitro.options.rootDir, 'node_modules', 'entities');
         const dest = join(nitro.options.output.serverDir, 'node_modules', 'entities');
-        if (existsSync(src) && !existsSync(dest)) {
-          cpSync(src, dest, { recursive: true });
-        }
+        if (!existsSync(src)) return;
+        // Nitro may leave a symlink here; npm does not follow symlinks when
+        // packaging, so replace it with real files.
+        try {
+          if (lstatSync(dest).isSymbolicLink()) rmSync(dest);
+        } catch {}
+        if (!existsSync(dest)) cpSync(src, dest, { recursive: true });
       },
     },
   },
