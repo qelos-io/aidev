@@ -1,3 +1,6 @@
+import { cpSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
@@ -15,11 +18,18 @@ export default defineNuxtConfig({
     experimental: {
       asyncContext: true,
     },
-    // entities v7 uses package.json `exports` subpath maps that Nitro's file
-    // copier doesn't fully preserve when externalising the package. Inlining it
-    // lets Rollup resolve `entities/decode` at build time instead of at runtime.
-    externals: {
-      inline: ['entities'],
+    hooks: {
+      // @vue/compiler-core (externalised by Nitro as a real node_module) requires
+      // 'entities/decode' at runtime via Node.js module resolution. Nitro's tracer
+      // misses 'entities' because it's only referenced via a subpath export from
+      // an already-externalised package, so we copy it explicitly after the build.
+      compiled(nitro) {
+        const src = join(nitro.options.rootDir, 'node_modules', 'entities');
+        const dest = join(nitro.options.output.serverDir, 'node_modules', 'entities');
+        if (existsSync(src) && !existsSync(dest)) {
+          cpSync(src, dest, { recursive: true });
+        }
+      },
     },
   },
   runtimeConfig: {
