@@ -285,11 +285,15 @@ async function cancelRun() {
   // running/cancelling are cleared by the upcoming `exit` SSE event.
 }
 
+function parseAutorunQuery(value: unknown): RunStatus | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== 'string' || !raw) return null;
+  return statuses.some((s) => s.value === raw) ? (raw as RunStatus) : null;
+}
+
 onMounted(() => {
-  const autorun = route.query.autorun;
-  if (typeof autorun === 'string' && autorun) {
-    startRun(autorun as RunStatus);
-  }
+  const autorun = parseAutorunQuery(route.query.autorun);
+  if (autorun) startRun(autorun);
 });
 
 onBeforeUnmount(() => {
