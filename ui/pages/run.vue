@@ -82,6 +82,7 @@ interface ExitInfo {
 const TOKEN_KEY = 'aidev-ui-token';
 
 const api = useApi();
+const route = useRoute();
 const runtime = useRuntimeConfig();
 const cwd = computed(() => runtime.public.aidevCwd as string);
 
@@ -283,6 +284,13 @@ async function cancelRun() {
   }
   // running/cancelling are cleared by the upcoming `exit` SSE event.
 }
+
+onMounted(() => {
+  const autorun = route.query.autorun;
+  if (typeof autorun === 'string' && autorun) {
+    startRun(autorun as RunStatus);
+  }
+});
 
 onBeforeUnmount(() => {
   // Don't kill the child on nav-away — let the user come back to a still-
