@@ -47,7 +47,7 @@
           :data="stats?.executed ?? null"
           :period="period"
           :loading="loading"
-          @update:period="period = $event"
+          @update:period="setPeriod"
         />
       </div>
 
@@ -62,7 +62,7 @@
 <script setup lang="ts">
 import { useDashboard } from '~/composables/useDashboard';
 
-const { period, stats, loading, error } = useDashboard();
+const { period, stats, loading, error, setPeriod } = useDashboard();
 
 function onRun(status: string) {
   navigateTo({ path: '/run', query: { autorun: status } });
