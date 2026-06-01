@@ -107,6 +107,7 @@ export async function uiCommand(options: UICommandOptions): Promise<void> {
     AIDEV_UI_TOKEN: token,
     AIDEV_UI_PORT: String(port),
     AIDEV_CWD: process.cwd(),
+    AIDEV_PACKAGE_DIR: path.resolve(__dirname, '..', '..'),
     NITRO_HOST: '127.0.0.1',
     NITRO_PORT: String(port),
   };

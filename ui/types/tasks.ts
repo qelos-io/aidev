@@ -24,12 +24,18 @@ export interface TasksFilters {
   done: string[];
 }
 
+export interface SuggestedTag {
+  tag: string;
+  label: string;
+}
+
 export interface TasksResponse {
   filter: string;
   provider: string;
   tasks: UiTask[];
   activeTaskId: string | null;
   filters: TasksFilters;
+  suggestedTags: SuggestedTag[];
 }
 
 export interface TaskDetailResponse {

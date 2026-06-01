@@ -38,7 +38,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, statusMessage: 'AIDEV_CWD not set' });
   }
 
-  const cli = path.join(cwd, 'dist', 'cli.js');
+  const pkgDir = process.env.AIDEV_PACKAGE_DIR ?? cwd;
+  const cli = path.join(pkgDir, 'dist', 'cli.js');
   if (!fs.existsSync(cli)) {
     throw createError({
       statusCode: 503,

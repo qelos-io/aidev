@@ -26,6 +26,7 @@ export class JiraProvider implements TaskProvider {
   private project: string;
   private label: string;
   private assigneeTag: string;
+  private inReviewStatus: string;
 
   constructor(config: Config) {
     this.baseUrl = config.jiraBaseUrl.replace(/\/$/, '');
@@ -34,6 +35,7 @@ export class JiraProvider implements TaskProvider {
     this.project = config.jiraProject;
     this.label = config.jiraLabel;
     this.assigneeTag = config.assigneeTag;
+    this.inReviewStatus = config.jiraInReviewStatus || 'In Review';
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -388,12 +390,52 @@ export class JiraProvider implements TaskProvider {
     });
   }
 
+  async fetchBoardTasks(options?: FetchTasksOptions): Promise<Task[]> {
+    const boardOpts: FetchTasksOptions = { skipAttachments: true, omitDescription: true, ...options };
+    const labeled = await this.fetchTasks(boardOpts);
+    const labelClauseReview = this.label === '*' ? '' : ` AND labels = "${this.label}"`;
+    const reviewJql = `project = "${this.project}"${labelClauseReview} AND status = "${this.inReviewStatus}" AND statusCategory != Done ORDER BY created DESC`;
+    interface SearchResponse { issues: Array<{ id: string; key: string; fields: { summary: string; status: { name: string }; priority: { id: string } | null; labels: string[]; project?: { key?: string } } }> }
+    let reviewTasks: Task[] = [];
+    try {
+      const data = await this.request<SearchResponse>(
+        `/search/jql?jql=${encodeURIComponent(reviewJql)}&fields=summary,status,priority,labels,project&maxResults=50`,
+      );
+      reviewTasks = data.issues.map((issue) => ({
+        id: issue.key,
+        name: issue.fields.summary,
+        description: '',
+        status: issue.fields.status.name.toLowerCase(),
+        url: `${this.baseUrl}/browse/${issue.key}`,
+        tags: issue.fields.labels,
+        priority: issue.fields.priority ? parseInt(issue.fields.priority.id, 10) : undefined,
+        sourceListId: issue.fields.project?.key,
+      }));
+    } catch (err) {
+      logger.warn(`Failed to fetch Jira review tasks: ${err instanceof Error ? err.message : err}`);
+    }
+    const byId = new Map<string, Task>();
+    for (const t of labeled) byId.set(t.id, t);
+    for (const t of reviewTasks) byId.set(t.id, t);
+    return [...byId.values()];
+  }
+
   async removeTag(taskId: string, tag: string): Promise<void> {
     logger.debug(`Removing label "${tag}" from Jira issue ${taskId}`);
     await this.request(`/issue/${taskId}`, {
       method: 'PUT',
       body: JSON.stringify({
         update: { labels: [{ remove: tag }] },
+      }),
+    });
+  }
+
+  async addTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Adding label "${tag}" to Jira issue ${taskId}`);
+    await this.request(`/issue/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        update: { labels: [{ add: tag }] },
       }),
     });
   }

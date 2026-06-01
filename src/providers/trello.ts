@@ -364,6 +364,86 @@ export class TrelloProvider implements TaskProvider {
     );
   }
 
+  async fetchBoardTasks(options?: FetchTasksOptions): Promise<Task[]> {
+    const boardOpts: FetchTasksOptions = { skipAttachments: true, omitDescription: true, ...options };
+    const [lists, myId] = await Promise.all([this.fetchLists(), this.fetchMyMemberId()]);
+    const cards = await this.request<TrelloCard[]>(
+      `/boards/${encodeURIComponent(this.boardId)}/cards?fields=id,name,desc,url,idList,idMembers,labels&labels=true`,
+    );
+
+    const openListId = this.findListId(lists, this.openListName);
+    const pendingListId = this.findListId(lists, this.pendingListName);
+    let inProgressListId: string | null = null;
+    try { inProgressListId = this.findListId(lists, this.inProgressListName); } catch { /* optional */ }
+    let reviewListId: string | null = null;
+    try { reviewListId = this.findListId(lists, this.inReviewListName); } catch { /* optional */ }
+
+    const byId = new Map<string, Task>();
+
+    // Open/pending/in-progress: apply label filter
+    for (const c of cards) {
+      if (!c.idMembers.includes(myId)) continue;
+      if (!this.cardHasLabel(c)) continue;
+      let status: string | null = null;
+      if (c.idList === openListId) status = this.openSemantic;
+      else if (c.idList === pendingListId) status = this.pendingSemantic;
+      else if (inProgressListId && c.idList === inProgressListId) status = 'in progress';
+      if (!status) continue;
+      byId.set(c.id, {
+        id: c.id, name: c.name,
+        description: boardOpts.omitDescription ? '' : (c.desc || ''),
+        status, url: c.url,
+        tags: c.labels.map((l) => l.name),
+        sourceListId: c.idList,
+      });
+    }
+
+    // Review: apply same label filter as other columns
+    if (reviewListId) {
+      for (const c of cards) {
+        if (c.idList !== reviewListId) continue;
+        if (!c.idMembers.includes(myId)) continue;
+        if (!this.cardHasLabel(c)) continue;
+        if (byId.has(c.id)) continue;
+        byId.set(c.id, {
+          id: c.id, name: c.name,
+          description: boardOpts.omitDescription ? '' : (c.desc || ''),
+          status: this.inReviewSemantic, url: c.url,
+          tags: c.labels.map((l) => l.name),
+          sourceListId: c.idList,
+        });
+      }
+    }
+
+    return [...byId.values()];
+  }
+
+  async addTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Adding label "${tag}" to Trello card ${taskId}`);
+
+    const boardLabels = await this.request<TrelloLabel[]>(
+      `/boards/${encodeURIComponent(this.boardId)}/labels?fields=id,name`,
+    );
+    const want = tag.trim().toLowerCase();
+    let label = boardLabels.find((l) => l.name.trim().toLowerCase() === want);
+    if (!label) {
+      label = await this.request<TrelloLabel>(
+        `/boards/${encodeURIComponent(this.boardId)}/labels?name=${encodeURIComponent(tag)}&color=null`,
+        { method: 'POST' },
+      );
+    }
+
+    const card = await this.request<{ labels: TrelloLabel[] }>(
+      `/cards/${encodeURIComponent(taskId)}?fields=labels`,
+    );
+    if (card.labels.some((l) => l.id === label!.id)) return;
+
+    await this.request(
+      `/cards/${encodeURIComponent(taskId)}/idLabels?value=${encodeURIComponent(label.id)}`,
+      { method: 'POST' },
+    );
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const lists = await this.fetchLists();
     const listId =

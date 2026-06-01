@@ -1,6 +1,6 @@
 import { defineEventHandler, getQuery } from 'h3';
 import { resolveActiveTaskId } from '../utils/activeTask';
-import { fetchBoardTasks } from '../utils/boardTasks';
+import { fetchBoardTasks, mergeTasksById } from '../utils/boardTasks';
 import { getProvider, statusesForFilter } from '../utils/provider';
 
 export interface TasksResponse {
@@ -21,7 +21,7 @@ export interface TasksResponse {
 }
 
 export default defineEventHandler(async (event): Promise<TasksResponse> => {
-  const { config, provider, cwd, dist } = getProvider(event);
+  const { config, provider, nonCodeProvider, cwd, dist } = getProvider(event);
   const q = getQuery(event);
   const filter = (typeof q.status === 'string' ? q.status : 'all').toLowerCase();
 
@@ -43,6 +43,31 @@ export default defineEventHandler(async (event): Promise<TasksResponse> => {
     }
   }
 
+  // Merge non-code tasks so the board shows them alongside code tasks,
+  // mirroring what the CLI does with its separate nonCodeProvider.
+  if (nonCodeProvider) {
+    try {
+      const nonCodeTasks = await fetchBoardTasks(config, nonCodeProvider);
+      tasks = mergeTasksById(tasks, nonCodeTasks);
+    } catch {
+      // Non-fatal — main board still loads if the non-code fetch fails.
+    }
+  }
+
+  // Build the list of well-known aidev tag suggestions from config.
+  // Each entry has a stable label so the UI can display human-readable names
+  // even when the tag value itself is a generated string like "secretary-other".
+  const suggestedTagEntries: Array<{ key: string; label: string }> = [
+    { key: 'clickupTag',   label: 'code' },
+    { key: 'nonCodeTag',   label: 'non-code' },
+    { key: 'thinkingTag',  label: 'thinking' },
+    { key: 'planningTag',  label: 'planning' },
+    { key: 'acceptedTag',  label: 'accepted' },
+  ];
+  const suggestedTags = suggestedTagEntries
+    .map(({ key, label }) => ({ tag: (config[key] as string | undefined) || '', label }))
+    .filter((s) => s.tag.length > 0);
+
   return {
     filter,
     provider: config.provider,
@@ -55,5 +80,6 @@ export default defineEventHandler(async (event): Promise<TasksResponse> => {
       done: config.doneStatus ? [config.doneStatus] : [],
     },
     activeTaskId: resolveActiveTaskId(cwd, dist),
+    suggestedTags,
   };
 });

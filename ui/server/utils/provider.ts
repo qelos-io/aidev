@@ -66,6 +66,7 @@ export interface UiConfig {
 export interface ProviderBundle {
   config: UiConfig;
   provider: UiProvider;
+  nonCodeProvider?: UiProvider;
   envPath: string;
   cwd: string;
   dist: string;
@@ -75,8 +76,12 @@ export interface ProviderBundle {
 // don't repeatedly re-read .env.aidev or re-instantiate the provider.
 const CACHE_KEY = '__aidevProvider';
 
-function getDistDir(cwd: string): string {
-  const dist = path.join(cwd, 'dist');
+function getDistDir(): string {
+  const pkgDir = process.env.AIDEV_PACKAGE_DIR;
+  if (!pkgDir) {
+    throw createError({ statusCode: 500, statusMessage: 'AIDEV_PACKAGE_DIR not set' });
+  }
+  const dist = path.join(pkgDir, 'dist');
   if (!fs.existsSync(dist)) {
     throw createError({
       statusCode: 503,
@@ -88,8 +93,8 @@ function getDistDir(cwd: string): string {
   return dist;
 }
 
-function load(cwd: string, dist: string, rel: string): unknown {
-  const req = createRequire(path.join(cwd, 'package.json'));
+function load(pkgDir: string, dist: string, rel: string): unknown {
+  const req = createRequire(path.join(pkgDir, 'package.json'));
   return req(path.join(dist, rel));
 }
 
@@ -124,17 +129,38 @@ export function getProvider(event: H3Event): ProviderBundle {
   }
   for (const key of env.keys) delete process.env[key];
 
-  const dist = getDistDir(cwd);
-  const configMod = load(cwd, dist, 'config') as {
+  const pkgDir = process.env.AIDEV_PACKAGE_DIR ?? cwd;
+  const dist = getDistDir();
+  const configMod = load(pkgDir, dist, 'config') as {
     loadConfig: (envPath?: string) => UiConfig;
   };
-  const providersMod = load(cwd, dist, 'providers') as {
+  const providersMod = load(pkgDir, dist, 'providers') as {
     createProvider: (config: UiConfig) => UiProvider;
   };
 
   const config = configMod.loadConfig(env.path);
   const provider = providersMod.createProvider(config);
-  const bundle: ProviderBundle = { config, provider, envPath: env.path, cwd, dist };
+
+  // Mirror the CLI's non-code provider: same config but with nonCodeTag as the
+  // tag filter (and optionally a different team/project). Only created when
+  // nonCodeTag is set — without it there's nothing to filter on.
+  let nonCodeProvider: UiProvider | undefined;
+  const nonCodeTag = (config.nonCodeTag as string | undefined) || '';
+  if (nonCodeTag) {
+    const nonCodeConfig = {
+      ...config,
+      clickupTag: nonCodeTag,
+      clickupTeamId: (config.nonCodeClickupTeamId as string | undefined) || config.clickupTeamId,
+      jiraLabel: nonCodeTag,
+      jiraProject: (config.nonCodeJiraProject as string | undefined) || (config.jiraProject as string | undefined),
+      linearLabel: nonCodeTag,
+      linearTeamId: (config.nonCodeLinearTeamId as string | undefined) || config.linearTeamId,
+      trelloLabel: nonCodeTag,
+    };
+    nonCodeProvider = providersMod.createProvider(nonCodeConfig as UiConfig);
+  }
+
+  const bundle: ProviderBundle = { config, provider, nonCodeProvider, envPath: env.path, cwd, dist };
   ctx[CACHE_KEY] = bundle;
   return bundle;
 }
@@ -160,21 +186,23 @@ export function statusesForFilter(
       return [config.clickupOpenStatus || 'open'];
     case 'pending':
       if (p === 'local') return ['pending'];
-      if (p === 'jira') return config.jiraPendingStatus ? [config.jiraPendingStatus] : [];
-      if (p === 'linear') return config.linearPendingStatus ? [config.linearPendingStatus] : [];
-      if (p === 'notion') return config.notionPendingStatus ? [config.notionPendingStatus] : [];
-      if (p === 'trello') return config.trelloPendingStatus ? [config.trelloPendingStatus] : [];
-      return config.clickupPendingStatus ? [config.clickupPendingStatus] : [];
+      if (p === 'jira') return [config.jiraPendingStatus || 'To Do'];
+      if (p === 'linear') return [config.linearPendingStatus || 'Todo'];
+      if (p === 'notion') return [config.notionPendingStatus || 'pending'];
+      if (p === 'trello') return [config.trelloPendingStatus || 'pending'];
+      return [config.clickupPendingStatus || 'pending'];
     case 'review':
       if (p === 'local') return ['review'];
-      if (p === 'jira') return config.jiraInReviewStatus ? [config.jiraInReviewStatus] : [];
-      if (p === 'linear') return config.linearInReviewStatus ? [config.linearInReviewStatus] : [];
-      if (p === 'notion') return config.notionInReviewStatus ? [config.notionInReviewStatus] : [];
-      if (p === 'trello') return config.trelloInReviewStatus ? [config.trelloInReviewStatus] : [];
-      return config.clickupInReviewStatus ? [config.clickupInReviewStatus] : [];
+      if (p === 'jira') return [config.jiraInReviewStatus || 'In Review'];
+      if (p === 'linear') return [config.linearInReviewStatus || 'In Review'];
+      if (p === 'notion') return [config.notionInReviewStatus || 'review'];
+      if (p === 'trello') return [config.trelloInReviewStatus || 'review'];
+      return [config.clickupInReviewStatus || 'review'];
     case 'inprogress':
     case 'in_progress':
       return ['in progress'];
+    case 'done':
+      return [config.doneStatus || 'done'];
     default:
       return [];
   }

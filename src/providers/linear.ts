@@ -405,6 +405,66 @@ export class LinearProvider implements TaskProvider {
     });
   }
 
+  async fetchBoardTasks(_options?: import('../types').FetchTasksOptions): Promise<Task[]> {
+    const teamId = await this.resolveTeamId();
+    // Labeled tasks (open/pending/in-progress) — same query as fetchTasks
+    const labeled = await this.fetchTasks({ skipAttachments: true, omitDescription: true });
+    // Review tasks without label filter
+    const reviewName = this.inReviewStatus;
+    const query = `
+      query ReviewIssues($filter: IssueFilter) {
+        issues(filter: $filter, first: 100) {
+          nodes {
+            id identifier title url
+            state { id name type }
+            priority
+            labels { nodes { name } }
+          }
+        }
+      }
+    `;
+    let reviewTasks: Task[] = [];
+    try {
+      const filter: Record<string, unknown> = {
+        team: { id: { eq: teamId } },
+        state: { name: { eq: reviewName } },
+        ...(this.label && this.label !== '*' ? { labels: { some: { name: { eq: this.label } } } } : {}),
+      };
+      const data = await this.graphql<{
+        issues: { nodes: Array<{ id: string; identifier: string; title: string; url: string; state: { name: string; type: string }; priority: number | null; labels: { nodes: Array<{ name: string }> } }> };
+      }>(query, { filter });
+      reviewTasks = data.issues.nodes.map((n) => ({
+        id: n.identifier,
+        name: n.title,
+        description: '',
+        status: n.state.name,
+        url: n.url,
+        tags: n.labels.nodes.map((l) => l.name),
+        priority: n.priority ?? undefined,
+        sourceListId: teamId,
+      }));
+    } catch (err) {
+      logger.warn(`Failed to fetch Linear review tasks: ${err instanceof Error ? err.message : err}`);
+    }
+    const byId = new Map<string, Task>();
+    for (const t of labeled) byId.set(t.id, t);
+    for (const t of reviewTasks) byId.set(t.id, t);
+    return [...byId.values()];
+  }
+
+  async addTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Adding label "${tag}" to Linear issue ${taskId}`);
+    const issueId = await this.resolveIssueId(taskId);
+    const [labelId] = await this.resolveLabelIds([tag]);
+    if (!labelId) return;
+    const mutation = `
+      mutation IssueAddLabel($id: String!, $labelId: String!) {
+        issueAddLabel(id: $id, labelId: $labelId) { success }
+      }
+    `;
+    await this.graphql<{ issueAddLabel: { success: boolean } }>(mutation, { id: issueId, labelId });
+  }
+
   private async fetchTeamLabels(): Promise<Array<{ id: string; name: string }>> {
     const query = `
       query IssueLabels($filter: IssueLabelFilter, $after: String) {

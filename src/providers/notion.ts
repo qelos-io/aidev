@@ -272,6 +272,30 @@ export class NotionProvider implements TaskProvider {
     });
   }
 
+  async addTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Adding tag "${tag}" to Notion page ${taskId}`);
+    const pageId = taskId.length === 32 ? `${taskId.slice(0, 8)}-${taskId.slice(8, 12)}-${taskId.slice(12, 16)}-${taskId.slice(16, 20)}-${taskId.slice(20, 32)}` : taskId;
+
+    const page = await this.request<NotionPage>(`/pages/${pageId}`);
+    const propName = page.properties['Tags'] ? 'Tags' : page.properties['tags'] ? 'tags' : null;
+    if (!propName) return;
+
+    const tagsProp = page.properties[propName];
+    const existing: Array<{ name: string }> = Array.isArray(tagsProp?.multi_select)
+      ? tagsProp.multi_select
+      : [];
+    if (existing.some((o) => o.name.toLowerCase() === tag.toLowerCase())) return;
+
+    await this.request(`/pages/${pageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        properties: {
+          [propName]: { multi_select: [...existing.map((o) => ({ name: o.name })), { name: tag }] },
+        },
+      }),
+    });
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     await this.ensureSchema();
     const titleKey = this.titlePropertyName ?? 'Name';

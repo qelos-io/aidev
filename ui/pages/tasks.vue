@@ -12,16 +12,26 @@
               <span v-else>—</span>
             </p>
           </div>
-          <UButton
-            color="gray"
-            variant="ghost"
-            size="sm"
-            :loading="loading"
-            :disabled="loading"
-            @click="reload"
-          >
-            Refresh
-          </UButton>
+          <div class="flex items-center gap-2">
+            <UButton
+              color="primary"
+              size="sm"
+              :disabled="!data"
+              @click="openCreateModal"
+            >
+              New Task
+            </UButton>
+            <UButton
+              color="gray"
+              variant="ghost"
+              size="sm"
+              :loading="loading"
+              :disabled="loading"
+              @click="reload"
+            >
+              Refresh
+            </UButton>
+          </div>
         </div>
       </template>
 
@@ -53,6 +63,16 @@
       />
     </UCard>
 
+    <TasksTaskCreateModal
+      :open="createModalOpen"
+      :saving="createSaving"
+      :error="createError"
+      :suggested-tags="suggestedTags"
+      @update:open="createModalOpen = $event"
+      @close="closeCreateModal"
+      @submit="createTask"
+    />
+
     <TasksTaskDetailModal
       :open="drawerOpen"
       :detail="detail"
@@ -68,6 +88,8 @@
       :exec-running="execRunning"
       :exec-lines="execLines"
       :exec-text="execText"
+      :suggested-tags="suggestedTags"
+      :tag-saving="tagSaving"
       @update:open="drawerOpen = $event"
       @close="closeDrawer"
       @update:status-draft="statusDraft = $event"
@@ -78,6 +100,7 @@
       @run="runExecute"
       @stop="stopExecute"
       @clear-exec="clearExecLines"
+      @save-tags="saveTags"
     />
   </div>
 </template>
@@ -113,6 +136,15 @@ const {
   runExecute,
   stopExecute,
   clearExecLines,
+  suggestedTags,
+  tagSaving,
+  saveTags,
+  createModalOpen,
+  createSaving,
+  createError,
+  openCreateModal,
+  closeCreateModal,
+  createTask,
 } = useTasksPage();
 </script>
 

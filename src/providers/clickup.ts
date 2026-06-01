@@ -13,6 +13,13 @@ import {
   markdownToClickupBlocks,
 } from './clickup-format';
 
+function mergeById<T extends { id: string }>(primary: T[], extra: T[]): T[] {
+  const byId = new Map<string, T>();
+  for (const t of primary) byId.set(t.id, t);
+  for (const t of extra) byId.set(t.id, t);
+  return [...byId.values()];
+}
+
 interface ClickUpRawTask {
   id: string;
   name: string;
@@ -33,6 +40,7 @@ export class ClickUpProvider implements TaskProvider {
   private listId: string;
   private pendingStatus: string;
   private openStatus: string;
+  private inReviewStatus: string;
 
   constructor(config: Config) {
     this.apiKey = config.clickupApiKey;
@@ -42,6 +50,7 @@ export class ClickUpProvider implements TaskProvider {
     this.listId = config.clickupListId;
     this.pendingStatus = config.clickupPendingStatus || 'pending';
     this.openStatus = config.clickupOpenStatus || 'open';
+    this.inReviewStatus = config.clickupInReviewStatus || 'review';
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -173,6 +182,15 @@ export class ClickUpProvider implements TaskProvider {
     });
   }
 
+  private async fetchTeamTasksByStatus(statuses: string[]): Promise<ClickUpRawTask[]> {
+    interface TasksResponse { tasks: ClickUpRawTask[] }
+    const normalized = statuses.map((s) => s.toLowerCase());
+    const data = await this.request<TasksResponse>(
+      `/team/${this.teamId}/task?subtasks=true&include_closed=false&include_markdown_description=true`,
+    );
+    return data.tasks.filter((t) => normalized.includes(t.status.status.toLowerCase()));
+  }
+
   async fetchBoardTasks(options?: FetchTasksOptions): Promise<Task[]> {
     logger.debug(`Fetching board tasks with tag "${this.tag}" from team ${this.teamId}`);
     const boardOpts: FetchTasksOptions = {
@@ -183,12 +201,25 @@ export class ClickUpProvider implements TaskProvider {
     const pendingStatus = this.pendingStatus.toLowerCase();
     const openStatus = this.openStatus.toLowerCase();
     const inProgress = ClickUpProvider.IN_PROGRESS_STATUS;
-    const all = await this.fetchTaggedTeamTasks();
-    const eligible = all.filter((t) => {
+    const inReviewStatus = this.inReviewStatus.toLowerCase();
+
+    // Tagged tasks for open/pending/in-progress columns
+    const tagged = await this.fetchTaggedTeamTasks();
+    const eligible = tagged.filter((t) => {
       const status = t.status.status.toLowerCase();
       return status === openStatus || status === pendingStatus || status === inProgress;
     });
-    return this.mapRawTasks(eligible, boardOpts);
+
+    const reviewRawAll = await this.fetchTeamTasksByStatus([inReviewStatus]);
+    const reviewRaw = this.tag === '*'
+      ? reviewRawAll
+      : reviewRawAll.filter((t) => t.tags.some((tag) => tag.name.toLowerCase() === this.tag.toLowerCase()));
+
+    const [taggedMapped, reviewMapped] = await Promise.all([
+      this.mapRawTasks(eligible, boardOpts),
+      this.mapRawTasks(reviewRaw, boardOpts),
+    ]);
+    return mergeById(taggedMapped, reviewMapped);
   }
 
   async fetchTaskById(taskId: string, options?: FetchTasksOptions): Promise<Task | null> {
@@ -328,6 +359,13 @@ export class ClickUpProvider implements TaskProvider {
     logger.debug(`Removing tag "${tag}" from task ${taskId}`);
     await this.request(`/task/${taskId}/tag/${encodeURIComponent(tag)}`, {
       method: 'DELETE',
+    });
+  }
+
+  async addTag(taskId: string, tag: string): Promise<void> {
+    logger.debug(`Adding tag "${tag}" to task ${taskId}`);
+    await this.request(`/task/${taskId}/tag/${encodeURIComponent(tag)}`, {
+      method: 'POST',
     });
   }
 

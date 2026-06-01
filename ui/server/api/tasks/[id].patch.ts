@@ -3,8 +3,8 @@ import { getProvider } from '../../utils/provider';
 
 interface PatchBody {
   status?: string;
-  // Tag names to remove from the task. Provider must implement `removeTag`.
   removeTags?: string[];
+  addTags?: string[];
   title?: string;
   description?: string;
   name?: string;
@@ -16,6 +16,7 @@ export interface PatchResponse {
   applied: {
     status?: string;
     removedTags?: string[];
+    addedTags?: string[];
   };
 }
 
@@ -51,11 +52,14 @@ export default defineEventHandler(async (event): Promise<PatchResponse> => {
   const removeTags = Array.isArray(body.removeTags)
     ? body.removeTags.filter((t): t is string => typeof t === 'string' && t.length > 0)
     : [];
+  const addTags = Array.isArray(body.addTags)
+    ? body.addTags.filter((t): t is string => typeof t === 'string' && t.length > 0)
+    : [];
 
-  if (!status && removeTags.length === 0) {
+  if (!status && removeTags.length === 0 && addTags.length === 0) {
     throw createError({
       statusCode: 400,
-      statusMessage: 'Body must include `status` and/or `removeTags`. Title/description edits are not supported by the provider interface.',
+      statusMessage: 'Body must include `status`, `addTags`, and/or `removeTags`. Title/description edits are not supported by the provider interface.',
     });
   }
 
@@ -79,12 +83,27 @@ export default defineEventHandler(async (event): Promise<PatchResponse> => {
     }
   }
 
+  const added: string[] = [];
+  if (addTags.length > 0) {
+    if (typeof provider.addTag !== 'function') {
+      throw createError({
+        statusCode: 501,
+        statusMessage: `${provider.constructor?.name || 'provider'} does not support tag addition`,
+      });
+    }
+    for (const tag of addTags) {
+      await provider.addTag(id, tag);
+      added.push(tag);
+    }
+  }
+
   return {
     ok: true,
     id,
     applied: {
       ...(status ? { status } : {}),
       ...(removed.length > 0 ? { removedTags: removed } : {}),
+      ...(added.length > 0 ? { addedTags: added } : {}),
     },
   };
 });

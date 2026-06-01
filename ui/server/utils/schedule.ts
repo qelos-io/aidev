@@ -15,8 +15,17 @@ interface ScheduleModule {
   fixSchedules(): ScheduleFixResponse;
 }
 
-function getDistDir(cwd: string): string {
-  const dist = path.join(cwd, 'dist');
+function getAidevPackageDir(): string {
+  const pkgDir = process.env.AIDEV_PACKAGE_DIR;
+  if (!pkgDir) {
+    throw createError({ statusCode: 500, statusMessage: 'AIDEV_PACKAGE_DIR not set' });
+  }
+  return pkgDir;
+}
+
+function getDistDir(): string {
+  const pkgDir = getAidevPackageDir();
+  const dist = path.join(pkgDir, 'dist');
   if (!fs.existsSync(dist)) {
     throw createError({
       statusCode: 503,
@@ -29,8 +38,9 @@ function getDistDir(cwd: string): string {
 }
 
 function loadScheduleModule(cwd: string): ScheduleModule {
-  const dist = getDistDir(cwd);
-  const req = createRequire(path.join(cwd, 'package.json'));
+  const pkgDir = getAidevPackageDir();
+  const dist = getDistDir();
+  const req = createRequire(path.join(pkgDir, 'package.json'));
   return req(path.join(dist, 'commands/schedule.js')) as ScheduleModule;
 }
 

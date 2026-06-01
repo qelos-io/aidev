@@ -26,4 +26,8 @@ export interface TaskProvider {
    * tag mutation can omit it; callers must guard with a typeof check.
    */
   removeTag?(taskId: string, tag: string): Promise<void>;
+  /**
+   * Adds a tag/label to a task. Optional — same guard as removeTag.
+   */
+  addTag?(taskId: string, tag: string): Promise<void>;
 }

@@ -1,6 +1,6 @@
 import { useApi } from '~/composables/useApi';
 import { useTaskExecute } from '~/composables/useTaskExecute';
-import type { TaskDetailResponse, TasksResponse, UiTask } from '~/types/tasks';
+import type { SuggestedTag, TaskDetailResponse, TasksResponse, UiTask } from '~/types/tasks';
 import {
   buildBoardColumns,
   buildStatusOptions,
@@ -29,6 +29,12 @@ export function useTasksPage() {
   const commentAsAidev = ref(false);
   const commentSaving = ref(false);
 
+  const tagSaving = ref(false);
+
+  const createModalOpen = ref(false);
+  const createSaving = ref(false);
+  const createError = ref('');
+
   const {
     execLines,
     execRunning,
@@ -42,6 +48,7 @@ export function useTasksPage() {
   });
 
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   const columns = computed(() =>
     buildBoardColumns(
@@ -65,7 +72,7 @@ export function useTasksPage() {
     const shouldPoll = execRunning.value || Boolean(data.value?.activeTaskId);
     if (shouldPoll && !pollTimer) {
       pollTimer = setInterval(() => {
-        void reload();
+        void fetchTasks();
       }, 5000);
     } else if (!shouldPoll && pollTimer) {
       clearInterval(pollTimer);
@@ -73,17 +80,21 @@ export function useTasksPage() {
     }
   }
 
-  async function reload() {
-    loading.value = true;
+  async function fetchTasks(showSpinner = false) {
+    if (showSpinner) loading.value = true;
     loadError.value = '';
     try {
       data.value = await api<TasksResponse>('/api/tasks');
     } catch (err) {
       loadError.value = err instanceof Error ? err.message : String(err);
     } finally {
-      loading.value = false;
+      if (showSpinner) loading.value = false;
       syncPollTimer();
     }
+  }
+
+  async function reload() {
+    return fetchTasks(true);
   }
 
   async function loadProviderStatuses() {
@@ -159,6 +170,61 @@ export function useTasksPage() {
     }
   }
 
+  const suggestedTags = computed<SuggestedTag[]>(() => data.value?.suggestedTags ?? []);
+
+  async function saveTags(addTags: string[], removeTags: string[]) {
+    if (!detail.value) return;
+    if (addTags.length === 0 && removeTags.length === 0) return;
+    tagSaving.value = true;
+    detailError.value = '';
+    try {
+      await api(`/api/tasks/${encodeURIComponent(detail.value.task.id)}`, {
+        method: 'PATCH',
+        body: { addTags, removeTags },
+      });
+      const t = detail.value.task;
+      const next = new Set(t.tags);
+      for (const tag of removeTags) next.delete(tag);
+      for (const tag of addTags) next.add(tag);
+      t.tags = [...next];
+      const board = data.value?.tasks.find((b) => b.id === t.id);
+      if (board) board.tags = t.tags;
+    } catch (err) {
+      detailError.value = err instanceof Error ? err.message : String(err);
+    } finally {
+      tagSaving.value = false;
+    }
+  }
+
+  function openCreateModal() {
+    createModalOpen.value = true;
+    createError.value = '';
+  }
+
+  function closeCreateModal() {
+    createModalOpen.value = false;
+    createError.value = '';
+  }
+
+  async function createTask(params: {
+    title: string;
+    description: string;
+    tags: string[];
+    priority?: number;
+  }) {
+    createSaving.value = true;
+    createError.value = '';
+    try {
+      await api('/api/tasks', { method: 'POST', body: params });
+      createModalOpen.value = false;
+      await fetchTasks(false);
+    } catch (err) {
+      createError.value = err instanceof Error ? err.message : String(err);
+    } finally {
+      createSaving.value = false;
+    }
+  }
+
   function runExecute() {
     if (!detail.value) return;
     void startExecute(detail.value.task.id);
@@ -176,12 +242,17 @@ export function useTasksPage() {
   onMounted(async () => {
     await reload();
     syncPollTimer();
+    refreshTimer = setInterval(() => { void fetchTasks(); }, 30_000);
   });
 
   onBeforeUnmount(() => {
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
+    }
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
     }
   });
 
@@ -213,5 +284,14 @@ export function useTasksPage() {
     runExecute,
     stopExecute,
     clearExecLines,
+    suggestedTags,
+    tagSaving,
+    saveTags,
+    createModalOpen,
+    createSaving,
+    createError,
+    openCreateModal,
+    closeCreateModal,
+    createTask,
   };
 }

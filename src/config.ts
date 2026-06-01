@@ -147,7 +147,9 @@ export function loadConfig(customEnvPath?: string): Config {
 
   const provider = (process.env.PROVIDER || 'clickup').toLowerCase();
 
-  const folderName = path.basename(process.cwd());
+  const folderName = customEnvPath
+    ? path.basename(path.dirname(path.resolve(customEnvPath)))
+    : path.basename(process.cwd());
 
   const required =
     provider === 'local'
