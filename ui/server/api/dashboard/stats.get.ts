@@ -14,6 +14,7 @@ export interface DashboardStats {
   inReview: number;
   allTimeDone: number;
   executed: ExecutedStats;
+  errors?: string[];
 }
 
 const PERIOD_MS: Record<string, number> = {
@@ -21,14 +22,6 @@ const PERIOD_MS: Record<string, number> = {
   month: 30 * 24 * 60 * 60 * 1000,
   '3months': 90 * 24 * 60 * 60 * 1000,
 };
-
-async function safeFetch(fn: () => Promise<UiTask[]>): Promise<UiTask[]> {
-  try {
-    return await fn();
-  } catch {
-    return [];
-  }
-}
 
 export default defineEventHandler(async (event): Promise<DashboardStats> => {
   const { config, provider, nonCodeProvider } = getProvider(event);
@@ -50,11 +43,12 @@ export default defineEventHandler(async (event): Promise<DashboardStats> => {
   // Executed = tasks that have moved past open/pending
   const executedStatuses = [...reviewStatuses, ...inProgressStatuses, ...doneStatuses];
 
+  // Primary counts — let provider errors propagate as 5xx so the client knows something is wrong
   const [openTasks, pendingTasks, reviewTasks, doneTasks] = await Promise.all([
-    safeFetch(() => openStatuses.length ? provider.fetchTasksByStatus(openStatuses, opts) : Promise.resolve([])),
-    safeFetch(() => pendingStatuses.length ? provider.fetchTasksByStatus(pendingStatuses, opts) : Promise.resolve([])),
-    safeFetch(() => reviewStatuses.length ? provider.fetchTasksByStatus(reviewStatuses, opts) : Promise.resolve([])),
-    safeFetch(() => doneStatuses.length ? provider.fetchTasksByStatus(doneStatuses, opts) : Promise.resolve([])),
+    openStatuses.length ? provider.fetchTasksByStatus(openStatuses, opts) : Promise.resolve([]),
+    pendingStatuses.length ? provider.fetchTasksByStatus(pendingStatuses, opts) : Promise.resolve([]),
+    reviewStatuses.length ? provider.fetchTasksByStatus(reviewStatuses, opts) : Promise.resolve([]),
+    doneStatuses.length ? provider.fetchTasksByStatus(doneStatuses, opts) : Promise.resolve([]),
   ]);
 
   // Tag filter for executed metric — only count tasks with code or non-code tag
@@ -73,32 +67,37 @@ export default defineEventHandler(async (event): Promise<DashboardStats> => {
 
   let currentCount = 0;
   let combinedCount = 0; // tasks updated since previousPeriodStart (spans both periods)
+  const errors: string[] = [];
 
   if (executedStatuses.length) {
-    const [currentTasks, combinedTasks] = await Promise.all([
-      safeFetch(() =>
+    try {
+      const [currentTasks, combinedTasks] = await Promise.all([
         provider.fetchTasksByStatus(executedStatuses, { ...opts, updatedAfter: currentPeriodStart }),
-      ),
-      safeFetch(() =>
         provider.fetchTasksByStatus(executedStatuses, { ...opts, updatedAfter: previousPeriodStart }),
-      ),
-    ]);
+      ]);
 
-    currentCount = filterByTag(currentTasks).length;
-    combinedCount = filterByTag(combinedTasks).length;
+      currentCount = filterByTag(currentTasks).length;
+      combinedCount = filterByTag(combinedTasks).length;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[dashboard/stats] executed fetch failed (provider=${config.provider}): ${msg}`);
+      errors.push(`Executed stats unavailable: ${msg}`);
+    }
 
     if (nonCodeProvider) {
-      // nonCodeProvider is already scoped to nonCodeTag by its config; no extra tag filter needed
-      const [ncCurrent, ncCombined] = await Promise.all([
-        safeFetch(() =>
+      try {
+        // nonCodeProvider is already scoped to nonCodeTag by its config; no extra tag filter needed
+        const [ncCurrent, ncCombined] = await Promise.all([
           nonCodeProvider.fetchTasksByStatus(executedStatuses, { ...opts, updatedAfter: currentPeriodStart }),
-        ),
-        safeFetch(() =>
           nonCodeProvider.fetchTasksByStatus(executedStatuses, { ...opts, updatedAfter: previousPeriodStart }),
-        ),
-      ]);
-      currentCount += ncCurrent.length;
-      combinedCount += ncCombined.length;
+        ]);
+        currentCount += ncCurrent.length;
+        combinedCount += ncCombined.length;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[dashboard/stats] executed fetch failed (nonCodeProvider): ${msg}`);
+        errors.push(`Executed stats (non-code) unavailable: ${msg}`);
+      }
     }
   }
 
@@ -118,5 +117,6 @@ export default defineEventHandler(async (event): Promise<DashboardStats> => {
       changeAmount,
       changePercent,
     },
+    ...(errors.length ? { errors } : {}),
   };
 });

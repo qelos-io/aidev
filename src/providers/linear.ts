@@ -131,7 +131,7 @@ export class LinearProvider implements TaskProvider {
     return data.workflowStates.nodes;
   }
 
-  async fetchTasks(_options?: import('../types').FetchTasksOptions): Promise<Task[]> {
+  async fetchTasks(options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const teamId = await this.resolveTeamId();
     logger.debug(`Fetching Linear issues for team ${teamId} with label "${this.label}"`);
 
@@ -157,6 +157,9 @@ export class LinearProvider implements TaskProvider {
     };
     if (this.label && this.label !== '*') {
       filter.labels = { some: { name: { eq: this.label } } };
+    }
+    if (options?.updatedAfter !== undefined) {
+      filter.updatedAt = { gte: new Date(options.updatedAfter).toISOString() };
     }
 
     const data = await this.graphql<{
@@ -189,9 +192,9 @@ export class LinearProvider implements TaskProvider {
       }));
   }
 
-  async fetchTasksByStatus(statuses: string[], _options?: import('../types').FetchTasksOptions): Promise<Task[]> {
+  async fetchTasksByStatus(statuses: string[], options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
-    const all = await this.fetchTasks();
+    const all = await this.fetchTasks(options);
     return all.filter((t) => normalized.includes(t.status.toLowerCase()));
   }
 

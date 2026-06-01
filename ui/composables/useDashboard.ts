@@ -16,9 +16,13 @@ export function useDashboard() {
     loading.value = true;
     error.value = '';
     try {
-      stats.value = await api<DashboardStats>('/api/dashboard/stats', {
+      const result = await api<DashboardStats>('/api/dashboard/stats', {
         query: { period: period.value },
       });
+      stats.value = result;
+      if (result.errors?.length) {
+        error.value = result.errors.join('; ');
+      }
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {

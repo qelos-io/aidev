@@ -241,7 +241,11 @@ export class JiraProvider implements TaskProvider {
     }
 
     const labelClause = this.label === '*' ? '' : ` AND labels = "${this.label}"`;
-    const jql = `project = "${this.project}"${labelClause} AND statusCategory != Done ORDER BY created DESC`;
+    const updatedAfter = options?.updatedAfter;
+    const updatedClause = updatedAfter
+      ? ` AND updated >= "${new Date(updatedAfter).toISOString().split('T')[0]}"`
+      : '';
+    const jql = `project = "${this.project}"${labelClause}${updatedClause} AND statusCategory != Done ORDER BY created DESC`;
     const fields = 'summary,description,status,priority,labels,attachment,project';
     const data = await this.request<SearchResponse>(
       `/search/jql?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=50`
