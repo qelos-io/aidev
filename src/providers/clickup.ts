@@ -203,23 +203,13 @@ export class ClickUpProvider implements TaskProvider {
     const inProgress = ClickUpProvider.IN_PROGRESS_STATUS;
     const inReviewStatus = this.inReviewStatus.toLowerCase();
 
-    // Tagged tasks for open/pending/in-progress columns
     const tagged = await this.fetchTaggedTeamTasks();
     const eligible = tagged.filter((t) => {
       const status = t.status.status.toLowerCase();
-      return status === openStatus || status === pendingStatus || status === inProgress;
+      return status === openStatus || status === pendingStatus || status === inProgress || status === inReviewStatus;
     });
 
-    const reviewRawAll = await this.fetchTeamTasksByStatus([inReviewStatus]);
-    const reviewRaw = this.tag === '*'
-      ? reviewRawAll
-      : reviewRawAll.filter((t) => t.tags.some((tag) => tag.name.toLowerCase() === this.tag.toLowerCase()));
-
-    const [taggedMapped, reviewMapped] = await Promise.all([
-      this.mapRawTasks(eligible, boardOpts),
-      this.mapRawTasks(reviewRaw, boardOpts),
-    ]);
-    return mergeById(taggedMapped, reviewMapped);
+    return this.mapRawTasks(eligible, boardOpts);
   }
 
   async fetchTaskById(taskId: string, options?: FetchTasksOptions): Promise<Task | null> {
