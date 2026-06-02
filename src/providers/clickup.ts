@@ -1,4 +1,13 @@
-import { Task, Comment, Config, CreateTaskParams, CreateTaskResult, FetchTasksOptions } from '../types';
+import {
+  Task,
+  Comment,
+  Config,
+  CreateTaskParams,
+  CreateTaskResult,
+  DashboardCounts,
+  DashboardStatsParams,
+  FetchTasksOptions,
+} from '../types';
 import { TaskProvider } from './base';
 import { logger } from '../logger';
 import {
@@ -30,6 +39,17 @@ interface ClickUpRawTask {
   url: string;
   tags: Array<{ name: string }>;
   list?: { id?: string };
+}
+
+interface ClickUpLiteTask {
+  id: string;
+  status: { status: string };
+  date_updated: string;
+}
+
+interface ClickUpTasksPage {
+  tasks: ClickUpLiteTask[];
+  last_page?: boolean;
 }
 
 export class ClickUpProvider implements TaskProvider {
@@ -106,17 +126,128 @@ export class ClickUpProvider implements TaskProvider {
 
   private static readonly IN_PROGRESS_STATUS = 'in progress';
 
-  private async fetchTaggedTeamTasks(updatedAfter?: number): Promise<ClickUpRawTask[]> {
-    interface TasksResponse {
-      tasks: ClickUpRawTask[];
+  private buildTeamTasksQuery(opts: {
+    includeClosed: boolean;
+    statuses?: string[];
+    updatedAfter?: number;
+    page?: number;
+    includeMarkdown?: boolean;
+  }): string {
+    const q: string[] = [];
+    if (this.tag !== '*') q.push(`tags[]=${encodeURIComponent(this.tag)}`);
+    q.push('subtasks=true');
+    q.push(`include_closed=${opts.includeClosed ? 'true' : 'false'}`);
+    if (opts.includeMarkdown) q.push('include_markdown_description=true');
+    for (const status of opts.statuses ?? []) {
+      q.push(`statuses[]=${encodeURIComponent(status)}`);
+    }
+    if (opts.updatedAfter !== undefined) {
+      q.push(`date_updated_gt=${opts.updatedAfter}`);
+    }
+    if (opts.page !== undefined) q.push(`page=${opts.page}`);
+    return `/team/${this.teamId}/task?${q.join('&')}`;
+  }
+
+  private async fetchAllLiteTasks(opts: {
+    includeClosed: boolean;
+    statuses?: string[];
+    updatedAfter?: number;
+  }): Promise<ClickUpLiteTask[]> {
+    const all: ClickUpLiteTask[] = [];
+    let page = 0;
+    while (true) {
+      const data = await this.request<ClickUpTasksPage>(
+        this.buildTeamTasksQuery({ ...opts, page }),
+      );
+      all.push(...(data.tasks ?? []));
+      if (data.last_page !== false) break;
+      page += 1;
+    }
+    return all;
+  }
+
+  private static statusSet(statuses: string[]): Set<string> {
+    return new Set(statuses.map((s) => s.toLowerCase()));
+  }
+
+  async fetchDashboardCounts(params: DashboardStatsParams): Promise<DashboardCounts> {
+    const openSet = ClickUpProvider.statusSet(params.openStatuses);
+    const pendingSet = ClickUpProvider.statusSet(params.pendingStatuses);
+    const reviewSet = ClickUpProvider.statusSet(params.reviewStatuses);
+    const executedStatuses = [
+      ...params.reviewStatuses,
+      ...params.inProgressStatuses,
+      ...params.doneStatuses,
+    ];
+
+    const [activeTasks, doneTasks, updatedTasks] = await Promise.all([
+      this.fetchAllLiteTasks({ includeClosed: false }),
+      params.doneStatuses.length
+        ? this.fetchAllLiteTasks({ includeClosed: true, statuses: params.doneStatuses })
+        : Promise.resolve([] as ClickUpLiteTask[]),
+      executedStatuses.length
+        ? this.fetchAllLiteTasks({
+            includeClosed: true,
+            updatedAfter: params.previousPeriodStart,
+            statuses: executedStatuses,
+          })
+        : Promise.resolve([] as ClickUpLiteTask[]),
+    ]);
+
+    let open = 0;
+    let pending = 0;
+    let inReview = 0;
+    for (const t of activeTasks) {
+      const status = t.status.status.toLowerCase();
+      if (openSet.has(status)) open += 1;
+      else if (pendingSet.has(status)) pending += 1;
+      else if (reviewSet.has(status)) inReview += 1;
     }
 
-    const tagFilter = this.tag === '*' ? '' : `tags[]=${encodeURIComponent(this.tag)}&`;
-    const dateFilter = updatedAfter ? `&date_updated_gt=${updatedAfter}` : '';
-    const data = await this.request<TasksResponse>(
-      `/team/${this.teamId}/task?${tagFilter}subtasks=true&include_closed=false&include_markdown_description=true${dateFilter}`,
-    );
-    return data.tasks;
+    let executedCurrent = 0;
+    for (const t of updatedTasks) {
+      if (parseInt(t.date_updated, 10) >= params.currentPeriodStart) {
+        executedCurrent += 1;
+      }
+    }
+    const executedCombined = updatedTasks.length;
+
+    return {
+      open,
+      pending,
+      inReview,
+      allTimeDone: doneTasks.length,
+      executedCurrent,
+      executedPrevious: Math.max(0, executedCombined - executedCurrent),
+    };
+  }
+
+  private async fetchTaggedTeamTasks(
+    updatedAfter?: number,
+    includeClosed = false,
+    includeMarkdown = false,
+  ): Promise<ClickUpRawTask[]> {
+    interface TasksResponse {
+      tasks: ClickUpRawTask[];
+      last_page?: boolean;
+    }
+
+    const all: ClickUpRawTask[] = [];
+    let page = 0;
+    while (true) {
+      const data = await this.request<TasksResponse>(
+        this.buildTeamTasksQuery({
+          includeClosed,
+          updatedAfter,
+          page,
+          includeMarkdown,
+        }),
+      );
+      all.push(...(data.tasks ?? []));
+      if (data.last_page !== false) break;
+      page += 1;
+    }
+    return all;
   }
 
   private async mapRawTasks(tasks: ClickUpRawTask[], options?: FetchTasksOptions): Promise<Task[]> {
@@ -204,7 +335,11 @@ export class ClickUpProvider implements TaskProvider {
     const inProgress = ClickUpProvider.IN_PROGRESS_STATUS;
     const inReviewStatus = this.inReviewStatus.toLowerCase();
 
-    const tagged = await this.fetchTaggedTeamTasks(options?.updatedAfter);
+    const tagged = await this.fetchTaggedTeamTasks(
+      options?.updatedAfter,
+      options?.includeClosed === true,
+      options?.omitDescription !== true,
+    );
     const eligible = tagged.filter((t) => {
       const status = t.status.status.toLowerCase();
       return status === openStatus || status === pendingStatus || status === inProgress || status === inReviewStatus;
@@ -232,7 +367,11 @@ export class ClickUpProvider implements TaskProvider {
 
     const pendingStatus = this.pendingStatus.toLowerCase();
     const openStatus = this.openStatus.toLowerCase();
-    const all = await this.fetchTaggedTeamTasks(options?.updatedAfter);
+    const all = await this.fetchTaggedTeamTasks(
+      options?.updatedAfter,
+      options?.includeClosed === true,
+      options?.omitDescription !== true,
+    );
     const eligibleTasks = all.filter((t) => {
       const status = t.status.status.toLowerCase();
       return status === openStatus || status === pendingStatus;
@@ -243,7 +382,11 @@ export class ClickUpProvider implements TaskProvider {
 
   async fetchTasksByStatus(statuses: string[], options?: FetchTasksOptions): Promise<Task[]> {
     const normalized = statuses.map((s) => s.toLowerCase());
-    const all = await this.fetchTaggedTeamTasks(options?.updatedAfter);
+    const all = await this.fetchTaggedTeamTasks(
+      options?.updatedAfter,
+      options?.includeClosed === true,
+      options?.omitDescription !== true,
+    );
     const eligibleTasks = all.filter((t) =>
       normalized.includes(t.status.status.toLowerCase()),
     );

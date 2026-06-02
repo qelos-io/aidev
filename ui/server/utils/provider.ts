@@ -30,6 +30,27 @@ export interface FetchTasksOptions {
   omitDescription?: boolean;
   /** Only return tasks updated at or after this epoch-ms timestamp. */
   updatedAfter?: number;
+  /** Include closed/completed tasks (ClickUp: `include_closed=true`). Default false. */
+  includeClosed?: boolean;
+}
+
+export interface UiDashboardStatsParams {
+  openStatuses: string[];
+  pendingStatuses: string[];
+  reviewStatuses: string[];
+  inProgressStatuses: string[];
+  doneStatuses: string[];
+  currentPeriodStart: number;
+  previousPeriodStart: number;
+}
+
+export interface UiDashboardCounts {
+  open: number;
+  pending: number;
+  inReview: number;
+  allTimeDone: number;
+  executedCurrent: number;
+  executedPrevious: number;
 }
 
 export interface UiProvider {
@@ -37,6 +58,7 @@ export interface UiProvider {
   fetchTasksByStatus(statuses: string[], options?: FetchTasksOptions): Promise<UiTask[]>;
   fetchTaskById?(taskId: string, options?: FetchTasksOptions): Promise<UiTask | null>;
   fetchBoardTasks?(options?: FetchTasksOptions): Promise<UiTask[]>;
+  fetchDashboardCounts?(params: UiDashboardStatsParams): Promise<UiDashboardCounts>;
   postComment(taskId: string, text: string): Promise<void>;
   getComments(taskId: string): Promise<UiComment[]>;
   updateStatus(taskId: string, status: string): Promise<void>;
@@ -105,11 +127,11 @@ function load(pkgDir: string, dist: string, rel: string): unknown {
  * Config. Reads `.env.aidev` fresh on each new request so config edits made via
  * the dashboard take effect on the next API call without restarting Nuxt.
  *
- * Implementation note: `loadConfig` merges `.env.aidev` into `process.env` and
- * never overwrites existing keys — so without clearing them first, a stale
- * value from a previous request would shadow a freshly-edited one. We mirror
- * the same trick used in `config/test.post.ts` and delete the file's keys
- * before calling loadConfig.
+ * Implementation note: `loadConfig` merges `.env.aidev` and its
+ * `AIDEV_ENV_EXTEND` file into `process.env` and never overwrites existing
+ * keys — so without clearing them first, a stale value from a previous
+ * request or inherited shell env would shadow freshly-loaded file values. We
+ * call `clearEnvFiles()` (local + extend keys) before `loadConfig`.
  */
 export function getProvider(event: H3Event): ProviderBundle {
   const ctx = event.context as Record<string, unknown>;
@@ -129,16 +151,21 @@ export function getProvider(event: H3Event): ProviderBundle {
         `.env.aidev not found at ${env.path}. Configure the dashboard first via the Config screen.`,
     });
   }
-  for (const key of env.keys) delete process.env[key];
 
   const pkgDir = process.env.AIDEV_PACKAGE_DIR ?? cwd;
   const dist = getDistDir();
   const configMod = load(pkgDir, dist, 'config') as {
     loadConfig: (envPath?: string) => UiConfig;
+    clearEnvFiles: (localPath: string) => void;
   };
   const providersMod = load(pkgDir, dist, 'providers') as {
     createProvider: (config: UiConfig) => UiProvider;
   };
+
+  // Clear keys from local .env.aidev AND its AIDEV_ENV_EXTEND file so loadConfig
+  // can re-apply the merged file values even when the Nitro process inherited
+  // stale or empty shell overrides (e.g. CLICKUP_API_KEY only in ~/.aidev.global).
+  configMod.clearEnvFiles(env.path);
 
   const config = configMod.loadConfig(env.path);
   const provider = providersMod.createProvider(config);

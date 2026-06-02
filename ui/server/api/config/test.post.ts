@@ -26,11 +26,11 @@ const AGENT_CLI: Record<string, [string, string[]]> = {
 };
 
 function getDistDir(): string {
-  const cwd = process.env.AIDEV_CWD;
-  if (!cwd) {
-    throw createError({ statusCode: 500, statusMessage: 'AIDEV_CWD not set' });
+  const pkgDir = process.env.AIDEV_PACKAGE_DIR;
+  if (!pkgDir) {
+    throw createError({ statusCode: 500, statusMessage: 'AIDEV_PACKAGE_DIR not set' });
   }
-  const dist = path.join(cwd, 'dist');
+  const dist = path.join(pkgDir, 'dist');
   if (!fs.existsSync(dist)) {
     throw createError({
       statusCode: 503,
@@ -43,9 +43,9 @@ function getDistDir(): string {
 }
 
 function loadAidev(rel: string): unknown {
-  const cwd = process.env.AIDEV_CWD as string;
+  const pkgDir = process.env.AIDEV_PACKAGE_DIR as string;
   const dist = getDistDir();
-  const req = createRequire(path.join(cwd, 'package.json'));
+  const req = createRequire(path.join(pkgDir, 'package.json'));
   return req(path.join(dist, rel));
 }
 
@@ -56,17 +56,15 @@ async function testProvider(): Promise<TestResult> {
     return { ok: false, message: `.env.aidev not found at ${env.path}` };
   }
 
-  // loadConfig() copies values from .env.aidev into process.env but never
-  // overwrites already-set keys. That means a prior test call leaves stale
-  // values behind, so a saved edit wouldn't be picked up. Clear the file's
-  // keys before delegating so loadConfig sees a clean slate each call.
-  for (const key of env.keys) {
-    delete process.env[key];
-  }
-
+  // loadConfig() copies values from .env.aidev (+ AIDEV_ENV_EXTEND) into
+  // process.env but never overwrites already-set keys. Clear all managed keys
+  // before delegating so loadConfig sees a clean slate each call.
   const configMod = loadAidev('config') as {
     loadConfig: (envPath?: string) => { provider: string };
+    clearEnvFiles: (localPath: string) => void;
   };
+  configMod.clearEnvFiles(env.path);
+
   const providersMod = loadAidev('providers') as {
     createProvider: (
       config: unknown,
@@ -103,15 +101,13 @@ function testAnthropicSdk(): TestResult {
     return { ok: false, message: `.env.aidev not found at ${env.path}` };
   }
 
-  // Match testProvider: clear file keys so loadConfig() sees the on-disk state.
-  for (const key of env.keys) {
-    delete process.env[key];
-  }
-
+  // Match testProvider: clear managed env keys so loadConfig() sees the on-disk state.
   const configMod = loadAidev('config') as {
     loadConfig: (envPath?: string) => unknown;
+    clearEnvFiles: (localPath: string) => void;
     parseAnthropicTokens: (raw: string) => string[];
   };
+  configMod.clearEnvFiles(env.path);
   configMod.loadConfig(env.path);
 
   const tokens = configMod.parseAnthropicTokens(process.env.ANTHROPIC_API_KEY ?? '');

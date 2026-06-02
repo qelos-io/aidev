@@ -1,5 +1,6 @@
 import type { DashboardStats } from '~/server/api/dashboard/stats.get';
 import { useApi } from '~/composables/useApi';
+import { useInitialLoading } from '~/composables/useInitialLoading';
 
 export type DashboardPeriod = 'week' | 'month' | '3months';
 
@@ -7,14 +8,13 @@ export function useDashboard() {
   const api = useApi();
   const period = ref<DashboardPeriod>('week');
   const stats = ref<DashboardStats | null>(null);
-  const loading = ref(false);
   const error = ref('');
+  const { loading, beginFetch, endFetch } = useInitialLoading(stats);
 
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   async function fetch() {
-    loading.value = true;
-    error.value = '';
+    const isInitial = beginFetch(error);
     try {
       const result = await api<DashboardStats>('/api/dashboard/stats', {
         query: { period: period.value },
@@ -22,11 +22,13 @@ export function useDashboard() {
       stats.value = result;
       if (result.errors?.length) {
         error.value = result.errors.join('; ');
+      } else if (!isInitial) {
+        error.value = '';
       }
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {
-      loading.value = false;
+      endFetch(isInitial);
     }
   }
 

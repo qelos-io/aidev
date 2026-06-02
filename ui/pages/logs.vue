@@ -18,9 +18,9 @@
               color="gray"
               variant="ghost"
               size="sm"
-              :loading="loading"
-              :disabled="loading"
-              @click="reload"
+              :loading="refreshing"
+              :disabled="refreshing"
+              @click="reload({ explicit: true })"
             >
               Refresh
             </UButton>
@@ -117,6 +117,7 @@
 
 <script setup lang="ts">
 import { useApi } from '~/composables/useApi';
+import { useInitialLoading } from '~/composables/useInitialLoading';
 
 interface LogsResponse {
   path: string;
@@ -132,8 +133,9 @@ interface LogsResponse {
 const api = useApi();
 
 const data = ref<LogsResponse | null>(null);
-const loading = ref(false);
 const loadError = ref('');
+const { loading, beginFetch, endFetch } = useInitialLoading(data);
+const refreshing = ref(false);
 
 const searchInput = ref('');
 // `query` lags `searchInput` by the debounce window. We send `query` to the
@@ -157,15 +159,16 @@ const viewer = ref<HTMLPreElement | null>(null);
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let debounceHandle: ReturnType<typeof setTimeout> | null = null;
 
-async function reload(opts: { keepScroll?: boolean } = {}) {
-  loading.value = true;
-  loadError.value = '';
+async function reload(opts: { keepScroll?: boolean; explicit?: boolean } = {}) {
+  const isInitial = beginFetch(loadError);
+  if (opts.explicit) refreshing.value = true;
   try {
     const params = new URLSearchParams();
     params.set('limit', String(limit.value));
     if (query.value) params.set('q', query.value);
     const url = `/api/logs?${params.toString()}`;
     data.value = await api<LogsResponse>(url);
+    if (!isInitial) loadError.value = '';
     if (!opts.keepScroll) {
       await nextTick();
       scrollToBottom();
@@ -173,7 +176,8 @@ async function reload(opts: { keepScroll?: boolean } = {}) {
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : String(err);
   } finally {
-    loading.value = false;
+    endFetch(isInitial);
+    if (opts.explicit) refreshing.value = false;
   }
 }
 

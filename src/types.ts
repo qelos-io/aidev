@@ -17,6 +17,29 @@ export interface FetchTasksOptions {
   omitDescription?: boolean;
   /** Only return tasks updated at or after this epoch-ms timestamp. */
   updatedAfter?: number;
+  /** Include closed/completed tasks (ClickUp: `include_closed=true`). Default false. */
+  includeClosed?: boolean;
+}
+
+/** Parameters for provider-optimized dashboard stat aggregation. */
+export interface DashboardStatsParams {
+  openStatuses: string[];
+  pendingStatuses: string[];
+  reviewStatuses: string[];
+  inProgressStatuses: string[];
+  doneStatuses: string[];
+  currentPeriodStart: number;
+  previousPeriodStart: number;
+}
+
+/** Counts returned by {@link TaskProvider.fetchDashboardCounts}. */
+export interface DashboardCounts {
+  open: number;
+  pending: number;
+  inReview: number;
+  allTimeDone: number;
+  executedCurrent: number;
+  executedPrevious: number;
 }
 
 export interface LocalTask {

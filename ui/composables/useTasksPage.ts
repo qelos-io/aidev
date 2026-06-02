@@ -1,4 +1,5 @@
 import { useApi } from '~/composables/useApi';
+import { useInitialLoading } from '~/composables/useInitialLoading';
 import { useTaskExecute } from '~/composables/useTaskExecute';
 import type { SuggestedTag, TaskDetailResponse, TasksResponse, UiTask } from '~/types/tasks';
 import {
@@ -14,8 +15,9 @@ export function useTasksPage() {
 
   const data = ref<TasksResponse | null>(null);
   const providerStatuses = ref<string[]>([]);
-  const loading = ref(false);
   const loadError = ref('');
+  const { loading, beginFetch, endFetch } = useInitialLoading(data);
+  const refreshing = ref(false);
 
   const drawerOpen = ref(false);
   const activeId = ref<string | null>(null);
@@ -80,21 +82,26 @@ export function useTasksPage() {
     }
   }
 
-  async function fetchTasks(showSpinner = false) {
-    if (showSpinner) loading.value = true;
-    loadError.value = '';
+  async function fetchTasks() {
+    const isInitial = beginFetch(loadError);
     try {
       data.value = await api<TasksResponse>('/api/tasks');
+      if (!isInitial) loadError.value = '';
     } catch (err) {
       loadError.value = err instanceof Error ? err.message : String(err);
     } finally {
-      if (showSpinner) loading.value = false;
+      endFetch(isInitial);
       syncPollTimer();
     }
   }
 
   async function reload() {
-    return fetchTasks(true);
+    refreshing.value = true;
+    try {
+      await fetchTasks();
+    } finally {
+      refreshing.value = false;
+    }
   }
 
   async function loadProviderStatuses() {
@@ -240,7 +247,7 @@ export function useTasksPage() {
   watch([execRunning, () => data.value?.activeTaskId], syncPollTimer);
 
   onMounted(async () => {
-    await reload();
+    await fetchTasks();
     syncPollTimer();
     refreshTimer = setInterval(() => { void fetchTasks(); }, 30_000);
   });
@@ -259,6 +266,7 @@ export function useTasksPage() {
   return {
     data,
     loading,
+    refreshing,
     loadError,
     columns,
     runningTaskId,

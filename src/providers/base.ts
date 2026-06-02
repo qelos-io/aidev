@@ -1,4 +1,12 @@
-import { Task, Comment, CreateTaskParams, CreateTaskResult, FetchTasksOptions } from '../types';
+import {
+  Task,
+  Comment,
+  CreateTaskParams,
+  CreateTaskResult,
+  DashboardCounts,
+  DashboardStatsParams,
+  FetchTasksOptions,
+} from '../types';
 
 export interface TaskProvider {
   fetchTasks(options?: FetchTasksOptions): Promise<Task[]>;
@@ -11,6 +19,11 @@ export interface TaskProvider {
    * One round-trip board listing (open + pending + in progress). Optional.
    */
   fetchBoardTasks?(options?: FetchTasksOptions): Promise<Task[]>;
+  /**
+   * Fast path for dashboard stats — providers may use filtered/paginated API
+   * queries instead of repeated full task list scans.
+   */
+  fetchDashboardCounts?(params: DashboardStatsParams): Promise<DashboardCounts>;
   postComment(taskId: string, text: string): Promise<void>;
   getComments(taskId: string): Promise<Comment[]>;
   updateStatus(taskId: string, status: string): Promise<void>;

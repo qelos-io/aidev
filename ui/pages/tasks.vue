@@ -25,8 +25,8 @@
               color="gray"
               variant="ghost"
               size="sm"
-              :loading="loading"
-              :disabled="loading"
+              :loading="refreshing"
+              :disabled="refreshing"
               @click="reload"
             >
               Refresh
@@ -111,6 +111,7 @@ import { useTasksPage } from '~/composables/useTasksPage';
 const {
   data,
   loading,
+  refreshing,
   loadError,
   columns,
   runningTaskId,

@@ -216,6 +216,102 @@ describe('ClickUpProvider.fetchBoardTasks', () => {
   });
 });
 
+describe('ClickUpProvider.fetchTasksByStatus — includeClosed', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('passes include_closed=true when includeClosed option is set', async () => {
+    const seenUrls: string[] = [];
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      seenUrls.push(String(input));
+      return jsonResponse({
+        tasks: [
+          {
+            id: 'done1',
+            name: 'Closed task',
+            status: { status: 'closed' },
+            priority: null,
+            url: 'https://app.clickup.com/t/done1',
+            tags: [{ name: 'aidev' }],
+          },
+        ],
+      });
+    });
+
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const tasks = await provider.fetchTasksByStatus(['closed'], { includeClosed: true });
+
+    assert.equal(tasks.length, 1);
+    assert.ok(seenUrls.some((u) => u.includes('include_closed=true')));
+  });
+});
+
+describe('ClickUpProvider.fetchDashboardCounts', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('uses three parallel lite queries and counts by status/date', async () => {
+    const seenUrls: string[] = [];
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      seenUrls.push(url);
+      if (url.includes('/team/team1/task') && url.includes('include_closed=false')) {
+        return jsonResponse({
+          last_page: true,
+          tasks: [
+            { id: 'o1', status: { status: 'open' }, date_updated: '1000' },
+            { id: 'p1', status: { status: 'pending' }, date_updated: '1000' },
+            { id: 'r1', status: { status: 'review' }, date_updated: '1000' },
+          ],
+        });
+      }
+      if (url.includes('date_updated_gt=500')) {
+        return jsonResponse({
+          last_page: true,
+          tasks: [
+            { id: 'e1', status: { status: 'review' }, date_updated: '800' },
+            { id: 'e2', status: { status: 'closed' }, date_updated: '600' },
+          ],
+        });
+      }
+      if (url.includes('statuses[]=closed')) {
+        return jsonResponse({
+          last_page: true,
+          tasks: [
+            { id: 'd1', status: { status: 'closed' }, date_updated: '1000' },
+            { id: 'd2', status: { status: 'closed' }, date_updated: '1000' },
+          ],
+        });
+      }
+      return jsonResponse({ last_page: true, tasks: [] });
+    });
+
+    const provider = new ClickUpProvider({
+      ...baseClickUpConfig,
+      clickupPendingStatus: 'pending',
+      clickupOpenStatus: 'open',
+      clickupInReviewStatus: 'review',
+    } as unknown as Config);
+
+    const counts = await provider.fetchDashboardCounts({
+      openStatuses: ['open'],
+      pendingStatuses: ['pending'],
+      reviewStatuses: ['review'],
+      inProgressStatuses: ['in progress'],
+      doneStatuses: ['closed'],
+      currentPeriodStart: 700,
+      previousPeriodStart: 500,
+    });
+
+    assert.equal(counts.open, 1);
+    assert.equal(counts.pending, 1);
+    assert.equal(counts.inReview, 1);
+    assert.equal(counts.allTimeDone, 2);
+    assert.equal(counts.executedCurrent, 1);
+    assert.equal(counts.executedPrevious, 1);
+    assert.equal(seenUrls.filter((u) => u.includes('/team/team1/task')).length, 3);
+    assert.ok(seenUrls.every((u) => !u.includes('include_markdown_description')));
+  });
+});
+
 describe('ClickUpProvider.fetchTasks — wildcard tag', () => {
   afterEach(() => mock.restoreAll());
 

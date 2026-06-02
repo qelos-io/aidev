@@ -103,6 +103,29 @@ export function applyEnvFiles(localPath: string | undefined, envExtend?: string)
   }
 }
 
+/** All keys declared in the local env file and its AIDEV_ENV_EXTEND target. */
+export function envFileKeys(localPath: string): string[] {
+  if (!localPath || !fs.existsSync(localPath)) return [];
+
+  const localVars = dotenv.parse(fs.readFileSync(localPath, 'utf8'));
+  const rawExtend = localVars['AIDEV_ENV_EXTEND'] || '';
+  const extendBase = path.dirname(localPath);
+  const extendPath = rawExtend ? resolveEnvPath(rawExtend, extendBase) : '';
+  const extendVars: Record<string, string> =
+    extendPath && fs.existsSync(extendPath)
+      ? dotenv.parse(fs.readFileSync(extendPath, 'utf8'))
+      : {};
+
+  return [...new Set([...Object.keys(localVars), ...Object.keys(extendVars)])];
+}
+
+/** Remove env keys managed by the local + extend files so loadConfig sees fresh values. */
+export function clearEnvFiles(localPath: string): void {
+  for (const key of envFileKeys(localPath)) {
+    delete process.env[key];
+  }
+}
+
 /**
  * Parse a comma-separated `ANTHROPIC_API_KEY` value into a list of tokens.
  * Trims whitespace and drops empty entries so trailing commas / blank slots

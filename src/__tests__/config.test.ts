@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { sourceShellProfile, mergeNullDelimited, applyEnvFiles, resolveEnvPath, loadConfig, parseAnthropicTokens, pickNextToken } from '../config';
+import { sourceShellProfile, mergeNullDelimited, applyEnvFiles, resolveEnvPath, loadConfig, parseAnthropicTokens, pickNextToken, envFileKeys, clearEnvFiles } from '../config';
 
 // ─── mergeNullDelimited ────────────────────────────────────────────────────────
 
@@ -282,6 +282,44 @@ describe('applyEnvFiles', () => {
 
     assert.equal(process.env[EXT_A], 'local_val');
     assert.equal(process.env[EXT_B], 'relative_global');
+  });
+});
+
+describe('envFileKeys / clearEnvFiles', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-envkeys-'));
+    EXT_ALL.forEach((k) => delete process.env[k]);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    EXT_ALL.forEach((k) => delete process.env[k]);
+  });
+
+  it('returns keys from local and extend files', () => {
+    const global = path.join(tmpDir, '.aidev.global');
+    fs.writeFileSync(global, `${EXT_B}=global_only\n`);
+    const local = path.join(tmpDir, '.env.aidev');
+    fs.writeFileSync(local, `AIDEV_ENV_EXTEND=${global}\n${EXT_A}=local_val\n`);
+
+    const keys = envFileKeys(local).sort();
+    assert.deepEqual(keys, ['AIDEV_ENV_EXTEND', EXT_A, EXT_B].sort());
+  });
+
+  it('clearEnvFiles removes stale shell overrides for extend-only keys', () => {
+    const global = path.join(tmpDir, '.aidev.global');
+    fs.writeFileSync(global, `${EXT_B}=from_global\n`);
+    const local = path.join(tmpDir, '.env.aidev');
+    fs.writeFileSync(local, `AIDEV_ENV_EXTEND=${global}\n`);
+
+    process.env[EXT_B] = 'stale_shell';
+
+    clearEnvFiles(local);
+    applyEnvFiles(local);
+
+    assert.equal(process.env[EXT_B], 'from_global');
   });
 });
 
