@@ -72,7 +72,7 @@ export class TrelloProvider implements TaskProvider {
 
   private authUrl(path: string): string {
     const url = new URL(path.startsWith('http') ? path : `${TRELLO_API}${path.startsWith('/') ? path : `/${path}`}`);
-    url.searchParams.set('key', this.apiKey);
+    url.searchParams.set('key', this.apiKey || this.token);
     url.searchParams.set('token', this.token);
     return url.toString();
   }
@@ -108,7 +108,11 @@ export class TrelloProvider implements TaskProvider {
 
         if (!isNetworkError || attempt === maxAttempts) {
           const cause = (err as Record<string, unknown>)?.cause;
-          const detail = cause instanceof Error ? `: ${cause.message}` : '';
+          const detail = cause instanceof Error
+            ? `: ${cause.message}`
+            : lastError?.message
+              ? `: ${lastError.message}`
+              : '';
           throw new Error(`Trello API request failed (${options.method || 'GET'} ${path})${detail}`);
         }
 
@@ -183,7 +187,7 @@ export class TrelloProvider implements TaskProvider {
     try {
       const u = new URL(url);
       if (u.hostname.includes('trello.com')) {
-        u.searchParams.set('key', this.apiKey);
+        u.searchParams.set('key', this.apiKey || this.token);
         u.searchParams.set('token', this.token);
       }
       return u.toString();

@@ -163,7 +163,7 @@ export function loadConfig(customEnvPath?: string): Config {
             : provider === 'notion'
               ? ['NOTION_API_KEY', 'NOTION_DATABASE_ID']
               : provider === 'trello'
-                ? ['TRELLO_API_KEY', 'TRELLO_TOKEN', 'TRELLO_BOARD_ID']
+                ? ['TRELLO_TOKEN', 'TRELLO_BOARD_ID']
                 : ['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID'];
   for (const key of required) {
     if (!process.env[key]) {

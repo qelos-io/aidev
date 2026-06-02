@@ -538,7 +538,6 @@ const PROVIDER_FIELDS: Record<string, KnownField[]> = {
     { key: 'NOTION_IN_REVIEW_STATUS', placeholder: 'review' },
   ],
   trello: [
-    { key: 'TRELLO_API_KEY', secret: true },
     { key: 'TRELLO_TOKEN', secret: true },
     { key: 'TRELLO_BOARD_ID' },
     { key: 'TRELLO_LABEL' },
