@@ -15,6 +15,8 @@ export interface FetchTasksOptions {
   skipAttachments?: boolean;
   /** Leave `description` empty (Kanban cards load details on demand). */
   omitDescription?: boolean;
+  /** Only return tasks updated at or after this epoch-ms timestamp. */
+  updatedAfter?: number;
 }
 
 export interface LocalTask {

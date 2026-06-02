@@ -28,6 +28,8 @@ export interface UiComment {
 export interface FetchTasksOptions {
   skipAttachments?: boolean;
   omitDescription?: boolean;
+  /** Only return tasks updated at or after this epoch-ms timestamp. */
+  updatedAfter?: number;
 }
 
 export interface UiProvider {
