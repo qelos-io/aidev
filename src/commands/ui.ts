@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import { logger } from '../logger';
 import { findBin, isWindows, resolveWindowsCmd } from '../platform';
@@ -49,6 +49,23 @@ function spawnStreaming(
   return spawn(resolved ?? command, args, options);
 }
 
+/** Regenerate `.nuxt` aliases when missing — avoids Vite "#app-manifest" resolve errors. */
+function ensureUiPrepared(uiDir: string): void {
+  const nuxtDir = path.join(uiDir, '.nuxt');
+  if (fs.existsSync(path.join(nuxtDir, 'nuxt.d.ts'))) return;
+
+  logger.info('Preparing Nuxt (first run or stale .nuxt cache)…');
+  const result = spawnSync('npm', ['run', 'postinstall'], {
+    cwd: uiDir,
+    stdio: 'inherit',
+    env: process.env,
+  });
+  if (result.status !== 0) {
+    logger.error('Nuxt prepare failed. Try: cd ui && npm install && npm run postinstall');
+    process.exit(result.status ?? 1);
+  }
+}
+
 export async function uiCommand(options: UICommandOptions): Promise<void> {
   const port = parsePort(options.port);
   const uiDir = resolveUiDir();
@@ -78,6 +95,7 @@ export async function uiCommand(options: UICommandOptions): Promise<void> {
     useProd = true;
   } else if (hasDevDeps) {
     useProd = false;
+    ensureUiPrepared(uiDir);
   } else if (hasBuild) {
     useProd = true;
   } else {

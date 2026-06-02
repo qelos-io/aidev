@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Web dashboard for aidev — manages .env.aidev, logs, tasks, and run controls",
   "scripts": {
-    "dev": "nuxi dev",
+    "dev": "nuxi prepare && nuxi dev",
     "build": "nuxi build",
     "preview": "nuxi preview",
     "start": "node .output/server/index.mjs",

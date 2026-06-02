@@ -7,6 +7,11 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
   ssr: true,
   modules: ['@nuxt/ui'],
+  // Nuxt 3.21+ enables appManifest by default; the dashboard does not use it,
+  // and dev can hit a Vite pre-transform race resolving "#app-manifest".
+  experimental: {
+    appManifest: false,
+  },
   typescript: {
     strict: true,
     typeCheck: false,
