@@ -39,6 +39,7 @@ interface ClickUpRawTask {
   url: string;
   tags: Array<{ name: string }>;
   list?: { id?: string };
+  dependencies?: Array<{ task_id: string; type: number }>;
 }
 
 interface ClickUpLiteTask {
@@ -137,6 +138,7 @@ export class ClickUpProvider implements TaskProvider {
     if (this.tag !== '*') q.push(`tags[]=${encodeURIComponent(this.tag)}`);
     q.push('subtasks=true');
     q.push(`include_closed=${opts.includeClosed ? 'true' : 'false'}`);
+    q.push('include_dependencies=true');
     if (opts.includeMarkdown) q.push('include_markdown_description=true');
     for (const status of opts.statuses ?? []) {
       q.push(`statuses[]=${encodeURIComponent(status)}`);
@@ -277,6 +279,9 @@ export class ClickUpProvider implements TaskProvider {
   }
 
   private mapRawTaskSync(t: ClickUpRawTask, description: string, _options?: FetchTasksOptions): Task {
+    const blockedBy = (t.dependencies ?? [])
+      .filter((d) => d.type === 0)
+      .map((d) => d.task_id);
     return {
       id: t.id,
       name: t.name,
@@ -286,6 +291,7 @@ export class ClickUpProvider implements TaskProvider {
       tags: t.tags.map((tag) => tag.name),
       priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
       sourceListId: t.list?.id,
+      ...(blockedBy.length > 0 ? { blockedBy } : {}),
     };
   }
 
@@ -353,7 +359,7 @@ export class ClickUpProvider implements TaskProvider {
 
     try {
       const t = await this.request<TaskDetailsResponse>(
-        `/task/${taskId}?include_markdown_description=true`,
+        `/task/${taskId}?include_markdown_description=true&include_dependencies=true`,
       );
       const mapped = await this.mapRawTasks([t], options);
       return mapped[0] ?? null;
