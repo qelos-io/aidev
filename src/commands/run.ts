@@ -547,6 +547,26 @@ async function processTask(
     return 'skipped';
   }
 
+  if (task.blockedBy && task.blockedBy.length > 0) {
+    if (!provider.fetchTaskById) {
+      logger.debug(`[${task.id}] provider does not support fetchTaskById — skipping blocked-by check`);
+    } else {
+      for (const blockerId of task.blockedBy) {
+        const blocker = await provider.fetchTaskById(blockerId);
+        if (blocker === null) {
+          logger.debug(`[${task.id}] blocker ${blockerId} not found — treating as non-blocking`);
+          continue;
+        }
+        if (!SKIP_STATUSES.has(blocker.status.toLowerCase())) {
+          const reason = `blocked by task ${blockerId} (status: ${blocker.status})`;
+          logger.info(`[${task.id}] "${task.name}" skipped — ${reason}`);
+          return 'skipped';
+        }
+        logger.debug(`[${task.id}] blocker ${blockerId} is closed (status: ${blocker.status}) — not blocking`);
+      }
+    }
+  }
+
   const branchName = `${task.id}/${git.slugify(task.name)}`;
   const branchExists = git.remoteBranchExists(config.gitRemote, branchName);
 
