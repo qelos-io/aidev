@@ -7,6 +7,7 @@ export interface Task {
   tags: string[];
   priority?: number;
   sourceListId?: string;
+  blockedBy?: string[];
 }
 
 /** Controls how much task payload providers fetch (UI board vs CLI run). */
