@@ -1190,6 +1190,14 @@ describe('getBlockedBySkipReason', () => {
     assert.equal(result, null);
   });
 
+  it('returns null when the blocker task is completed (Linear terminal status)', async () => {
+    const blocker: Task = { id: 'ENG-5', name: 'Blocker', description: '', status: 'Completed', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['ENG-5']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
+  });
+
   it('returns null when fetchTaskById returns null (blocker not found — fail open)', async () => {
     const provider = makeProviderWithFetchById(null);
     const task = makeBlockedTask(['missing-blocker']);

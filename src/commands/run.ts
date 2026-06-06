@@ -23,7 +23,7 @@ import {
 import { buildCompressedContext } from '../sessions';
 import { resolveDoneStatus } from './accepted';
 
-const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete', 'resolved']);
+const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete', 'resolved', 'completed']);
 const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
 const SLEEPING_MARKER = 'machine appears to be asleep';
 export const DEFAULT_TRIGGER_WORD = 'aidev-continue';

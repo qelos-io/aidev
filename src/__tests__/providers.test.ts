@@ -955,6 +955,174 @@ describe('LinearProvider.fetchTasks', () => {
   });
 });
 
+describe('LinearProvider.fetchTasks — blockedBy', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('populates blockedBy from relations of type "blocked"', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('issues')) {
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-1',
+                  identifier: 'ENG-10',
+                  title: 'Blocked task',
+                  description: '',
+                  url: 'https://linear.app/org/issue/ENG-10',
+                  state: { id: 's1', name: 'Todo', type: 'unstarted' },
+                  priority: null,
+                  labels: { nodes: [] },
+                  relations: {
+                    nodes: [
+                      { type: 'blocked', relatedIssue: { identifier: 'ENG-5' } },
+                      { type: 'duplicate', relatedIssue: { identifier: 'ENG-6' } },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.deepEqual(tasks[0].blockedBy, ['ENG-5']);
+  });
+
+  it('omits blockedBy when no blocking relations exist', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('issues')) {
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-2',
+                  identifier: 'ENG-11',
+                  title: 'Unblocked task',
+                  description: '',
+                  url: 'https://linear.app/org/issue/ENG-11',
+                  state: { id: 's1', name: 'Todo', type: 'unstarted' },
+                  priority: null,
+                  labels: { nodes: [] },
+                  relations: { nodes: [] },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].blockedBy, undefined);
+  });
+});
+
+describe('LinearProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns a task mapped from a single-issue query', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('IssueById')) {
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-5',
+                  identifier: 'ENG-5',
+                  title: 'Blocker issue',
+                  description: 'Blocking something.',
+                  url: 'https://linear.app/org/issue/ENG-5',
+                  state: { id: 's2', name: 'In Progress', type: 'started' },
+                  priority: 1,
+                  labels: { nodes: [] },
+                  relations: { nodes: [] },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const task = await provider.fetchTaskById('ENG-5');
+
+    assert.ok(task);
+    assert.equal(task.id, 'ENG-5');
+    assert.equal(task.name, 'Blocker issue');
+    assert.equal(task.status, 'In Progress');
+  });
+
+  it('returns null when the issue is not found', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('IssueById')) {
+        return jsonResponse({ data: { issues: { nodes: [] } } });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const task = await provider.fetchTaskById('ENG-999');
+
+    assert.equal(task, null);
+  });
+
+  it('populates blockedBy on the fetched task', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('IssueById')) {
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-7',
+                  identifier: 'ENG-7',
+                  title: 'Blocked blocker',
+                  description: '',
+                  url: 'https://linear.app/org/issue/ENG-7',
+                  state: { id: 's1', name: 'Todo', type: 'unstarted' },
+                  priority: null,
+                  labels: { nodes: [] },
+                  relations: {
+                    nodes: [{ type: 'blocked', relatedIssue: { identifier: 'ENG-3' } }],
+                  },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const task = await provider.fetchTaskById('ENG-7');
+
+    assert.ok(task);
+    assert.deepEqual(task.blockedBy, ['ENG-3']);
+  });
+});
+
 describe('LinearProvider.getComments', () => {
   afterEach(() => mock.restoreAll());
 
