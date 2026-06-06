@@ -389,9 +389,9 @@ If a task lists other tasks as blockers (via your provider's dependency feature)
 
 **How it works:**
 
-1. When a task is fetched, its blocking dependencies are read from the provider (currently supported: ClickUp `dependencies` with `type === 0` / "waiting on").
+1. When a task is fetched, its blocking dependencies are read from the provider.
 2. Before running the AI agent, aidev fetches each blocker task and checks its status.
-3. If any blocker is still open (not in a done/closed/cancelled/complete state), the task is skipped with a log message:
+3. If any blocker is still open (not in a done/closed/cancelled/complete/resolved state), the task is skipped with a log message:
 
 ```
 skipped: blocked by task <id> (status: in progress)
@@ -399,13 +399,27 @@ skipped: blocked by task <id> (status: in progress)
 
 4. Once all blockers are resolved, the task is picked up on the next run as normal.
 
+**Per-provider support:**
+
+| Provider | Blocking support | Source |
+|---|---|---|
+| ClickUp | Native | `dependencies` with `type === 0` ("waiting on") |
+| Jira | Native | Issue links where the link type inward direction is `"is blocked by"` |
+| Linear | Native | Issue relations of type `blocked` |
+| Monday.com | Native | Dependency-type column values on the board |
+| Notion | Optional | A Relation property named **Blocked By** (case-insensitive) in the database — see note below |
+| Trello | Not supported | Trello has no native blocking concept |
+| Local | Not applicable | — |
+
+> **Notion setup:** To enable blocked-by checking for Notion, add a **Relation** property named `Blocked By` to your task database and point it at the same (or another) task database. If the property is absent, the check is silently skipped and all tasks proceed normally.
+
 **Edge cases:**
 
-- If the provider does not support dependency fetching, the blocker check is skipped and the task proceeds (fail open).
 - If a blocker task cannot be fetched (deleted or inaccessible), it is treated as non-blocking.
 - Only direct blockers are checked — circular or transitive dependencies are not followed.
+- If a future provider does not implement `fetchTaskById`, the blocker check is silently skipped and the task proceeds (fail open).
 
-No configuration is required; the behaviour is automatic when the provider exposes dependency data.
+No additional configuration is required for providers with native support; the behaviour is automatic when the provider exposes dependency data.
 
 ---
 
