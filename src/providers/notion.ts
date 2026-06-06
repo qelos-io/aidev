@@ -32,6 +32,7 @@ interface NotionPagePropertyValue {
   select?: { name: string };
   status?: { name: string };
   multi_select?: Array<{ name: string }>;
+  relation?: Array<{ id: string }>;
 }
 
 interface NotionPage {
@@ -61,6 +62,14 @@ interface NotionCommentsResponse {
   results: NotionComment[];
   next_cursor: string | null;
   has_more: boolean;
+}
+
+function extractBlockedBy(properties: Record<string, NotionPagePropertyValue>): string[] {
+  const key = Object.keys(properties).find((k) => /blocked.?by/i.test(k));
+  if (!key) return [];
+  const prop = properties[key];
+  if (prop.type !== 'relation' || !Array.isArray(prop.relation)) return [];
+  return prop.relation.map((r) => r.id);
 }
 
 function extractPlainText(items: NotionRichTextItem[] | undefined): string {
@@ -178,6 +187,7 @@ export class NotionProvider implements TaskProvider {
         ? tagsProp.multi_select.map((o) => o.name)
         : [];
 
+      const blockedBy = extractBlockedBy(props);
       tasks.push({
         id: page.id.replace(/-/g, ''),
         name,
@@ -186,6 +196,7 @@ export class NotionProvider implements TaskProvider {
         url: page.url || `https://notion.so/${page.id.replace(/-/g, '')}`,
         tags,
         sourceListId: this.databaseId,
+        ...(blockedBy.length > 0 ? { blockedBy } : {}),
       });
     }
 
@@ -320,5 +331,38 @@ export class NotionProvider implements TaskProvider {
     const id = page.id.replace(/-/g, '');
     const url = page.url || `https://notion.so/${page.id.replace(/-/g, '')}`;
     return { id, url };
+  }
+
+  async fetchTaskById(taskId: string): Promise<Task | null> {
+    await this.ensureSchema();
+    const pageId = taskId.length === 32
+      ? `${taskId.slice(0, 8)}-${taskId.slice(8, 12)}-${taskId.slice(12, 16)}-${taskId.slice(16, 20)}-${taskId.slice(20, 32)}`
+      : taskId;
+    try {
+      const page = await this.request<NotionPage>(`/pages/${pageId}`);
+      const props = page.properties || {};
+      const titleKey = this.titlePropertyName ?? 'Name';
+      const statusKey = this.statusPropertyName;
+      const name = props[titleKey]?.title ? extractPlainText(props[titleKey].title) : '';
+      const statusProp = props[statusKey];
+      const statusValue = statusProp?.status?.name ?? statusProp?.select?.name ?? '';
+      const descProp = props['Description'] ?? props['description'];
+      const description = descProp?.rich_text ? extractPlainText(descProp.rich_text) : '';
+      const tagsProp = props['Tags'] ?? props['tags'];
+      const tags = Array.isArray(tagsProp?.multi_select) ? tagsProp.multi_select.map((o) => o.name) : [];
+      const blockedBy = extractBlockedBy(props);
+      return {
+        id: page.id.replace(/-/g, ''),
+        name,
+        description,
+        status: statusValue.toLowerCase(),
+        url: page.url || `https://notion.so/${page.id.replace(/-/g, '')}`,
+        tags,
+        sourceListId: this.databaseId,
+        ...(blockedBy.length > 0 ? { blockedBy } : {}),
+      };
+    } catch {
+      return null;
+    }
   }
 }
