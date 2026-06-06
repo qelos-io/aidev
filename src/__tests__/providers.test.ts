@@ -1799,3 +1799,377 @@ describe('NotionProvider.getComments', () => {
     assert.equal(comments[1].text, 'Newest');
   });
 });
+
+// ─── MondayProvider.fetchTasks — blockedBy ────────────────────────────────────
+
+describe('MondayProvider.fetchTasks — blockedBy', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('populates blockedBy from a dependency-type column', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items_page')) {
+        return jsonResponse({
+          data: {
+            boards: [{
+              items_page: {
+                cursor: null,
+                items: [{
+                  id: '2001',
+                  name: 'Blocked item',
+                  url: 'https://example.monday.com/boards/12345/pulses/2001',
+                  description: { description: 'Some work' },
+                  column_values: [
+                    { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+                    { id: 'connect_boards', type: 'dependency', value: '{"linkedPulseIds":[{"linkedPulseId":3001},{"linkedPulseId":3002}]}', text: '' },
+                  ],
+                }],
+              },
+            }],
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.deepEqual(tasks[0].blockedBy, ['3001', '3002']);
+  });
+
+  it('omits blockedBy when there is no dependency column', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items_page')) {
+        return jsonResponse({
+          data: {
+            boards: [{
+              items_page: {
+                cursor: null,
+                items: [{
+                  id: '2002',
+                  name: 'Unblocked item',
+                  url: 'https://example.monday.com/boards/12345/pulses/2002',
+                  description: { description: '' },
+                  column_values: [
+                    { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+                  ],
+                }],
+              },
+            }],
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].blockedBy, undefined);
+  });
+});
+
+// ─── MondayProvider.fetchTaskById ────────────────────────────────────────────
+
+describe('MondayProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns a mapped Task with correct id and status', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items(ids')) {
+        return jsonResponse({
+          data: {
+            items: [{
+              id: '1001',
+              name: 'My item',
+              url: 'https://example.monday.com/boards/12345/pulses/1001',
+              column_values: [
+                { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+              ],
+            }],
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const task = await provider.fetchTaskById('1001');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, '1001');
+    assert.equal(task!.name, 'My item');
+    assert.equal(task!.status, 'Working on it');
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('populates blockedBy from a dependency-type column', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items(ids')) {
+        return jsonResponse({
+          data: {
+            items: [{
+              id: '2001',
+              name: 'Blocked item',
+              url: 'https://example.monday.com/boards/12345/pulses/2001',
+              column_values: [
+                { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+                { id: 'dep_col', type: 'dependency', value: '{"linkedPulseIds":[{"linkedPulseId":5555}]}', text: '' },
+              ],
+            }],
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const task = await provider.fetchTaskById('2001');
+
+    assert.ok(task !== null);
+    assert.deepEqual(task!.blockedBy, ['5555']);
+  });
+
+  it('returns null when the item is not found', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items(ids')) {
+        return jsonResponse({ data: { items: [] } });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const task = await provider.fetchTaskById('nonexistent');
+
+    assert.equal(task, null);
+  });
+});
+
+// ─── NotionProvider.fetchTasks — blockedBy ────────────────────────────────────
+
+describe('NotionProvider.fetchTasks — blockedBy', () => {
+  afterEach(() => mock.restoreAll());
+
+  function mockNotionFetch(pages: unknown[]) {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/databases/') && !url.includes('/query') && (init?.method ?? 'GET') === 'GET') {
+        return jsonResponse({
+          id: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+          properties: { Name: { type: 'title' }, Status: { type: 'status' } },
+        });
+      }
+      if (url.includes('/query')) {
+        return jsonResponse({ results: pages, next_cursor: null, has_more: false });
+      }
+      return jsonResponse({});
+    });
+  }
+
+  it('populates blockedBy from a "Blocked By" relation property', async () => {
+    mockNotionFetch([{
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      url: 'https://notion.so/aaaaaaaaaabbbbccccddddeeeeeeeeeeee',
+      properties: {
+        Name: { title: [{ plain_text: 'Blocked page' }] },
+        Status: { status: { name: 'pending' } },
+        'Blocked By': { type: 'relation', relation: [{ id: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff' }] },
+      },
+    }]);
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.deepEqual(tasks[0].blockedBy, ['bbbbbbbb-cccc-dddd-eeee-ffffffffffff']);
+  });
+
+  it('omits blockedBy when no "Blocked By" property exists', async () => {
+    mockNotionFetch([{
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      url: 'https://notion.so/aaaaaaaaaabbbbccccddddeeeeeeeeeeee',
+      properties: {
+        Name: { title: [{ plain_text: 'Unblocked page' }] },
+        Status: { status: { name: 'pending' } },
+      },
+    }]);
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].blockedBy, undefined);
+  });
+});
+
+// ─── NotionProvider.fetchTaskById ────────────────────────────────────────────
+
+describe('NotionProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  function mockNotionPageFetch(pageId: string, page: unknown) {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/databases/') && !url.includes('/query') && (init?.method ?? 'GET') === 'GET') {
+        return jsonResponse({
+          id: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+          properties: { Name: { type: 'title' }, Status: { type: 'status' } },
+        });
+      }
+      if (url.includes(`/pages/${pageId}`)) {
+        return jsonResponse(page);
+      }
+      return jsonResponse({});
+    });
+  }
+
+  it('returns a mapped Task with correct id and status', async () => {
+    const uuidPageId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockNotionPageFetch(uuidPageId, {
+      id: uuidPageId,
+      url: 'https://notion.so/aaaaaaaabbbbccccddddeeeeeeeeeeee',
+      properties: {
+        Name: { title: [{ plain_text: 'Fetched page' }] },
+        Status: { status: { name: 'In Progress' } },
+      },
+    });
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const task = await provider.fetchTaskById('aaaaaaaabbbbccccddddeeeeeeeeeeee');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, 'aaaaaaaabbbbccccddddeeeeeeeeeeee');
+    assert.equal(task!.name, 'Fetched page');
+    assert.equal(task!.status, 'in progress');
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('populates blockedBy from "Blocked By" relation when present', async () => {
+    const uuidPageId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockNotionPageFetch(uuidPageId, {
+      id: uuidPageId,
+      url: 'https://notion.so/aaaaaaaabbbbccccddddeeeeeeeeeeee',
+      properties: {
+        Name: { title: [{ plain_text: 'Blocked page' }] },
+        Status: { status: { name: 'pending' } },
+        'Blocked By': { type: 'relation', relation: [{ id: 'cccccccc-dddd-eeee-ffff-000000000000' }] },
+      },
+    });
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const task = await provider.fetchTaskById('aaaaaaaabbbbccccddddeeeeeeeeeeee');
+
+    assert.ok(task !== null);
+    assert.deepEqual(task!.blockedBy, ['cccccccc-dddd-eeee-ffff-000000000000']);
+  });
+
+  it('returns null when the page fetch fails', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/databases/') && !url.includes('/query') && (init?.method ?? 'GET') === 'GET') {
+        return jsonResponse({
+          id: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+          properties: { Name: { type: 'title' }, Status: { type: 'status' } },
+        });
+      }
+      return { ok: false, status: 404, statusText: 'Not Found', text: async () => 'not found' };
+    });
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const task = await provider.fetchTaskById('aaaaaaaabbbbccccddddeeeeeeeeeeee');
+
+    assert.equal(task, null);
+  });
+});
+
+// ─── TrelloProvider.fetchTaskById ─────────────────────────────────────────────
+
+describe('TrelloProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns a mapped Task with correct id, name, and status', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/cards/card42')) {
+        return jsonResponse({
+          id: 'card42',
+          name: 'My card',
+          desc: 'Some description',
+          url: 'https://trello.com/c/xyz/card42',
+          idList: 'list-todo',
+          idMembers: ['member-me'],
+          labels: [{ id: 'l1', name: 'aidev' }],
+        });
+      }
+      if (url.includes('/boards/board1/lists')) {
+        return jsonResponse([
+          { id: 'list-todo', name: 'To Do' },
+          { id: 'list-pending', name: 'Blocked' },
+          { id: 'list-doing', name: 'Doing' },
+          { id: 'list-review', name: 'In Review' },
+        ]);
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new TrelloProvider(baseTrelloConfig);
+    const task = await provider.fetchTaskById('card42');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, 'card42');
+    assert.equal(task!.name, 'My card');
+    assert.equal(task!.status, 'open');
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('derives status from list name when card is in a known list', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/cards/card99')) {
+        return jsonResponse({
+          id: 'card99',
+          name: 'In progress card',
+          desc: '',
+          url: 'https://trello.com/c/abc/card99',
+          idList: 'list-doing',
+          idMembers: [],
+          labels: [],
+        });
+      }
+      if (url.includes('/boards/board1/lists')) {
+        return jsonResponse([
+          { id: 'list-todo', name: 'To Do' },
+          { id: 'list-pending', name: 'Blocked' },
+          { id: 'list-doing', name: 'Doing' },
+          { id: 'list-review', name: 'In Review' },
+        ]);
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new TrelloProvider(baseTrelloConfig);
+    const task = await provider.fetchTaskById('card99');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, 'card99');
+    assert.equal(task!.status, 'in progress');
+  });
+
+  it('returns null when the card fetch fails', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      ({ ok: false, status: 404, statusText: 'Not Found', text: async () => 'not found' })
+    );
+
+    const provider = new TrelloProvider(baseTrelloConfig);
+    const task = await provider.fetchTaskById('nonexistent');
+
+    assert.equal(task, null);
+  });
+});
