@@ -25,6 +25,7 @@ Task  →  AI implements  →  git push  →  "in review"  →  AI resolves code
 - [Code review resolution](#code-review-resolution)
 - [Auto-merge accepted PRs](#auto-merge-accepted-prs)
 - [Dev notes mode](#dev-notes-mode)
+- [Blocked tasks](#blocked-tasks)
 - [Local tasks file (`aidev.tasks.json`)](#local-tasks-file-aidevtasksjson)
 - [Scheduling](#scheduling)
 - [Hooks](#hooks)
@@ -38,7 +39,7 @@ Task  →  AI implements  →  git push  →  "in review"  →  AI resolves code
 ## How it works
 
 1. **Fetch** — pulls all tasks tagged with your configured tag from your task provider
-2. **Filter** — skips done/cancelled tasks and tasks that already have a branch
+2. **Filter** — skips done/cancelled tasks, tasks that already have a branch, and tasks that are blocked by other open tasks
 3. **Clarify** — in `smart` mode, asks the AI if the task description is clear enough; if not, posts a question as a comment (prefixed with `[aidev]`) and marks the task `pending`
 4. **Wait** — pending tasks are re-checked on the next run; if a human replied or the trigger word is found, implementation proceeds with the conversation as context
 5. **Implement** — checks out a fresh branch (or reuses an existing one), runs your configured AI agent(s), falls back to the next agent if one fails
@@ -379,6 +380,32 @@ For pending tasks, a regular human reply (any comment without the configured pre
 # Customise the comment prefix in .env.aidev
 AIDEV_COMMENT_PREFIX=[mybot]
 ```
+
+---
+
+## Blocked tasks
+
+If a task lists other tasks as blockers (via your provider's dependency feature), aidev will skip it until all blockers are closed.
+
+**How it works:**
+
+1. When a task is fetched, its blocking dependencies are read from the provider (currently supported: ClickUp `dependencies` with `type === 0` / "waiting on").
+2. Before running the AI agent, aidev fetches each blocker task and checks its status.
+3. If any blocker is still open (not in a done/closed/cancelled/complete state), the task is skipped with a log message:
+
+```
+skipped: blocked by task <id> (status: in progress)
+```
+
+4. Once all blockers are resolved, the task is picked up on the next run as normal.
+
+**Edge cases:**
+
+- If the provider does not support dependency fetching, the blocker check is skipped and the task proceeds (fail open).
+- If a blocker task cannot be fetched (deleted or inaccessible), it is treated as non-blocking.
+- Only direct blockers are checked — circular or transitive dependencies are not followed.
+
+No configuration is required; the behaviour is automatic when the provider exposes dependency data.
 
 ---
 
