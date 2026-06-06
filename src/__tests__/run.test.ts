@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getBlockedBySkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
@@ -1109,5 +1109,128 @@ describe('filterUnresolvedByNonAidev', () => {
     ];
     const result = filterUnresolvedByNonAidev(threads, '[aidev]');
     assert.equal(result.length, 1);
+  });
+});
+
+// ─── getBlockedBySkipReason ──────────────────────────────────────────────────
+
+function makeBlockedTask(blockedBy: string[]): Task {
+  return { id: 'task1', name: 'Blocked task', description: '', status: 'open', url: '', tags: [], blockedBy };
+}
+
+function makeProviderWithFetchById(blocker: Task | null): typeof mockProvider & { fetchTaskById: (id: string) => Promise<Task | null> } {
+  return { ...mockProvider, fetchTaskById: async (_id: string) => blocker };
+}
+
+describe('getBlockedBySkipReason', () => {
+  it('returns null when task has no blockedBy field', async () => {
+    const task = makeTask('t1');
+    const result = await getBlockedBySkipReason(task, mockProvider);
+    assert.equal(result, null);
+  });
+
+  it('returns null when blockedBy is an empty array', async () => {
+    const task = makeBlockedTask([]);
+    const result = await getBlockedBySkipReason(task, mockProvider);
+    assert.equal(result, null);
+  });
+
+  it('returns null when provider does not implement fetchTaskById (fail open)', async () => {
+    const task = makeBlockedTask(['blocker1']);
+    const result = await getBlockedBySkipReason(task, mockProvider);
+    assert.equal(result, null);
+  });
+
+  it('returns a skip reason when the blocker task is open', async () => {
+    const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: 'open', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['blocker1']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, 'blocked by task blocker1 (status: open)');
+  });
+
+  it('returns a skip reason including the blocker status', async () => {
+    const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: 'in progress', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['blocker1']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.ok(result?.includes('in progress'));
+    assert.ok(result?.includes('blocker1'));
+  });
+
+  it('returns null when the blocker task is closed', async () => {
+    const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: 'closed', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['blocker1']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
+  });
+
+  it('returns null when the blocker task is done', async () => {
+    const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: 'done', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['blocker1']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
+  });
+
+  it('returns null when the blocker task is complete', async () => {
+    const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: 'Complete', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['blocker1']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
+  });
+
+  it('returns null when the blocker task is resolved (Jira terminal status)', async () => {
+    const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: 'resolved', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['blocker1']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
+  });
+
+  it('returns null when the blocker task is completed (Linear terminal status)', async () => {
+    const blocker: Task = { id: 'ENG-5', name: 'Blocker', description: '', status: 'Completed', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['ENG-5']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
+  });
+
+  it('returns null when fetchTaskById returns null (blocker not found — fail open)', async () => {
+    const provider = makeProviderWithFetchById(null);
+    const task = makeBlockedTask(['missing-blocker']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
+  });
+
+  it('skips on the first open blocker when there are multiple blockers', async () => {
+    let callCount = 0;
+    const provider = {
+      ...mockProvider,
+      fetchTaskById: async (id: string): Promise<Task | null> => {
+        callCount++;
+        if (id === 'blocker1') return { id: 'blocker1', name: '', description: '', status: 'closed', url: '', tags: [] };
+        if (id === 'blocker2') return { id: 'blocker2', name: '', description: '', status: 'open', url: '', tags: [] };
+        return null;
+      },
+    };
+    const task = makeBlockedTask(['blocker1', 'blocker2']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, 'blocked by task blocker2 (status: open)');
+    assert.equal(callCount, 2);
+  });
+
+  it('returns null when all blockers are closed', async () => {
+    const provider = {
+      ...mockProvider,
+      fetchTaskById: async (id: string): Promise<Task | null> => {
+        return { id, name: '', description: '', status: 'done', url: '', tags: [] };
+      },
+    };
+    const task = makeBlockedTask(['b1', 'b2', 'b3']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
   });
 });

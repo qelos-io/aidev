@@ -12,6 +12,7 @@ interface MondayGraphQLResponse<T> {
 
 interface MondayColumnValue {
   id: string;
+  type?: string;
   value: string;
   text?: string;
 }
@@ -61,6 +62,23 @@ interface CreateUpdateResponse {
 
 interface ChangeColumnValueResponse {
   change_column_value: { id: string };
+}
+
+function getBlockedByFromColumnValues(columnValues: MondayColumnValue[] | undefined): string[] {
+  if (!columnValues) return [];
+  const ids: string[] = [];
+  for (const col of columnValues) {
+    if (col.type !== 'dependency') continue;
+    try {
+      const parsed = JSON.parse(col.value || '{}') as { linkedPulseIds?: Array<{ linkedPulseId: number }> };
+      for (const link of parsed.linkedPulseIds ?? []) {
+        ids.push(String(link.linkedPulseId));
+      }
+    } catch {
+      // malformed value — skip
+    }
+  }
+  return ids;
 }
 
 function getStatusFromColumnValues(columnValues: MondayColumnValue[] | undefined, statusColumnId: string): string {
@@ -134,7 +152,7 @@ export class MondayProvider implements TaskProvider {
               name
               url
               description { description }
-              column_values { id value text }
+              column_values { id type value text }
             }
           }
         }
@@ -158,6 +176,7 @@ export class MondayProvider implements TaskProvider {
       const statusNorm = statusText.toLowerCase();
       if (statusNorm !== pending && statusNorm !== inReview) continue;
 
+      const blockedBy = getBlockedByFromColumnValues(item.column_values);
       tasks.push({
         id: String(item.id),
         name: item.name,
@@ -166,6 +185,7 @@ export class MondayProvider implements TaskProvider {
         url: item.url || `https://${this.boardId}.monday.com`,
         tags: [],
         sourceListId: this.boardId,
+        ...(blockedBy.length > 0 && { blockedBy }),
       });
     }
 
@@ -263,6 +283,39 @@ export class MondayProvider implements TaskProvider {
       columnId: this.statusColumnId,
       value,
     });
+  }
+
+  async fetchTaskById(itemId: string): Promise<Task | null> {
+    logger.debug(`Fetching Monday item by id ${itemId}`);
+    const query = `
+      query ($itemId: ID!) {
+        items(ids: [$itemId]) {
+          id
+          name
+          url
+          column_values { id type value text }
+        }
+      }
+    `;
+    try {
+      const data = await this.graphql<ItemsByIdResponse>(query, { itemId });
+      const item = data.items?.[0];
+      if (!item) return null;
+      const statusText = getStatusFromColumnValues(item.column_values, this.statusColumnId);
+      const blockedBy = getBlockedByFromColumnValues(item.column_values);
+      return {
+        id: String(item.id),
+        name: item.name,
+        description: '',
+        status: statusText,
+        url: item.url || `https://monday.com/boards/${this.boardId}/pulses/${item.id}`,
+        tags: [],
+        sourceListId: this.boardId,
+        ...(blockedBy.length > 0 && { blockedBy }),
+      };
+    } catch {
+      return null;
+    }
   }
 
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {

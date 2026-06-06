@@ -131,6 +131,48 @@ export class LinearProvider implements TaskProvider {
     return data.workflowStates.nodes;
   }
 
+  private readonly ISSUE_FIELDS = `
+    id
+    identifier
+    title
+    description
+    url
+    state { id name type }
+    priority
+    labels { nodes { name } }
+    relations { nodes { type relatedIssue { identifier } } }
+  `;
+
+  private mapIssueNode(
+    n: {
+      id: string;
+      identifier: string;
+      title: string;
+      description: string | null;
+      url: string;
+      state: { id: string; name: string; type: string };
+      priority: number | null;
+      labels: { nodes: Array<{ name: string }> };
+      relations: { nodes: Array<{ type: string; relatedIssue: { identifier: string } }> };
+    },
+    sourceListId: string,
+  ): Task {
+    const blockedBy = (n.relations?.nodes ?? [])
+      .filter((r) => r.type === 'blocked')
+      .map((r) => r.relatedIssue.identifier);
+    return {
+      id: n.identifier,
+      name: n.title,
+      description: n.description || '',
+      status: n.state.name,
+      url: n.url,
+      tags: n.labels.nodes.map((l) => l.name),
+      priority: n.priority ?? undefined,
+      sourceListId,
+      ...(blockedBy.length > 0 ? { blockedBy } : {}),
+    };
+  }
+
   async fetchTasks(options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const teamId = await this.resolveTeamId();
     logger.debug(`Fetching Linear issues for team ${teamId} with label "${this.label}"`);
@@ -139,14 +181,7 @@ export class LinearProvider implements TaskProvider {
       query Issues($filter: IssueFilter) {
         issues(filter: $filter, first: 100) {
           nodes {
-            id
-            identifier
-            title
-            description
-            url
-            state { id name type }
-            priority
-            labels { nodes { name } }
+            ${this.ISSUE_FIELDS}
           }
         }
       }
@@ -162,34 +197,56 @@ export class LinearProvider implements TaskProvider {
       filter.updatedAt = { gte: new Date(options.updatedAfter).toISOString() };
     }
 
-    const data = await this.graphql<{
-      issues: {
-        nodes: Array<{
-          id: string;
-          identifier: string;
-          title: string;
-          description: string | null;
-          url: string;
-          state: { id: string; name: string; type: string };
-          priority: number | null;
-          labels: { nodes: Array<{ name: string }> };
-        }>;
-      };
-    }>(query, { filter });
+    type IssueNode = {
+      id: string;
+      identifier: string;
+      title: string;
+      description: string | null;
+      url: string;
+      state: { id: string; name: string; type: string };
+      priority: number | null;
+      labels: { nodes: Array<{ name: string }> };
+      relations: { nodes: Array<{ type: string; relatedIssue: { identifier: string } }> };
+    };
+    const data = await this.graphql<{ issues: { nodes: IssueNode[] } }>(query, { filter });
 
     const skipTypes = new Set(SKIP_STATE_TYPES);
     return data.issues.nodes
       .filter((n) => !skipTypes.has(n.state.type))
-      .map((n) => ({
-        id: n.identifier,
-        name: n.title,
-        description: n.description || '',
-        status: n.state.name,
-        url: n.url,
-        tags: n.labels.nodes.map((l) => l.name),
-        priority: n.priority ?? undefined,
-        sourceListId: teamId,
-      }));
+      .map((n) => this.mapIssueNode(n, teamId));
+  }
+
+  async fetchTaskById(taskId: string): Promise<Task | null> {
+    logger.debug(`Fetching Linear issue by identifier "${taskId}"`);
+    const match = taskId.match(/^([A-Za-z]+)-(\d+)$/);
+    const filter = match
+      ? { team: { key: { eq: match[1].toUpperCase() } }, number: { eq: Number(match[2]) } }
+      : { id: { eq: taskId } };
+
+    const query = `
+      query IssueById($filter: IssueFilter) {
+        issues(filter: $filter, first: 1) {
+          nodes {
+            ${this.ISSUE_FIELDS}
+          }
+        }
+      }
+    `;
+    type IssueNode = {
+      id: string;
+      identifier: string;
+      title: string;
+      description: string | null;
+      url: string;
+      state: { id: string; name: string; type: string };
+      priority: number | null;
+      labels: { nodes: Array<{ name: string }> };
+      relations: { nodes: Array<{ type: string; relatedIssue: { identifier: string } }> };
+    };
+    const data = await this.graphql<{ issues: { nodes: IssueNode[] } }>(query, { filter });
+    const node = data.issues.nodes[0];
+    if (!node) return null;
+    return this.mapIssueNode(node, node.identifier.replace(/-\d+$/, ''));
   }
 
   async fetchTasksByStatus(statuses: string[], options?: import('../types').FetchTasksOptions): Promise<Task[]> {

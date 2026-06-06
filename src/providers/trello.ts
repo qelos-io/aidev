@@ -422,6 +422,52 @@ export class TrelloProvider implements TaskProvider {
     return [...byId.values()];
   }
 
+  async fetchTaskById(cardId: string): Promise<Task | null> {
+    logger.debug(`Fetching Trello card ${cardId}`);
+    let card: TrelloCard;
+    try {
+      card = await this.request<TrelloCard>(
+        `/cards/${encodeURIComponent(cardId)}?fields=id,name,desc,url,idList,idMembers,labels`,
+      );
+    } catch {
+      return null;
+    }
+
+    let status = 'unknown';
+    try {
+      const lists = await this.fetchLists();
+      const openListId = this.findListId(lists, this.openListName);
+      const pendingListId = this.findListId(lists, this.pendingListName);
+      const sem = this.listIdToSemantic(card.idList, openListId, pendingListId);
+      if (sem) {
+        status = sem;
+      } else {
+        let inProgressListId: string | null = null;
+        try { inProgressListId = this.findListId(lists, this.inProgressListName); } catch { /* optional */ }
+        let reviewListId: string | null = null;
+        try { reviewListId = this.findListId(lists, this.inReviewListName); } catch { /* optional */ }
+        if (inProgressListId && card.idList === inProgressListId) status = 'in progress';
+        else if (reviewListId && card.idList === reviewListId) status = this.inReviewSemantic.toLowerCase();
+        else {
+          const list = lists.find((l) => l.id === card.idList);
+          if (list) status = list.name.toLowerCase();
+        }
+      }
+    } catch {
+      /* use 'unknown' if list resolution fails */
+    }
+
+    return {
+      id: card.id,
+      name: card.name,
+      description: card.desc || '',
+      status,
+      url: card.url,
+      tags: card.labels.map((l) => l.name),
+      sourceListId: card.idList,
+    };
+  }
+
   async addTag(taskId: string, tag: string): Promise<void> {
     logger.debug(`Adding label "${tag}" to Trello card ${taskId}`);
 

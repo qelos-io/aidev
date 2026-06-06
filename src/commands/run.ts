@@ -23,7 +23,7 @@ import {
 import { buildCompressedContext } from '../sessions';
 import { resolveDoneStatus } from './accepted';
 
-const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete']);
+const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete', 'resolved', 'completed']);
 const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
 const SLEEPING_MARKER = 'machine appears to be asleep';
 export const DEFAULT_TRIGGER_WORD = 'aidev-continue';
@@ -107,6 +107,26 @@ export function getRunSkipReason(status: string, filter: RunFilter, pendingStatu
     return 'filter=review skips open/pending tasks';
   }
 
+  return null;
+}
+
+export async function getBlockedBySkipReason(task: Task, provider: TaskProvider): Promise<string | null> {
+  if (!task.blockedBy || task.blockedBy.length === 0) return null;
+  if (!provider.fetchTaskById) {
+    logger.debug(`[${task.id}] provider does not support fetchTaskById — skipping blocked-by check`);
+    return null;
+  }
+  for (const blockerId of task.blockedBy) {
+    const blocker = await provider.fetchTaskById(blockerId);
+    if (blocker === null) {
+      logger.debug(`[${task.id}] blocker ${blockerId} not found — treating as non-blocking`);
+      continue;
+    }
+    if (!SKIP_STATUSES.has(blocker.status.toLowerCase())) {
+      return `blocked by task ${blockerId} (status: ${blocker.status})`;
+    }
+    logger.debug(`[${task.id}] blocker ${blockerId} is closed (status: ${blocker.status}) — not blocking`);
+  }
   return null;
 }
 
@@ -544,6 +564,12 @@ async function processTask(
 
   if (skipReason) {
     logger.info(`[${task.id}] "${task.name}" skipped — ${skipReason}`);
+    return 'skipped';
+  }
+
+  const blockedReason = await getBlockedBySkipReason(task, provider);
+  if (blockedReason) {
+    logger.info(`[${task.id}] "${task.name}" skipped — ${blockedReason}`);
     return 'skipped';
   }
 

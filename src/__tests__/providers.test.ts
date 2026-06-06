@@ -436,6 +436,90 @@ describe('ClickUpProvider.getComments', () => {
   });
 });
 
+// ─── ClickUpProvider.fetchTaskById — dependency / blockedBy mapping ──────────
+
+describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
+  afterEach(() => mock.restoreAll());
+
+  function makeRawTask(id: string, dependencies?: Array<{ task_id: string; type: number }>) {
+    return {
+      id,
+      name: 'Test task',
+      description: 'desc',
+      status: { status: 'open' },
+      priority: null,
+      url: `https://app.clickup.com/t/${id}`,
+      tags: [],
+      ...(dependencies !== undefined ? { dependencies } : {}),
+    };
+  }
+
+  it('populates blockedBy from type=0 dependencies', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', [
+        { task_id: 'blocker1', type: 0 },
+        { task_id: 'blocker2', type: 0 },
+      ]))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.deepEqual(task!.blockedBy, ['blocker1', 'blocker2']);
+  });
+
+  it('ignores type=1 dependencies (blocking others, not blocked-by)', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', [
+        { task_id: 'other', type: 1 },
+      ]))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('handles mixed type=0 and type=1 — only includes type=0', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', [
+        { task_id: 'blocker1', type: 0 },
+        { task_id: 'other', type: 1 },
+      ]))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.deepEqual(task!.blockedBy, ['blocker1']);
+  });
+
+  it('sets blockedBy to undefined when dependencies field is missing', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1'))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('sets blockedBy to undefined when dependencies array is empty', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', []))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('returns null when the API call fails', async () => {
+    mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 404, statusText: 'Not Found', text: async () => 'not found' }));
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('nonexistent');
+    assert.equal(task, null);
+  });
+});
+
 // ─── JiraProvider.getComments ─────────────────────────────────────────────────
 
 describe('JiraProvider.getComments', () => {
@@ -642,6 +726,136 @@ describe('JiraProvider.fetchTasks', () => {
   });
 });
 
+// ─── JiraProvider blocked-by ─────────────────────────────────────────────────
+
+describe('JiraProvider.fetchTasks — blockedBy', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('populates blockedBy from issuelinks where type.inward is "is blocked by"', async () => {
+    await withTempCwd(async () => {
+      mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('/search/jql')) {
+          return jsonResponse({
+            issues: [
+              {
+                id: '1001',
+                key: 'PROJ-1',
+                fields: {
+                  summary: 'Blocked task',
+                  description: null,
+                  status: { name: 'Open' },
+                  priority: null,
+                  labels: [],
+                  attachment: [],
+                  issuelinks: [
+                    {
+                      type: { inward: 'is blocked by', outward: 'blocks' },
+                      inwardIssue: { key: 'PROJ-2' },
+                    },
+                    {
+                      type: { inward: 'is blocked by', outward: 'blocks' },
+                      inwardIssue: { key: 'PROJ-3' },
+                    },
+                    {
+                      type: { inward: 'blocks', outward: 'is blocked by' },
+                      outwardIssue: { key: 'PROJ-4' },
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+        }
+        return jsonResponse({});
+      });
+
+      const provider = new JiraProvider(baseJiraConfig);
+      const tasks = await provider.fetchTasks({ skipAttachments: true });
+
+      assert.deepEqual(tasks[0].blockedBy, ['PROJ-2', 'PROJ-3']);
+    });
+  });
+
+  it('leaves blockedBy undefined when issuelinks is empty', async () => {
+    await withTempCwd(async () => {
+      mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('/search/jql')) {
+          return jsonResponse({
+            issues: [
+              {
+                id: '1001',
+                key: 'PROJ-1',
+                fields: {
+                  summary: 'Unblocked task',
+                  description: null,
+                  status: { name: 'Open' },
+                  priority: null,
+                  labels: [],
+                  attachment: [],
+                  issuelinks: [],
+                },
+              },
+            ],
+          });
+        }
+        return jsonResponse({});
+      });
+
+      const provider = new JiraProvider(baseJiraConfig);
+      const tasks = await provider.fetchTasks({ skipAttachments: true });
+
+      assert.equal(tasks[0].blockedBy, undefined);
+    });
+  });
+});
+
+describe('JiraProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns a mapped Task with blockedBy when issue has blocking links', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse({
+        key: 'PROJ-5',
+        fields: {
+          summary: 'A blocked issue',
+          description: null,
+          status: { name: 'In Progress' },
+          priority: { id: '2' },
+          labels: ['aidev'],
+          project: { key: 'PROJ' },
+          issuelinks: [
+            {
+              type: { inward: 'is blocked by', outward: 'blocks' },
+              inwardIssue: { key: 'PROJ-10' },
+            },
+          ],
+        },
+      })
+    );
+
+    const provider = new JiraProvider(baseJiraConfig);
+    const task = await provider.fetchTaskById!('PROJ-5');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, 'PROJ-5');
+    assert.equal(task!.status, 'in progress');
+    assert.deepEqual(task!.blockedBy, ['PROJ-10']);
+  });
+
+  it('returns null when the API returns an error', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      new Response('Not Found', { status: 404 })
+    );
+
+    const provider = new JiraProvider(baseJiraConfig);
+    const task = await provider.fetchTaskById!('PROJ-MISSING');
+
+    assert.equal(task, null);
+  });
+});
+
 // ─── LinearProvider ─────────────────────────────────────────────────────────
 
 describe('LinearProvider.fetchTasks — wildcard label', () => {
@@ -738,6 +952,174 @@ describe('LinearProvider.fetchTasks', () => {
     assert.equal(tasks[0].url, 'https://linear.app/org/issue/ENG-42');
     assert.deepEqual(tasks[0].tags, ['aidev']);
     assert.equal(tasks[0].priority, 2);
+  });
+});
+
+describe('LinearProvider.fetchTasks — blockedBy', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('populates blockedBy from relations of type "blocked"', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('issues')) {
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-1',
+                  identifier: 'ENG-10',
+                  title: 'Blocked task',
+                  description: '',
+                  url: 'https://linear.app/org/issue/ENG-10',
+                  state: { id: 's1', name: 'Todo', type: 'unstarted' },
+                  priority: null,
+                  labels: { nodes: [] },
+                  relations: {
+                    nodes: [
+                      { type: 'blocked', relatedIssue: { identifier: 'ENG-5' } },
+                      { type: 'duplicate', relatedIssue: { identifier: 'ENG-6' } },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.deepEqual(tasks[0].blockedBy, ['ENG-5']);
+  });
+
+  it('omits blockedBy when no blocking relations exist', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('issues')) {
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-2',
+                  identifier: 'ENG-11',
+                  title: 'Unblocked task',
+                  description: '',
+                  url: 'https://linear.app/org/issue/ENG-11',
+                  state: { id: 's1', name: 'Todo', type: 'unstarted' },
+                  priority: null,
+                  labels: { nodes: [] },
+                  relations: { nodes: [] },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].blockedBy, undefined);
+  });
+});
+
+describe('LinearProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns a task mapped from a single-issue query', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('IssueById')) {
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-5',
+                  identifier: 'ENG-5',
+                  title: 'Blocker issue',
+                  description: 'Blocking something.',
+                  url: 'https://linear.app/org/issue/ENG-5',
+                  state: { id: 's2', name: 'In Progress', type: 'started' },
+                  priority: 1,
+                  labels: { nodes: [] },
+                  relations: { nodes: [] },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const task = await provider.fetchTaskById('ENG-5');
+
+    assert.ok(task);
+    assert.equal(task.id, 'ENG-5');
+    assert.equal(task.name, 'Blocker issue');
+    assert.equal(task.status, 'In Progress');
+  });
+
+  it('returns null when the issue is not found', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('IssueById')) {
+        return jsonResponse({ data: { issues: { nodes: [] } } });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const task = await provider.fetchTaskById('ENG-999');
+
+    assert.equal(task, null);
+  });
+
+  it('populates blockedBy on the fetched task', async () => {
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.query?.includes('IssueById')) {
+        return jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: 'issue-uuid-7',
+                  identifier: 'ENG-7',
+                  title: 'Blocked blocker',
+                  description: '',
+                  url: 'https://linear.app/org/issue/ENG-7',
+                  state: { id: 's1', name: 'Todo', type: 'unstarted' },
+                  priority: null,
+                  labels: { nodes: [] },
+                  relations: {
+                    nodes: [{ type: 'blocked', relatedIssue: { identifier: 'ENG-3' } }],
+                  },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    const task = await provider.fetchTaskById('ENG-7');
+
+    assert.ok(task);
+    assert.deepEqual(task.blockedBy, ['ENG-3']);
   });
 });
 
@@ -1415,5 +1797,379 @@ describe('NotionProvider.getComments', () => {
     assert.equal(comments.length, 2);
     assert.equal(comments[0].text, 'Oldest');
     assert.equal(comments[1].text, 'Newest');
+  });
+});
+
+// ─── MondayProvider.fetchTasks — blockedBy ────────────────────────────────────
+
+describe('MondayProvider.fetchTasks — blockedBy', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('populates blockedBy from a dependency-type column', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items_page')) {
+        return jsonResponse({
+          data: {
+            boards: [{
+              items_page: {
+                cursor: null,
+                items: [{
+                  id: '2001',
+                  name: 'Blocked item',
+                  url: 'https://example.monday.com/boards/12345/pulses/2001',
+                  description: { description: 'Some work' },
+                  column_values: [
+                    { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+                    { id: 'connect_boards', type: 'dependency', value: '{"linkedPulseIds":[{"linkedPulseId":3001},{"linkedPulseId":3002}]}', text: '' },
+                  ],
+                }],
+              },
+            }],
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.deepEqual(tasks[0].blockedBy, ['3001', '3002']);
+  });
+
+  it('omits blockedBy when there is no dependency column', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items_page')) {
+        return jsonResponse({
+          data: {
+            boards: [{
+              items_page: {
+                cursor: null,
+                items: [{
+                  id: '2002',
+                  name: 'Unblocked item',
+                  url: 'https://example.monday.com/boards/12345/pulses/2002',
+                  description: { description: '' },
+                  column_values: [
+                    { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+                  ],
+                }],
+              },
+            }],
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].blockedBy, undefined);
+  });
+});
+
+// ─── MondayProvider.fetchTaskById ────────────────────────────────────────────
+
+describe('MondayProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns a mapped Task with correct id and status', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items(ids')) {
+        return jsonResponse({
+          data: {
+            items: [{
+              id: '1001',
+              name: 'My item',
+              url: 'https://example.monday.com/boards/12345/pulses/1001',
+              column_values: [
+                { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+              ],
+            }],
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const task = await provider.fetchTaskById('1001');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, '1001');
+    assert.equal(task!.name, 'My item');
+    assert.equal(task!.status, 'Working on it');
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('populates blockedBy from a dependency-type column', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items(ids')) {
+        return jsonResponse({
+          data: {
+            items: [{
+              id: '2001',
+              name: 'Blocked item',
+              url: 'https://example.monday.com/boards/12345/pulses/2001',
+              column_values: [
+                { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+                { id: 'dep_col', type: 'dependency', value: '{"linkedPulseIds":[{"linkedPulseId":5555}]}', text: '' },
+              ],
+            }],
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const task = await provider.fetchTaskById('2001');
+
+    assert.ok(task !== null);
+    assert.deepEqual(task!.blockedBy, ['5555']);
+  });
+
+  it('returns null when the item is not found', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof (init?.body) === 'string' ? JSON.parse(init.body) : {};
+      if ((body.query as string)?.includes('items(ids')) {
+        return jsonResponse({ data: { items: [] } });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new MondayProvider(baseMondayConfig);
+    const task = await provider.fetchTaskById('nonexistent');
+
+    assert.equal(task, null);
+  });
+});
+
+// ─── NotionProvider.fetchTasks — blockedBy ────────────────────────────────────
+
+describe('NotionProvider.fetchTasks — blockedBy', () => {
+  afterEach(() => mock.restoreAll());
+
+  function mockNotionFetch(pages: unknown[]) {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/databases/') && !url.includes('/query') && (init?.method ?? 'GET') === 'GET') {
+        return jsonResponse({
+          id: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+          properties: { Name: { type: 'title' }, Status: { type: 'status' } },
+        });
+      }
+      if (url.includes('/query')) {
+        return jsonResponse({ results: pages, next_cursor: null, has_more: false });
+      }
+      return jsonResponse({});
+    });
+  }
+
+  it('populates blockedBy from a "Blocked By" relation property', async () => {
+    mockNotionFetch([{
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      url: 'https://notion.so/aaaaaaaaaabbbbccccddddeeeeeeeeeeee',
+      properties: {
+        Name: { title: [{ plain_text: 'Blocked page' }] },
+        Status: { status: { name: 'pending' } },
+        'Blocked By': { type: 'relation', relation: [{ id: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff' }] },
+      },
+    }]);
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.deepEqual(tasks[0].blockedBy, ['bbbbbbbb-cccc-dddd-eeee-ffffffffffff']);
+  });
+
+  it('omits blockedBy when no "Blocked By" property exists', async () => {
+    mockNotionFetch([{
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      url: 'https://notion.so/aaaaaaaaaabbbbccccddddeeeeeeeeeeee',
+      properties: {
+        Name: { title: [{ plain_text: 'Unblocked page' }] },
+        Status: { status: { name: 'pending' } },
+      },
+    }]);
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].blockedBy, undefined);
+  });
+});
+
+// ─── NotionProvider.fetchTaskById ────────────────────────────────────────────
+
+describe('NotionProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  function mockNotionPageFetch(pageId: string, page: unknown) {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/databases/') && !url.includes('/query') && (init?.method ?? 'GET') === 'GET') {
+        return jsonResponse({
+          id: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+          properties: { Name: { type: 'title' }, Status: { type: 'status' } },
+        });
+      }
+      if (url.includes(`/pages/${pageId}`)) {
+        return jsonResponse(page);
+      }
+      return jsonResponse({});
+    });
+  }
+
+  it('returns a mapped Task with correct id and status', async () => {
+    const uuidPageId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockNotionPageFetch(uuidPageId, {
+      id: uuidPageId,
+      url: 'https://notion.so/aaaaaaaabbbbccccddddeeeeeeeeeeee',
+      properties: {
+        Name: { title: [{ plain_text: 'Fetched page' }] },
+        Status: { status: { name: 'In Progress' } },
+      },
+    });
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const task = await provider.fetchTaskById('aaaaaaaabbbbccccddddeeeeeeeeeeee');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, 'aaaaaaaabbbbccccddddeeeeeeeeeeee');
+    assert.equal(task!.name, 'Fetched page');
+    assert.equal(task!.status, 'in progress');
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('populates blockedBy from "Blocked By" relation when present', async () => {
+    const uuidPageId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockNotionPageFetch(uuidPageId, {
+      id: uuidPageId,
+      url: 'https://notion.so/aaaaaaaabbbbccccddddeeeeeeeeeeee',
+      properties: {
+        Name: { title: [{ plain_text: 'Blocked page' }] },
+        Status: { status: { name: 'pending' } },
+        'Blocked By': { type: 'relation', relation: [{ id: 'cccccccc-dddd-eeee-ffff-000000000000' }] },
+      },
+    });
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const task = await provider.fetchTaskById('aaaaaaaabbbbccccddddeeeeeeeeeeee');
+
+    assert.ok(task !== null);
+    assert.deepEqual(task!.blockedBy, ['cccccccc-dddd-eeee-ffff-000000000000']);
+  });
+
+  it('returns null when the page fetch fails', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/databases/') && !url.includes('/query') && (init?.method ?? 'GET') === 'GET') {
+        return jsonResponse({
+          id: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+          properties: { Name: { type: 'title' }, Status: { type: 'status' } },
+        });
+      }
+      return { ok: false, status: 404, statusText: 'Not Found', text: async () => 'not found' };
+    });
+
+    const provider = new NotionProvider(baseNotionConfig);
+    const task = await provider.fetchTaskById('aaaaaaaabbbbccccddddeeeeeeeeeeee');
+
+    assert.equal(task, null);
+  });
+});
+
+// ─── TrelloProvider.fetchTaskById ─────────────────────────────────────────────
+
+describe('TrelloProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns a mapped Task with correct id, name, and status', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/cards/card42')) {
+        return jsonResponse({
+          id: 'card42',
+          name: 'My card',
+          desc: 'Some description',
+          url: 'https://trello.com/c/xyz/card42',
+          idList: 'list-todo',
+          idMembers: ['member-me'],
+          labels: [{ id: 'l1', name: 'aidev' }],
+        });
+      }
+      if (url.includes('/boards/board1/lists')) {
+        return jsonResponse([
+          { id: 'list-todo', name: 'To Do' },
+          { id: 'list-pending', name: 'Blocked' },
+          { id: 'list-doing', name: 'Doing' },
+          { id: 'list-review', name: 'In Review' },
+        ]);
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new TrelloProvider(baseTrelloConfig);
+    const task = await provider.fetchTaskById('card42');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, 'card42');
+    assert.equal(task!.name, 'My card');
+    assert.equal(task!.status, 'open');
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('derives status from list name when card is in a known list', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/cards/card99')) {
+        return jsonResponse({
+          id: 'card99',
+          name: 'In progress card',
+          desc: '',
+          url: 'https://trello.com/c/abc/card99',
+          idList: 'list-doing',
+          idMembers: [],
+          labels: [],
+        });
+      }
+      if (url.includes('/boards/board1/lists')) {
+        return jsonResponse([
+          { id: 'list-todo', name: 'To Do' },
+          { id: 'list-pending', name: 'Blocked' },
+          { id: 'list-doing', name: 'Doing' },
+          { id: 'list-review', name: 'In Review' },
+        ]);
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new TrelloProvider(baseTrelloConfig);
+    const task = await provider.fetchTaskById('card99');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, 'card99');
+    assert.equal(task!.status, 'in progress');
+  });
+
+  it('returns null when the card fetch fails', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      ({ ok: false, status: 404, statusText: 'Not Found', text: async () => 'not found' })
+    );
+
+    const provider = new TrelloProvider(baseTrelloConfig);
+    const task = await provider.fetchTaskById('nonexistent');
+
+    assert.equal(task, null);
   });
 });
