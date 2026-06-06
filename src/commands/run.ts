@@ -110,6 +110,26 @@ export function getRunSkipReason(status: string, filter: RunFilter, pendingStatu
   return null;
 }
 
+export async function getBlockedBySkipReason(task: Task, provider: TaskProvider): Promise<string | null> {
+  if (!task.blockedBy || task.blockedBy.length === 0) return null;
+  if (!provider.fetchTaskById) {
+    logger.debug(`[${task.id}] provider does not support fetchTaskById — skipping blocked-by check`);
+    return null;
+  }
+  for (const blockerId of task.blockedBy) {
+    const blocker = await provider.fetchTaskById(blockerId);
+    if (blocker === null) {
+      logger.debug(`[${task.id}] blocker ${blockerId} not found — treating as non-blocking`);
+      continue;
+    }
+    if (!SKIP_STATUSES.has(blocker.status.toLowerCase())) {
+      return `blocked by task ${blockerId} (status: ${blocker.status})`;
+    }
+    logger.debug(`[${task.id}] blocker ${blockerId} is closed (status: ${blocker.status}) — not blocking`);
+  }
+  return null;
+}
+
 export function isThinkingTask(task: Task, config: Config): boolean {
   if (!config.thinkingTag) return false;
   const tag = config.thinkingTag.toLowerCase();
@@ -547,24 +567,10 @@ async function processTask(
     return 'skipped';
   }
 
-  if (task.blockedBy && task.blockedBy.length > 0) {
-    if (!provider.fetchTaskById) {
-      logger.debug(`[${task.id}] provider does not support fetchTaskById — skipping blocked-by check`);
-    } else {
-      for (const blockerId of task.blockedBy) {
-        const blocker = await provider.fetchTaskById(blockerId);
-        if (blocker === null) {
-          logger.debug(`[${task.id}] blocker ${blockerId} not found — treating as non-blocking`);
-          continue;
-        }
-        if (!SKIP_STATUSES.has(blocker.status.toLowerCase())) {
-          const reason = `blocked by task ${blockerId} (status: ${blocker.status})`;
-          logger.info(`[${task.id}] "${task.name}" skipped — ${reason}`);
-          return 'skipped';
-        }
-        logger.debug(`[${task.id}] blocker ${blockerId} is closed (status: ${blocker.status}) — not blocking`);
-      }
-    }
+  const blockedReason = await getBlockedBySkipReason(task, provider);
+  if (blockedReason) {
+    logger.info(`[${task.id}] "${task.name}" skipped — ${blockedReason}`);
+    return 'skipped';
   }
 
   const branchName = `${task.id}/${git.slugify(task.name)}`;

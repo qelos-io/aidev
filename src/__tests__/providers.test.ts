@@ -436,6 +436,90 @@ describe('ClickUpProvider.getComments', () => {
   });
 });
 
+// ─── ClickUpProvider.fetchTaskById — dependency / blockedBy mapping ──────────
+
+describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
+  afterEach(() => mock.restoreAll());
+
+  function makeRawTask(id: string, dependencies?: Array<{ task_id: string; type: number }>) {
+    return {
+      id,
+      name: 'Test task',
+      description: 'desc',
+      status: { status: 'open' },
+      priority: null,
+      url: `https://app.clickup.com/t/${id}`,
+      tags: [],
+      ...(dependencies !== undefined ? { dependencies } : {}),
+    };
+  }
+
+  it('populates blockedBy from type=0 dependencies', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', [
+        { task_id: 'blocker1', type: 0 },
+        { task_id: 'blocker2', type: 0 },
+      ]))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.deepEqual(task!.blockedBy, ['blocker1', 'blocker2']);
+  });
+
+  it('ignores type=1 dependencies (blocking others, not blocked-by)', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', [
+        { task_id: 'other', type: 1 },
+      ]))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('handles mixed type=0 and type=1 — only includes type=0', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', [
+        { task_id: 'blocker1', type: 0 },
+        { task_id: 'other', type: 1 },
+      ]))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.deepEqual(task!.blockedBy, ['blocker1']);
+  });
+
+  it('sets blockedBy to undefined when dependencies field is missing', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1'))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('sets blockedBy to undefined when dependencies array is empty', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', []))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.equal(task!.blockedBy, undefined);
+  });
+
+  it('returns null when the API call fails', async () => {
+    mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 404, statusText: 'Not Found', text: async () => 'not found' }));
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('nonexistent');
+    assert.equal(task, null);
+  });
+});
+
 // ─── JiraProvider.getComments ─────────────────────────────────────────────────
 
 describe('JiraProvider.getComments', () => {
