@@ -216,6 +216,17 @@ export class JiraProvider implements TaskProvider {
     return value && typeof value === 'object' ? value as Record<string, unknown> : null;
   }
 
+  private parseBlockedBy(issuelinks: unknown[]): string[] {
+    return issuelinks
+      .filter((link): link is Record<string, unknown> => {
+        if (!link || typeof link !== 'object') return false;
+        const l = link as Record<string, unknown>;
+        const linkType = l.type as Record<string, unknown> | undefined;
+        return linkType?.inward === 'is blocked by' && l.inwardIssue != null;
+      })
+      .map((link) => (link.inwardIssue as Record<string, unknown>).key as string);
+  }
+
   async fetchTasks(options?: FetchTasksOptions): Promise<Task[]> {
     logger.debug(`Fetching Jira issues in project "${this.project}" with label "${this.label}"`);
     const skipAttachments = options?.skipAttachments === true;
@@ -233,6 +244,7 @@ export class JiraProvider implements TaskProvider {
         self: string;
         attachment?: JiraRawAttachment[];
         project?: { key?: string };
+        issuelinks?: unknown[];
       };
     }
 
@@ -246,7 +258,7 @@ export class JiraProvider implements TaskProvider {
       ? ` AND updated >= "${new Date(updatedAfter).toISOString().split('T')[0]}"`
       : '';
     const jql = `project = "${this.project}"${labelClause}${updatedClause} AND statusCategory != Done ORDER BY created DESC`;
-    const fields = 'summary,description,status,priority,labels,attachment,project';
+    const fields = 'summary,description,status,priority,labels,attachment,project,issuelinks';
     const data = await this.request<SearchResponse>(
       `/search/jql?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=50`
     );
@@ -267,6 +279,8 @@ export class JiraProvider implements TaskProvider {
         }
       }
 
+      const blockedBy = this.parseBlockedBy(issue.fields.issuelinks || []);
+
       return {
         id: issue.key,
         name: issue.fields.summary,
@@ -276,8 +290,49 @@ export class JiraProvider implements TaskProvider {
         tags: issue.fields.labels,
         priority: issue.fields.priority ? parseInt(issue.fields.priority.id, 10) : undefined,
         sourceListId: issue.fields.project?.key,
+        ...(blockedBy.length > 0 ? { blockedBy } : {}),
       };
     }));
+  }
+
+  async fetchTaskById(taskId: string): Promise<Task | null> {
+    logger.debug(`Fetching Jira issue ${taskId}`);
+
+    interface RawIssue {
+      key: string;
+      fields: {
+        summary: string;
+        description: unknown;
+        status: { name: string };
+        priority: { id: string } | null;
+        labels: string[];
+        project?: { key?: string };
+        issuelinks?: unknown[];
+      };
+    }
+
+    let issue: RawIssue;
+    try {
+      issue = await this.request<RawIssue>(
+        `/issue/${encodeURIComponent(taskId)}?fields=summary,description,status,priority,labels,project,issuelinks`
+      );
+    } catch {
+      return null;
+    }
+
+    const blockedBy = this.parseBlockedBy(issue.fields.issuelinks || []);
+
+    return {
+      id: issue.key,
+      name: issue.fields.summary,
+      description: this.adfToText(issue.fields.description),
+      status: issue.fields.status.name.toLowerCase(),
+      url: `${this.baseUrl}/browse/${issue.key}`,
+      tags: issue.fields.labels,
+      priority: issue.fields.priority ? parseInt(issue.fields.priority.id, 10) : undefined,
+      sourceListId: issue.fields.project?.key,
+      ...(blockedBy.length > 0 ? { blockedBy } : {}),
+    };
   }
 
   async fetchTasksByStatus(statuses: string[], options?: FetchTasksOptions): Promise<Task[]> {
@@ -399,22 +454,26 @@ export class JiraProvider implements TaskProvider {
     const labeled = await this.fetchTasks(boardOpts);
     const labelClauseReview = this.label === '*' ? '' : ` AND labels = "${this.label}"`;
     const reviewJql = `project = "${this.project}"${labelClauseReview} AND status = "${this.inReviewStatus}" AND statusCategory != Done ORDER BY created DESC`;
-    interface SearchResponse { issues: Array<{ id: string; key: string; fields: { summary: string; status: { name: string }; priority: { id: string } | null; labels: string[]; project?: { key?: string } } }> }
+    interface SearchResponse { issues: Array<{ id: string; key: string; fields: { summary: string; status: { name: string }; priority: { id: string } | null; labels: string[]; project?: { key?: string }; issuelinks?: unknown[] } }> }
     let reviewTasks: Task[] = [];
     try {
       const data = await this.request<SearchResponse>(
-        `/search/jql?jql=${encodeURIComponent(reviewJql)}&fields=summary,status,priority,labels,project&maxResults=50`,
+        `/search/jql?jql=${encodeURIComponent(reviewJql)}&fields=summary,status,priority,labels,project,issuelinks&maxResults=50`,
       );
-      reviewTasks = data.issues.map((issue) => ({
-        id: issue.key,
-        name: issue.fields.summary,
-        description: '',
-        status: issue.fields.status.name.toLowerCase(),
-        url: `${this.baseUrl}/browse/${issue.key}`,
-        tags: issue.fields.labels,
-        priority: issue.fields.priority ? parseInt(issue.fields.priority.id, 10) : undefined,
-        sourceListId: issue.fields.project?.key,
-      }));
+      reviewTasks = data.issues.map((issue) => {
+        const blockedBy = this.parseBlockedBy(issue.fields.issuelinks || []);
+        return {
+          id: issue.key,
+          name: issue.fields.summary,
+          description: '',
+          status: issue.fields.status.name.toLowerCase(),
+          url: `${this.baseUrl}/browse/${issue.key}`,
+          tags: issue.fields.labels,
+          priority: issue.fields.priority ? parseInt(issue.fields.priority.id, 10) : undefined,
+          sourceListId: issue.fields.project?.key,
+          ...(blockedBy.length > 0 ? { blockedBy } : {}),
+        };
+      });
     } catch (err) {
       logger.warn(`Failed to fetch Jira review tasks: ${err instanceof Error ? err.message : err}`);
     }

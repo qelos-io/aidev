@@ -1182,6 +1182,14 @@ describe('getBlockedBySkipReason', () => {
     assert.equal(result, null);
   });
 
+  it('returns null when the blocker task is resolved (Jira terminal status)', async () => {
+    const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: 'resolved', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['blocker1']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
+  });
+
   it('returns null when fetchTaskById returns null (blocker not found — fail open)', async () => {
     const provider = makeProviderWithFetchById(null);
     const task = makeBlockedTask(['missing-blocker']);

@@ -726,6 +726,136 @@ describe('JiraProvider.fetchTasks', () => {
   });
 });
 
+// ─── JiraProvider blocked-by ─────────────────────────────────────────────────
+
+describe('JiraProvider.fetchTasks — blockedBy', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('populates blockedBy from issuelinks where type.inward is "is blocked by"', async () => {
+    await withTempCwd(async () => {
+      mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('/search/jql')) {
+          return jsonResponse({
+            issues: [
+              {
+                id: '1001',
+                key: 'PROJ-1',
+                fields: {
+                  summary: 'Blocked task',
+                  description: null,
+                  status: { name: 'Open' },
+                  priority: null,
+                  labels: [],
+                  attachment: [],
+                  issuelinks: [
+                    {
+                      type: { inward: 'is blocked by', outward: 'blocks' },
+                      inwardIssue: { key: 'PROJ-2' },
+                    },
+                    {
+                      type: { inward: 'is blocked by', outward: 'blocks' },
+                      inwardIssue: { key: 'PROJ-3' },
+                    },
+                    {
+                      type: { inward: 'blocks', outward: 'is blocked by' },
+                      outwardIssue: { key: 'PROJ-4' },
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+        }
+        return jsonResponse({});
+      });
+
+      const provider = new JiraProvider(baseJiraConfig);
+      const tasks = await provider.fetchTasks({ skipAttachments: true });
+
+      assert.deepEqual(tasks[0].blockedBy, ['PROJ-2', 'PROJ-3']);
+    });
+  });
+
+  it('leaves blockedBy undefined when issuelinks is empty', async () => {
+    await withTempCwd(async () => {
+      mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('/search/jql')) {
+          return jsonResponse({
+            issues: [
+              {
+                id: '1001',
+                key: 'PROJ-1',
+                fields: {
+                  summary: 'Unblocked task',
+                  description: null,
+                  status: { name: 'Open' },
+                  priority: null,
+                  labels: [],
+                  attachment: [],
+                  issuelinks: [],
+                },
+              },
+            ],
+          });
+        }
+        return jsonResponse({});
+      });
+
+      const provider = new JiraProvider(baseJiraConfig);
+      const tasks = await provider.fetchTasks({ skipAttachments: true });
+
+      assert.equal(tasks[0].blockedBy, undefined);
+    });
+  });
+});
+
+describe('JiraProvider.fetchTaskById', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('returns a mapped Task with blockedBy when issue has blocking links', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse({
+        key: 'PROJ-5',
+        fields: {
+          summary: 'A blocked issue',
+          description: null,
+          status: { name: 'In Progress' },
+          priority: { id: '2' },
+          labels: ['aidev'],
+          project: { key: 'PROJ' },
+          issuelinks: [
+            {
+              type: { inward: 'is blocked by', outward: 'blocks' },
+              inwardIssue: { key: 'PROJ-10' },
+            },
+          ],
+        },
+      })
+    );
+
+    const provider = new JiraProvider(baseJiraConfig);
+    const task = await provider.fetchTaskById!('PROJ-5');
+
+    assert.ok(task !== null);
+    assert.equal(task!.id, 'PROJ-5');
+    assert.equal(task!.status, 'in progress');
+    assert.deepEqual(task!.blockedBy, ['PROJ-10']);
+  });
+
+  it('returns null when the API returns an error', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      new Response('Not Found', { status: 404 })
+    );
+
+    const provider = new JiraProvider(baseJiraConfig);
+    const task = await provider.fetchTaskById!('PROJ-MISSING');
+
+    assert.equal(task, null);
+  });
+});
+
 // ─── LinearProvider ─────────────────────────────────────────────────────────
 
 describe('LinearProvider.fetchTasks — wildcard label', () => {
