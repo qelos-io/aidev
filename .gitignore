@@ -14,3 +14,4 @@ aidev.tasks.json
 ui/node_modules
 ui/.nuxt
 ui/.output
+.DS_Store

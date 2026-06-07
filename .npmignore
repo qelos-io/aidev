@@ -8,3 +8,5 @@ tsconfig.json
 __tests__/
 *.tgz
 aidev.log
+__tests__
+.DS_Store
