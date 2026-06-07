@@ -403,10 +403,10 @@ skipped: blocked by task <id> (status: in progress)
 
 | Provider | Blocking support | Source |
 |---|---|---|
-| ClickUp | Native | `dependencies` with `type === 0` ("waiting on") |
+| ClickUp | Native | `dependencies` entries with `depends_on` ("waiting on") |
 | Jira | Native | Issue links where the link type inward direction is `"is blocked by"` |
-| Linear | Native | Issue relations of type `blocked` |
-| Monday.com | Native | Dependency-type column values on the board |
+| Linear | Native | `inverseRelations` of type `blocks` (blocker in `issue`) |
+| Monday.com | Native | Dependency column `linked_item_ids` (predecessors) |
 | Notion | Optional | A Relation property named **Blocked By** (case-insensitive) in the database — see note below |
 | Trello | Not supported | Trello has no native blocking concept |
 | Local | Not applicable | — |

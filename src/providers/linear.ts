@@ -46,6 +46,31 @@ function formatLinearError(e: LinearGraphQLError): string {
   return detail ? `${e.message} (${detail})` : e.message;
 }
 
+interface LinearRelationNode {
+  type: string;
+  issue?: { identifier: string };
+  relatedIssue?: { identifier: string };
+}
+
+/** Linear blockers appear on the blocked issue via inverseRelations (type `blocks`). */
+export function getBlockedByFromLinearRelations(
+  relations: { nodes: LinearRelationNode[] } | undefined,
+  inverseRelations: { nodes: LinearRelationNode[] } | undefined,
+): string[] {
+  const blockedBy: string[] = [];
+  for (const r of inverseRelations?.nodes ?? []) {
+    if (r.type === 'blocks' && r.issue?.identifier) {
+      blockedBy.push(r.issue.identifier);
+    }
+  }
+  for (const r of relations?.nodes ?? []) {
+    if ((r.type === 'blocked' || r.type === 'blockedBy') && r.relatedIssue?.identifier) {
+      blockedBy.push(r.relatedIssue.identifier);
+    }
+  }
+  return blockedBy;
+}
+
 export class LinearProvider implements TaskProvider {
   private apiKey: string;
   private teamIdInput: string;
@@ -141,6 +166,7 @@ export class LinearProvider implements TaskProvider {
     priority
     labels { nodes { name } }
     relations { nodes { type relatedIssue { identifier } } }
+    inverseRelations { nodes { type issue { identifier } } }
   `;
 
   private mapIssueNode(
@@ -153,13 +179,12 @@ export class LinearProvider implements TaskProvider {
       state: { id: string; name: string; type: string };
       priority: number | null;
       labels: { nodes: Array<{ name: string }> };
-      relations: { nodes: Array<{ type: string; relatedIssue: { identifier: string } }> };
+      relations: { nodes: Array<LinearRelationNode> };
+      inverseRelations: { nodes: Array<LinearRelationNode> };
     },
     sourceListId: string,
   ): Task {
-    const blockedBy = (n.relations?.nodes ?? [])
-      .filter((r) => r.type === 'blocked')
-      .map((r) => r.relatedIssue.identifier);
+    const blockedBy = getBlockedByFromLinearRelations(n.relations, n.inverseRelations);
     return {
       id: n.identifier,
       name: n.title,
@@ -206,7 +231,8 @@ export class LinearProvider implements TaskProvider {
       state: { id: string; name: string; type: string };
       priority: number | null;
       labels: { nodes: Array<{ name: string }> };
-      relations: { nodes: Array<{ type: string; relatedIssue: { identifier: string } }> };
+      relations: { nodes: Array<LinearRelationNode> };
+      inverseRelations: { nodes: Array<LinearRelationNode> };
     };
     const data = await this.graphql<{ issues: { nodes: IssueNode[] } }>(query, { filter });
 
@@ -241,7 +267,8 @@ export class LinearProvider implements TaskProvider {
       state: { id: string; name: string; type: string };
       priority: number | null;
       labels: { nodes: Array<{ name: string }> };
-      relations: { nodes: Array<{ type: string; relatedIssue: { identifier: string } }> };
+      relations: { nodes: Array<LinearRelationNode> };
+      inverseRelations: { nodes: Array<LinearRelationNode> };
     };
     const data = await this.graphql<{ issues: { nodes: IssueNode[] } }>(query, { filter });
     const node = data.issues.nodes[0];

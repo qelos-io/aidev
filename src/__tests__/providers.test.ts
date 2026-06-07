@@ -5,10 +5,10 @@ import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import type { Config } from '../types';
-import { ClickUpProvider } from '../providers/clickup';
+import { ClickUpProvider, getBlockedByFromClickUpDependencies } from '../providers/clickup';
 import { JiraProvider } from '../providers/jira';
-import { LinearProvider } from '../providers/linear';
-import { MondayProvider } from '../providers/monday';
+import { LinearProvider, getBlockedByFromLinearRelations } from '../providers/linear';
+import { MondayProvider, getBlockedByFromMondayColumnValues } from '../providers/monday';
 import { NotionProvider } from '../providers/notion';
 import { TrelloProvider } from '../providers/trello';
 import { logger } from '../logger';
@@ -441,7 +441,10 @@ describe('ClickUpProvider.getComments', () => {
 describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
   afterEach(() => mock.restoreAll());
 
-  function makeRawTask(id: string, dependencies?: Array<{ task_id: string; type: number }>) {
+  function makeRawTask(
+    id: string,
+    dependencies?: Array<{ task_id: string; depends_on?: string; type: number }>,
+  ) {
     return {
       id,
       name: 'Test task',
@@ -454,11 +457,11 @@ describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
     };
   }
 
-  it('populates blockedBy from type=0 dependencies', async () => {
+  it('populates blockedBy from depends_on dependencies (type=1 waiting on)', async () => {
     mock.method(globalThis, 'fetch', async () =>
       jsonResponse(makeRawTask('task1', [
-        { task_id: 'blocker1', type: 0 },
-        { task_id: 'blocker2', type: 0 },
+        { task_id: 'task1', depends_on: 'blocker1', type: 1 },
+        { task_id: 'task1', depends_on: 'blocker2', type: 1 },
       ]))
     );
     const provider = new ClickUpProvider(baseClickUpConfig);
@@ -467,10 +470,10 @@ describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
     assert.deepEqual(task!.blockedBy, ['blocker1', 'blocker2']);
   });
 
-  it('ignores type=1 dependencies (blocking others, not blocked-by)', async () => {
+  it('ignores dependencies without depends_on (blocking others, not blocked-by)', async () => {
     mock.method(globalThis, 'fetch', async () =>
       jsonResponse(makeRawTask('task1', [
-        { task_id: 'other', type: 1 },
+        { task_id: 'other', type: 0 },
       ]))
     );
     const provider = new ClickUpProvider(baseClickUpConfig);
@@ -479,11 +482,11 @@ describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
     assert.equal(task!.blockedBy, undefined);
   });
 
-  it('handles mixed type=0 and type=1 — only includes type=0', async () => {
+  it('handles mixed waiting-on and blocking entries — only includes depends_on', async () => {
     mock.method(globalThis, 'fetch', async () =>
       jsonResponse(makeRawTask('task1', [
-        { task_id: 'blocker1', type: 0 },
-        { task_id: 'other', type: 1 },
+        { task_id: 'task1', depends_on: 'blocker1', type: 1 },
+        { task_id: 'other', type: 0 },
       ]))
     );
     const provider = new ClickUpProvider(baseClickUpConfig);
@@ -958,7 +961,7 @@ describe('LinearProvider.fetchTasks', () => {
 describe('LinearProvider.fetchTasks — blockedBy', () => {
   afterEach(() => mock.restoreAll());
 
-  it('populates blockedBy from relations of type "blocked"', async () => {
+  it('populates blockedBy from inverseRelations of type "blocks"', async () => {
     mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(init.body as string) : {};
       if (body.query?.includes('issues')) {
@@ -976,10 +979,10 @@ describe('LinearProvider.fetchTasks — blockedBy', () => {
                   priority: null,
                   labels: { nodes: [] },
                   relations: {
-                    nodes: [
-                      { type: 'blocked', relatedIssue: { identifier: 'ENG-5' } },
-                      { type: 'duplicate', relatedIssue: { identifier: 'ENG-6' } },
-                    ],
+                    nodes: [{ type: 'blocks', relatedIssue: { identifier: 'ENG-99' } }],
+                  },
+                  inverseRelations: {
+                    nodes: [{ type: 'blocks', issue: { identifier: 'ENG-5' } }],
                   },
                 },
               ],
@@ -995,6 +998,14 @@ describe('LinearProvider.fetchTasks — blockedBy', () => {
 
     assert.equal(tasks.length, 1);
     assert.deepEqual(tasks[0].blockedBy, ['ENG-5']);
+  });
+
+  it('supports legacy blocked relations on relations.nodes', () => {
+    const blockedBy = getBlockedByFromLinearRelations(
+      { nodes: [{ type: 'blocked', relatedIssue: { identifier: 'ENG-2' } }] },
+      { nodes: [] },
+    );
+    assert.deepEqual(blockedBy, ['ENG-2']);
   });
 
   it('omits blockedBy when no blocking relations exist', async () => {
@@ -1015,6 +1026,7 @@ describe('LinearProvider.fetchTasks — blockedBy', () => {
                   priority: null,
                   labels: { nodes: [] },
                   relations: { nodes: [] },
+                  inverseRelations: { nodes: [] },
                 },
               ],
             },
@@ -1053,6 +1065,7 @@ describe('LinearProvider.fetchTaskById', () => {
                   priority: 1,
                   labels: { nodes: [] },
                   relations: { nodes: [] },
+                  inverseRelations: { nodes: [] },
                 },
               ],
             },
@@ -1103,8 +1116,9 @@ describe('LinearProvider.fetchTaskById', () => {
                   state: { id: 's1', name: 'Todo', type: 'unstarted' },
                   priority: null,
                   labels: { nodes: [] },
-                  relations: {
-                    nodes: [{ type: 'blocked', relatedIssue: { identifier: 'ENG-3' } }],
+                  relations: { nodes: [] },
+                  inverseRelations: {
+                    nodes: [{ type: 'blocks', issue: { identifier: 'ENG-3' } }],
                   },
                 },
               ],
@@ -1821,7 +1835,7 @@ describe('MondayProvider.fetchTasks — blockedBy', () => {
                   description: { description: 'Some work' },
                   column_values: [
                     { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
-                    { id: 'connect_boards', type: 'dependency', value: '{"linkedPulseIds":[{"linkedPulseId":3001},{"linkedPulseId":3002}]}', text: '' },
+                    { id: 'connect_boards', type: 'dependency', value: null, text: '', linked_item_ids: ['3001', '3002'] },
                   ],
                 }],
               },
@@ -1837,6 +1851,17 @@ describe('MondayProvider.fetchTasks — blockedBy', () => {
 
     assert.equal(tasks.length, 1);
     assert.deepEqual(tasks[0].blockedBy, ['3001', '3002']);
+  });
+
+  it('falls back to legacy dependency value JSON when linked_item_ids is absent', () => {
+    const blockedBy = getBlockedByFromMondayColumnValues([
+      {
+        id: 'dep',
+        type: 'dependency',
+        value: '{"linkedPulseIds":[{"linkedPulseId":3001},{"linkedPulseId":3002}]}',
+      },
+    ]);
+    assert.deepEqual(blockedBy, ['3001', '3002']);
   });
 
   it('omits blockedBy when there is no dependency column', async () => {
@@ -1920,7 +1945,7 @@ describe('MondayProvider.fetchTaskById', () => {
               url: 'https://example.monday.com/boards/12345/pulses/2001',
               column_values: [
                 { id: 'status', type: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
-                { id: 'dep_col', type: 'dependency', value: '{"linkedPulseIds":[{"linkedPulseId":5555}]}', text: '' },
+                { id: 'dep_col', type: 'dependency', value: null, text: '', linked_item_ids: ['5555'] },
               ],
             }],
           },

@@ -13,8 +13,43 @@ interface MondayGraphQLResponse<T> {
 interface MondayColumnValue {
   id: string;
   type?: string;
-  value: string;
+  value: string | null;
   text?: string;
+  linked_item_ids?: Array<string | number>;
+}
+
+const MONDAY_COLUMN_VALUES_FIELDS = `
+  id
+  type
+  value
+  text
+  ... on DependencyValue {
+    linked_item_ids
+  }
+`;
+
+/** Monday dependency columns list predecessor item ids in linked_item_ids. */
+export function getBlockedByFromMondayColumnValues(
+  columnValues: MondayColumnValue[] | undefined,
+): string[] {
+  if (!columnValues) return [];
+  const ids: string[] = [];
+  for (const col of columnValues) {
+    if (col.type !== 'dependency') continue;
+    if (Array.isArray(col.linked_item_ids) && col.linked_item_ids.length > 0) {
+      ids.push(...col.linked_item_ids.map(String));
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(col.value || '{}') as { linkedPulseIds?: Array<{ linkedPulseId: number }> };
+      for (const link of parsed.linkedPulseIds ?? []) {
+        ids.push(String(link.linkedPulseId));
+      }
+    } catch {
+      // malformed value — skip
+    }
+  }
+  return ids;
 }
 
 interface MondayItem {
@@ -65,20 +100,7 @@ interface ChangeColumnValueResponse {
 }
 
 function getBlockedByFromColumnValues(columnValues: MondayColumnValue[] | undefined): string[] {
-  if (!columnValues) return [];
-  const ids: string[] = [];
-  for (const col of columnValues) {
-    if (col.type !== 'dependency') continue;
-    try {
-      const parsed = JSON.parse(col.value || '{}') as { linkedPulseIds?: Array<{ linkedPulseId: number }> };
-      for (const link of parsed.linkedPulseIds ?? []) {
-        ids.push(String(link.linkedPulseId));
-      }
-    } catch {
-      // malformed value — skip
-    }
-  }
-  return ids;
+  return getBlockedByFromMondayColumnValues(columnValues);
 }
 
 function getStatusFromColumnValues(columnValues: MondayColumnValue[] | undefined, statusColumnId: string): string {
@@ -152,7 +174,7 @@ export class MondayProvider implements TaskProvider {
               name
               url
               description { description }
-              column_values { id type value text }
+              column_values { ${MONDAY_COLUMN_VALUES_FIELDS} }
             }
           }
         }
@@ -293,7 +315,7 @@ export class MondayProvider implements TaskProvider {
           id
           name
           url
-          column_values { id type value text }
+          column_values { ${MONDAY_COLUMN_VALUES_FIELDS} }
         }
       }
     `;

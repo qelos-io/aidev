@@ -29,6 +29,12 @@ function mergeById<T extends { id: string }>(primary: T[], extra: T[]): T[] {
   return [...byId.values()];
 }
 
+interface ClickUpDependency {
+  task_id: string;
+  depends_on?: string;
+  type: number;
+}
+
 interface ClickUpRawTask {
   id: string;
   name: string;
@@ -39,7 +45,17 @@ interface ClickUpRawTask {
   url: string;
   tags: Array<{ name: string }>;
   list?: { id?: string };
-  dependencies?: Array<{ task_id: string; type: number }>;
+  dependencies?: ClickUpDependency[];
+}
+
+/** ClickUp "waiting on" dependencies expose the blocker id in `depends_on`. */
+export function getBlockedByFromClickUpDependencies(
+  dependencies: ClickUpDependency[] | undefined,
+): string[] {
+  if (!dependencies?.length) return [];
+  return dependencies
+    .map((d) => d.depends_on)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
 }
 
 interface ClickUpLiteTask {
@@ -279,9 +295,7 @@ export class ClickUpProvider implements TaskProvider {
   }
 
   private mapRawTaskSync(t: ClickUpRawTask, description: string, _options?: FetchTasksOptions): Task {
-    const blockedBy = (t.dependencies ?? [])
-      .filter((d) => d.type === 0)
-      .map((d) => d.task_id);
+    const blockedBy = getBlockedByFromClickUpDependencies(t.dependencies);
     return {
       id: t.id,
       name: t.name,
