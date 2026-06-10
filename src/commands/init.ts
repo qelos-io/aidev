@@ -11,7 +11,7 @@ import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
 import { commandExists, isWindows } from '../platform';
 import chalk from 'chalk';
 
-const VALID_AGENTS = ['antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'windsurf'] as const;
+const VALID_AGENTS = ['antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'devin'] as const;
 
 const DEFAULT_CLAUDE_MODEL = 'opusplan';
 const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-4-6';
@@ -382,7 +382,7 @@ export function renderEnv(a: Answers): string {
     `GITHUB_BASE_BRANCH=${envVal(a.githubBaseBranch)}`,
     line('GITHUB_REPO', a.githubRepo),
     ``,
-    `# Agents to use, in fallback order (comma-separated: antigravity, anthropic-sdk, claude, codex, cursor, windsurf)`,
+    `# Agents to use, in fallback order (comma-separated: antigravity, anthropic-sdk, claude, codex, cursor, devin)`,
     `AGENTS=${a.agents}`,
     ``,
     ...(a.agents.split(',').map((s) => s.trim()).includes('claude')

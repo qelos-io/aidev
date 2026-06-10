@@ -68,7 +68,7 @@ Provider test:
    most providers), else falls back to `fetchTasks()`.
 
 AI test (`ai: <name>` where name is one of `claude | cursor | codex |
-antigravity | windsurf | anthropic-sdk`):
+antigravity | devin | anthropic-sdk`):
 
 - For CLI-backed runners, spawns the underlying binary with `--version`
   (mapping mirrors `isAvailable()` in `src/ai/*.ts` — e.g. `cursor` →

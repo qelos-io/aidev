@@ -79,7 +79,7 @@ export interface Comment {
   date: number; // epoch ms
 }
 
-export type AgentName = 'antigravity' | 'anthropic-sdk' | 'claude' | 'codex' | 'cursor' | 'windsurf';
+export type AgentName = 'antigravity' | 'anthropic-sdk' | 'claude' | 'codex' | 'cursor' | 'devin';
 
 export interface Config {
   provider: string;

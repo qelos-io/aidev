@@ -366,7 +366,7 @@ describe('checkNeedsClarification', () => {
 
   it('returns null when all runners fail', async () => {
     const a = makeRunner('cursor', false, '');
-    const b = makeRunner('windsurf', false, '');
+    const b = makeRunner('devin', false, '');
     const q = await checkNeedsClarification(clarificationTask, clarificationConfig, mockProvider, [a, b]);
     assert.equal(q, null);
   });

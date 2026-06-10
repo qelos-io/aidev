@@ -431,7 +431,7 @@ const VALID_AGENTS = [
   'claude',
   'codex',
   'cursor',
-  'windsurf',
+  'devin',
 ] as const;
 
 const agentTypeOptions = VALID_AGENTS.map((id) => ({ label: id, value: id }));
@@ -462,22 +462,7 @@ const AGENT_FIELDS: Record<string, KnownField[]> = {
       placeholder: '3',
     },
   ],
-  windsurf: [
-    {
-      key: 'WINDSURF_TOKEN',
-      help: 'Required for Docker mode on Windows.',
-      secret: true,
-    },
-    {
-      key: 'WINDSURF_DOCKER_IMAGE',
-      help: 'Docker image for headless Windsurf on Windows.',
-      placeholder: 'windsurfinabox',
-    },
-    {
-      key: 'WINDSURF_CONFIG_DIR',
-      help: 'Optional — defaults to ~/.config/Windsurf.',
-    },
-  ],
+  devin: [],
   cursor: [],
   codex: [],
   antigravity: [],
@@ -556,9 +541,6 @@ const KNOWN_AI_KEYS = [
   'ANTHROPIC_MODEL',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_SDK_MAX_RETRIES',
-  'WINDSURF_TOKEN',
-  'WINDSURF_DOCKER_IMAGE',
-  'WINDSURF_CONFIG_DIR',
 ];
 const devNotesModeOptions = [
   { label: 'smart', value: 'smart' },

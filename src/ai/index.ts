@@ -5,7 +5,7 @@ import { AnthropicSdkRunner } from './anthropicSdk';
 import { ClaudeRunner } from './claude';
 import { CodexRunner } from './codex';
 import { CursorRunner } from './cursor';
-import { WindsurfRunner } from './windsurf';
+import { DevinRunner } from './devin';
 import { logger } from '../logger';
 
 const registry: Record<string, AIRunner> = {
@@ -14,7 +14,7 @@ const registry: Record<string, AIRunner> = {
   claude: new ClaudeRunner(),
   codex: new CodexRunner(),
   cursor: new CursorRunner(),
-  windsurf: new WindsurfRunner(),
+  devin: new DevinRunner(),
 };
 
 export function createRunners(config: Config): AIRunner[] {

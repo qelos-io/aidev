@@ -22,7 +22,7 @@ const AGENT_CLI: Record<string, [string, string[]]> = {
   cursor: ['agent', ['--version']],
   codex: ['codex', ['--version']],
   antigravity: ['agy', ['--version']],
-  windsurf: ['windsurf', ['--version']],
+  devin: ['devin', ['--version']],
 };
 
 function getDistDir(): string {
