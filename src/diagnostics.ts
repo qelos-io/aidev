@@ -20,8 +20,7 @@ const TOOLS_TO_CHECK: Array<{ name: string; versionArgs: string[] }> = [
   { name: 'node', versionArgs: ['--version'] },
   { name: 'agent', versionArgs: ['--version'] }, // Cursor Agent CLI; required for cursor runner (install: irm 'https://cursor.com/install?win32=true' | iex on Windows)
   { name: 'claude', versionArgs: ['--version'] },
-  { name: 'windsurf', versionArgs: ['--version'] },
-  { name: 'docker', versionArgs: ['--version'] }, // Required for windsurf on Windows (headless via windsurfinabox)
+  { name: 'devin', versionArgs: ['--version'] },
 ];
 
 function getToolVersion(name: string, versionArgs: string[]): ToolInfo {

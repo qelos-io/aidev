@@ -337,7 +337,7 @@ describe('getWindowsCursorInitMessage', () => {
   });
 
   it('returns null when cursor not in agents list', () => {
-    assert.equal(getWindowsCursorInitMessage('claude,windsurf', winNoAgent), null);
+    assert.equal(getWindowsCursorInitMessage('claude,devin', winNoAgent), null);
   });
 
   it('returns null when Windows and agent exists', () => {
@@ -354,7 +354,7 @@ describe('getWindowsCursorInitMessage', () => {
   });
 
   it('handles agents string with spaces', () => {
-    const msg = getWindowsCursorInitMessage('claude , cursor , windsurf', winNoAgent);
+    const msg = getWindowsCursorInitMessage('claude , cursor , devin', winNoAgent);
     assert.ok(msg !== null);
     assert.ok(msg!.includes('cursor.com/install'));
   });

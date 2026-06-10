@@ -249,7 +249,7 @@ async function scheduleRemoveUnix(id?: number): Promise<void> {
 // ─── macOS (launchd) ─────────────────────────────────────────────────────────
 //
 // On macOS, LaunchAgents (unlike cron) run inside the user's GUI session and
-// have access to the login Keychain. This lets claude / cursor / windsurf read
+// have access to the login Keychain. This lets claude / cursor / devin read
 // their OAuth tokens, which they store in the Keychain via Electron safeStorage.
 
 const DARWIN_LABEL_PREFIX = 'com.aidev.run.';
@@ -329,7 +329,7 @@ export function buildLaunchAgentPlist(
   extraArgs: string[] = [],
 ): string {
   // Capture PATH at scheduling time (from the developer's live terminal session).
-  // This ensures the right node/claude/cursor/windsurf binaries are found when
+  // This ensures the right node/claude/cursor/devin binaries are found when
   // the agent fires later.
   const envPath = process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
   const home = process.env.HOME ?? os.homedir();

@@ -162,7 +162,7 @@ function findNodeForCmd(cmdDir: string): string {
 /**
  * Cross-platform `spawnSync` wrapper.
  * On Windows, .cmd/.bat shims (common for npm-installed CLIs like cursor,
- * claude, windsurf) cannot be spawned directly — Node.js only resolves .exe
+ * claude, devin) cannot be spawned directly — Node.js only resolves .exe
  * and .com via CreateProcessW.  This helper detects .cmd/.bat and routes
  * them through cmd.exe /c so they execute correctly without shell: true
  * (which triggers DEP0190 and mishandles arguments containing spaces or
@@ -225,7 +225,7 @@ export function getUserShellEnv(): NodeJS.ProcessEnv {
 
 /**
  * Returns false when the machine's display is asleep or the screen is locked,
- * meaning GUI-dependent AI agents (Cursor, Windsurf, Claude) cannot operate.
+ * meaning GUI-dependent AI agents (Cursor, Devin, Claude) cannot operate.
  * Falls back to true (assume available) when detection is inconclusive.
  */
 export function isScreenAvailable(): boolean {

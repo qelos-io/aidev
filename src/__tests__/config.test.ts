@@ -485,15 +485,15 @@ describe('loadConfig AGENTS parsing', () => {
   });
 
   it('parses AGENTS from env file and preserves order', () => {
-    writeEnv('AGENTS=cursor,windsurf,claude');
+    writeEnv('AGENTS=cursor,devin,claude');
     const config = loadConfig();
-    assert.deepEqual(config.agents, ['cursor', 'windsurf', 'claude']);
+    assert.deepEqual(config.agents, ['cursor', 'devin', 'claude']);
   });
 
   it('parses AGENTS with reversed order', () => {
-    writeEnv('AGENTS=claude,windsurf,cursor');
+    writeEnv('AGENTS=claude,devin,cursor');
     const config = loadConfig();
-    assert.deepEqual(config.agents, ['claude', 'windsurf', 'cursor']);
+    assert.deepEqual(config.agents, ['claude', 'devin', 'cursor']);
   });
 
   it('handles single agent', () => {
@@ -509,9 +509,9 @@ describe('loadConfig AGENTS parsing', () => {
   });
 
   it('handles quoted value in env file (dotenv strips quotes)', () => {
-    writeEnv('AGENTS="cursor,windsurf,claude"');
+    writeEnv('AGENTS="cursor,devin,claude"');
     const config = loadConfig();
-    assert.deepEqual(config.agents, ['cursor', 'windsurf', 'claude']);
+    assert.deepEqual(config.agents, ['cursor', 'devin', 'claude']);
   });
 
   it('throws on invalid agent name', () => {
@@ -534,7 +534,7 @@ describe('loadConfig AGENTS parsing', () => {
 
   it('process.env AGENTS overrides env file value', () => {
     process.env.AGENTS = 'claude';
-    writeEnv('AGENTS=cursor,windsurf,claude');
+    writeEnv('AGENTS=cursor,devin,claude');
     const config = loadConfig();
     assert.deepEqual(config.agents, ['claude']);
     delete process.env.AGENTS;

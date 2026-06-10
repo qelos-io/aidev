@@ -1,7 +1,7 @@
 {
   "name": "@qelos/aidev",
   "version": "1.2.0",
-  "description": "AI-powered task executor — polls ClickUp (and more) to implement tasks with Claude, Cursor, Windsurf, or Antigravity",
+  "description": "AI-powered task executor — polls ClickUp (and more) to implement tasks with Claude, Cursor, Devin, or Antigravity",
   "type": "commonjs",
   "bin": {
     "aidev": "dist/cli.js"

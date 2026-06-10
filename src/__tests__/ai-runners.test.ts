@@ -7,8 +7,7 @@ import { AnthropicSdkRunner, getAnthropicSdkMaxRetries } from '../ai/anthropicSd
 import { ClaudeRunner } from '../ai/claude';
 import { CodexRunner } from '../ai/codex';
 import { CursorRunner } from '../ai/cursor';
-import { WindsurfRunner } from '../ai/windsurf';
-import { isDockerWindsurfAvailable } from '../ai/windsurf';
+import { DevinRunner } from '../ai/devin';
 import { createRunners } from '../ai/index';
 import { isWindows } from '../platform';
 import type { Config } from '../types';
@@ -341,28 +340,35 @@ describe('CursorRunner – failed tasks', () => {
   });
 });
 
-// ─── WindsurfRunner ───────────────────────────────────────────────────────────
+// ─── DevinRunner ──────────────────────────────────────────────────────────────
 
-describe('WindsurfRunner – failed tasks', () => {
+describe('DevinRunner', () => {
+  it('isAvailable returns boolean (depends on devin CLI in PATH)', () => {
+    const runner = new DevinRunner();
+    assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+describe('DevinRunner – failed tasks', () => {
   beforeEach(() => mock.restoreAll());
   afterEach(() => mock.restoreAll());
 
-  it('returns success=false when windsurf exits with non-zero status', async () => {
-    mockSpawnSync({ status: 1, stdout: '', stderr: 'windsurf crashed' });
+  it('returns success=false when devin exits with non-zero status', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'devin crashed' });
     spyLogger();
 
-    const runner = new WindsurfRunner();
+    const runner = new DevinRunner();
     const result = await runner.run('test prompt');
 
     assert.equal(result.success, false);
-    assert.equal(result.error, 'windsurf crashed');
+    assert.equal(result.error, 'devin crashed');
   });
 
   it('logs a warning with exit status on failure', async () => {
     mockSpawnSync({ status: 127, stdout: '', stderr: 'not found' });
     const spies = spyLogger();
 
-    const runner = new WindsurfRunner();
+    const runner = new DevinRunner();
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
@@ -373,7 +379,7 @@ describe('WindsurfRunner – failed tasks', () => {
     mockSpawnSync({ status: 1, stdout: '', stderr: 'license expired' });
     const spies = spyLogger();
 
-    const runner = new WindsurfRunner();
+    const runner = new DevinRunner();
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
@@ -384,7 +390,7 @@ describe('WindsurfRunner – failed tasks', () => {
     mockSpawnSync({ status: null, stdout: '', stderr: '', error: new Error('SIGTERM') });
     const spies = spyLogger();
 
-    const runner = new WindsurfRunner();
+    const runner = new DevinRunner();
     await runner.run('test prompt');
 
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
@@ -395,65 +401,10 @@ describe('WindsurfRunner – failed tasks', () => {
     mockSpawnSync({ status: 1, stdout: '', stderr: 'err' });
     spyLogger();
 
-    const runner = new WindsurfRunner();
+    const runner = new DevinRunner();
     const result = await runner.run('test prompt');
 
     assert.equal(result.output, '');
-  });
-});
-
-describe('WindsurfRunner – process cleanup (non-Windows CLI mode)', { skip: isWindows }, () => {
-  beforeEach(() => mock.restoreAll());
-  afterEach(() => mock.restoreAll());
-
-  it('kills Windsurf IDE after run when it was not already running', async () => {
-    const spawnMock = mock.method(childProcess, 'spawnSync', (command: string) => {
-      const base = { pid: 1, output: [], stderr: '', status: 0, signal: null, error: undefined };
-      if (command === 'pgrep') return { ...base, stdout: '', status: 1 };
-      return { ...base, stdout: '' };
-    });
-    spyLogger();
-
-    const runner = new WindsurfRunner();
-    await runner.run('test prompt');
-
-    const calls: string[] = spawnMock.mock.calls.map((c: { arguments: string[] }) => c.arguments[0]);
-    assert.ok(
-      calls.some((cmd: string) => cmd === 'pkill'),
-      `Expected pkill in spawn calls: [${calls}]`
-    );
-  });
-
-  it('does not kill Windsurf IDE when it was already running', async () => {
-    const spawnMock = mock.method(childProcess, 'spawnSync', (command: string) => {
-      const base = { pid: 1, output: [], stderr: '', status: 0, signal: null, error: undefined };
-      if (command === 'pgrep') {
-        return { ...base, stdout: '1234' };
-      }
-      return { ...base, stdout: '' };
-    });
-    spyLogger();
-
-    const runner = new WindsurfRunner();
-    await runner.run('test prompt');
-
-    const calls: string[] = spawnMock.mock.calls.map((c: { arguments: string[] }) => c.arguments[0]);
-    assert.ok(
-      !calls.some((cmd: string) => cmd === 'pkill'),
-      `Expected no pkill in spawn calls: [${calls}]`
-    );
-  });
-});
-
-describe('WindsurfRunner – Docker mode (Windows)', { skip: !isWindows }, () => {
-  it('isDockerWindsurfAvailable checks for docker and WINDSURF_TOKEN', () => {
-    // This test reflects the real environment — just verify it returns a boolean
-    assert.equal(typeof isDockerWindsurfAvailable(), 'boolean');
-  });
-
-  it('isAvailable returns boolean on Windows', () => {
-    const runner = new WindsurfRunner();
-    assert.equal(typeof runner.isAvailable(), 'boolean');
   });
 });
 
@@ -840,11 +791,11 @@ describe('createRunners', () => {
   it('returns runners in the order specified by config.agents', () => {
     spyLogger();
     const runners = createRunners(
-      makeConfig(['cursor', 'codex', 'windsurf', 'claude', 'antigravity'])
+      makeConfig(['cursor', 'codex', 'devin', 'claude', 'antigravity'])
     );
     assert.deepEqual(
       runners.map((r) => r.name),
-      ['cursor', 'codex', 'windsurf', 'claude', 'antigravity']
+      ['cursor', 'codex', 'devin', 'claude', 'antigravity']
     );
   });
 
@@ -873,19 +824,19 @@ describe('createRunners', () => {
 
   it('logs a warning when a configured runner is not available', () => {
     const spies = spyLogger();
-    createRunners(makeConfig(['windsurf', 'claude']));
+    createRunners(makeConfig(['devin', 'claude']));
     const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
     const hasUnavailableWarning = warnCalls.some((msg) => msg?.includes('not found'));
-    // At least windsurf should be flagged (it's typically not installed in CI)
+    // At least devin should be flagged (it's typically not installed in CI)
     // We can't assert strongly since CI might have different tool availability
     assert.ok(typeof hasUnavailableWarning === 'boolean');
   });
 
   it('includes unavailable runners in the returned array (filtering is done by callers)', () => {
     spyLogger();
-    const runners = createRunners(makeConfig(['windsurf', 'claude']));
+    const runners = createRunners(makeConfig(['devin', 'claude']));
     assert.equal(runners.length, 2);
-    assert.equal(runners[0].name, 'windsurf');
+    assert.equal(runners[0].name, 'devin');
     assert.equal(runners[1].name, 'claude');
   });
 });

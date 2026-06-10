@@ -6,7 +6,7 @@
 
 **aidev** turns your tasks into merged code — automatically.
 
-It polls your task manager (ClickUp, Jira, Linear, Monday.com, Notion, Trello, or local markdown files), checks whether tasks are clear, runs Claude, Cursor, or Windsurf to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
+It polls your task manager (ClickUp, Jira, Linear, Monday.com, Notion, Trello, or local markdown files), checks whether tasks are clear, runs Claude, Cursor, or Devin to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
 
 ```
 Task  →  AI implements  →  git push  →  "in review"  →  AI resolves code review comments
@@ -321,7 +321,7 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 | `antigravity` | Google **Antigravity** CLI (`agy` or `antigravity`) in PATH — see [Antigravity](https://antigravity.google/download) |
 | `claude` | [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated |
 | `cursor` | Cursor **Agent CLI** (`agent`) in PATH — see [Windows](#windows-cursor-agent-cli) below |
-| `windsurf` | [Windsurf](https://windsurf.com) installed with CLI available in PATH |
+| `devin` | [Devin CLI](https://docs.devin.ai/cli) installed and authenticated |
 
 ### Windows: Cursor Agent CLI
 
@@ -345,14 +345,14 @@ AGENTS=cursor
 # Cursor first (useful when working locally with a monitor)
 AGENTS=cursor,claude
 
-# Claude first, then Windsurf, then Cursor
-AGENTS=claude,windsurf,cursor
+# Claude first, then Devin, then Cursor
+AGENTS=claude,devin,cursor
 
 # Antigravity first, then Claude
 AGENTS=antigravity,claude
 
-# Windsurf only
-AGENTS=windsurf
+# Devin only
+AGENTS=devin
 ```
 
 ---
