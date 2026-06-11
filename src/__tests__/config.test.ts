@@ -440,6 +440,22 @@ describe('loadConfig tag defaults', () => {
       delete process.env.ACCEPTED_TAG;
     }
   });
+
+  it('defaults safeMode to true when AIDEV_SAFE_MODE is unset', () => {
+    delete process.env.AIDEV_SAFE_MODE;
+    const config = loadConfig();
+    assert.equal(config.safeMode, true);
+  });
+
+  it('disables safeMode when AIDEV_SAFE_MODE is false', () => {
+    process.env.AIDEV_SAFE_MODE = 'false';
+    try {
+      const config = loadConfig();
+      assert.equal(config.safeMode, false);
+    } finally {
+      delete process.env.AIDEV_SAFE_MODE;
+    }
+  });
 });
 
 // ─── loadConfig AGENTS parsing ────────────────────────────────────────────────

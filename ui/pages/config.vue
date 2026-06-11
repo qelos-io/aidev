@@ -279,6 +279,9 @@
         <UFormGroup label="AIDEV_HOOKS_PATH" help="Optional hooks module (.ts or .js).">
           <UInput v-model="kv.AIDEV_HOOKS_PATH" placeholder=".aidev/aidev.hooks.ts" />
         </UFormGroup>
+        <UFormGroup label="AIDEV_SAFE_MODE" help="Redact secret env values from AI prompts (default: true). Set false/0/no to disable.">
+          <UInput v-model="kv.AIDEV_SAFE_MODE" placeholder="true" />
+        </UFormGroup>
         <UFormGroup label="AIDEV_AUTO_COMPRESS" help="Set false/0/no to disable prompt compression.">
           <UInput v-model="kv.AIDEV_AUTO_COMPRESS" placeholder="true" />
         </UFormGroup>
@@ -557,6 +560,7 @@ const KNOWN_WORKFLOW_KEYS = [
   'DONE_STATUS',
   'AIDEV_COMMENT_PREFIX',
   'AIDEV_HOOKS_PATH',
+  'AIDEV_SAFE_MODE',
   'AIDEV_AUTO_COMPRESS',
   'AIDEV_COMPRESS_THRESHOLD',
   'GIT_REMOTE',

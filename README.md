@@ -274,6 +274,7 @@ Linear calls them "labels" — the same concept as `CLICKUP_TAG` / `JIRA_LABEL`.
 | `ACCEPTED_TAG` | `accepted` | Tasks in review with this tag are auto-merged (see [Auto-merge accepted PRs](#auto-merge-accepted-prs)) |
 | `DONE_STATUS` | auto-detected | Status to set after auto-merging an accepted PR. When unset, aidev picks the first match of `done`, `closed`, `finish`, `success`, `prod` from the board's statuses |
 | `PR_SIGNATURE` | `Automated PR by aidev.` | Custom signature line appended to the PR body |
+| `AIDEV_SAFE_MODE` | `true` | Redact secret env values from AI prompts. Matching values from `.env` / `.env.aidev` are replaced with a placeholder and stored in `.aidev/assets/secrets/task-<id>.secrets` (git-ignored). Set to `false` / `0` / `no` to disable |
 | `AIDEV_AUTO_COMPRESS` | `true` | Auto-compress older comments when the prompt grows large. Set to `false` / `0` / `no` to opt out |
 | `AIDEV_COMPRESS_THRESHOLD` | `12000` | Char-length threshold that triggers compression |
 
@@ -797,6 +798,8 @@ Please use the new auth API endpoint for this.
 To add a comment, append a `---` separator followed by a `## your-name` header and your message. aidev parses these entries automatically and uses them as conversation context, just like ClickUp/Jira comments.
 
 Downloaded task attachments are stored in `.aidev/assets/<task-id>/`, and `aidev init` adds `.aidev/assets/` to `.gitignore` automatically.
+
+With **safe mode** enabled (default), secret values from `.env` / `.env.aidev` that appear in task prompts are redacted before they reach AI agents. The real values are written to `.aidev/assets/secrets/task-<id>.secrets` (also under the git-ignored assets tree). Prompts reference that file and nudge agents to pipe values via the terminal instead of reading the file directly. Disable with `AIDEV_SAFE_MODE=false` in `.env.aidev` or from the UI config page.
 
 ---
 
