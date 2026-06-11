@@ -22,6 +22,14 @@ import {
 } from '../hooks';
 import { buildCompressedContext } from '../sessions';
 import { resolveDoneStatus } from './accepted';
+import { collectSecrets, sanitizeTaskForSafeMode } from '../safeMode';
+
+function applySafeMode(task: Task, context: string, config: Config): { task: Task; context: string } {
+  if (!config.safeMode) return { task, context };
+  const secrets = collectSecrets();
+  const sanitized = sanitizeTaskForSafeMode(task, context, secrets);
+  return { task: { ...task, ...sanitized.task }, context: sanitized.context };
+}
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete', 'resolved', 'completed']);
 const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
@@ -843,7 +851,8 @@ async function resolveConflictsWithAI(
   } catch { /* ignore */ }
 
   if (!git.mergeBaseBranch(config.gitRemote, config.githubBaseBranch)) {
-    let prompt = buildConflictResolutionPrompt(task, check.conflictFiles, context);
+    const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
+    let prompt = buildConflictResolutionPrompt(safeTask, check.conflictFiles, safeContext);
 
     // beforeResolveConflicts hook
     if (vm) {
@@ -1039,11 +1048,13 @@ async function implementTask(
     context += formatReviewComments(reviewThreads);
   }
 
-  let implementPrompt = buildImplementPrompt(task, context);
+  const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
+
+  let implementPrompt = buildImplementPrompt(safeTask, safeContext);
 
   // beforeEachTask hook — may modify context (e.g. improve the prompt)
   if (vm) {
-    const taskCtx: TaskContext = { task, config, branchName, prompt: implementPrompt };
+    const taskCtx: TaskContext = { task: safeTask, config, branchName, prompt: implementPrompt };
     const modified = await executeHook(hooks, 'beforeEachTask', taskCtx, vm);
     implementPrompt = modified.prompt;
   }
@@ -1458,12 +1469,14 @@ async function implementThinkingTask(
     context += reviewContext;
   }
 
+  const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
+
   // Check for an existing plan (resume scenario)
   let plan = readTaskPlan(task.id);
   if (plan) {
     logger.info(`Found existing task plan with ${plan.subtasks.length} sub-tasks — resuming`);
   } else {
-    plan = await analyzeAndPlan(task, context, runners);
+    plan = await analyzeAndPlan(safeTask, safeContext, runners);
     if (!plan) {
       logger.error('Failed to create implementation plan');
       await postCommentWithHooks(task, `${config.commentPrefix} Failed to analyze and break down the task. Manual implementation needed.`, config, provider, hooks, vm);
@@ -1488,7 +1501,7 @@ async function implementThinkingTask(
   // beforeThinkingTask hook — may adjust subtask titles/descriptions before execution
   if (vm) {
     const thinkCtx: ThinkingTaskContext = {
-      task,
+      task: safeTask,
       config,
       branchName,
       subtasks: plan.subtasks.map((s) => ({
@@ -1578,7 +1591,7 @@ async function implementThinkingTask(
     logger.info(`  Starting step ${subtask.id}: ${subtask.title} (attempt ${subtask.attempts})`);
     const success = await executeSubTask(
       subtask,
-      task,
+      safeTask,
       plan,
       config,
       runners,
@@ -1712,7 +1725,9 @@ export async function implementPlanningTask(
     // ignore
   }
 
-  const prompt = buildPlanningAnalysisPrompt(task, context);
+  const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
+
+  const prompt = buildPlanningAnalysisPrompt(safeTask, safeContext);
 
   let parsed: PlanningAnalysisResponse | null = null;
   let previousNotes = '';
@@ -2091,11 +2106,13 @@ async function implementNonCodeTask(
     // ignore
   }
 
-  let nonCodePrompt = buildNonCodePrompt(task, context);
+  const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
+
+  let nonCodePrompt = buildNonCodePrompt(safeTask, safeContext);
 
   // beforeNonCodeTask hook
   if (vm) {
-    const ncCtx: NonCodeTaskContext = { task, config, prompt: nonCodePrompt };
+    const ncCtx: NonCodeTaskContext = { task: safeTask, config, prompt: nonCodePrompt };
     const modified = await executeHook(hooks, 'beforeNonCodeTask', ncCtx, vm);
     nonCodePrompt = modified.prompt;
   }
@@ -2145,7 +2162,7 @@ async function implementNonCodeTask(
   // afterNonCodeTask hook
   if (vm) {
     const afterCtx: NonCodeTaskContext & { success: boolean; output: string } = {
-      task, config, prompt: nonCodePrompt, success: true, output: agentOutput,
+      task: safeTask, config, prompt: nonCodePrompt, success: true, output: agentOutput,
     };
     await executeHook(hooks, 'afterNonCodeTask', afterCtx, vm);
   }
@@ -2321,7 +2338,9 @@ async function implementNonCodeThinkingTask(
     // ignore
   }
 
-  const plan = await analyzeAndPlanNonCode(task, context, runners);
+  const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
+
+  const plan = await analyzeAndPlanNonCode(safeTask, safeContext, runners);
   if (!plan) {
     logger.error('Failed to create non-code task plan');
     await postCommentWithHooks(
@@ -2348,7 +2367,7 @@ async function implementNonCodeThinkingTask(
   // branchName is empty because non-code tasks don't create a branch.
   if (vm) {
     const thinkCtx: ThinkingTaskContext = {
-      task,
+      task: safeTask,
       config,
       branchName: '',
       subtasks: plan.subtasks.map((s) => ({
@@ -2579,7 +2598,8 @@ async function implementReviewTask(
     return;
   }
 
-  let reviewPrompt = buildReviewPrompt(task, threads);
+  const { task: safeTask } = applySafeMode(task, '', config);
+  let reviewPrompt = buildReviewPrompt(safeTask, threads);
 
   // beforeReviewTask hook
   if (vm) {

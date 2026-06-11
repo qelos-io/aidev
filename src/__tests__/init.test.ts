@@ -91,6 +91,7 @@ const baseAnswers: Answers = {
   anthropicBaseUrl: '',
   claudeModel: '',
   anthropicModel: '',
+  safeMode: true,
 };
 
 describe('renderEnv', () => {
@@ -126,6 +127,17 @@ describe('renderEnv', () => {
   it('includes default AIDEV_HOOKS_PATH', () => {
     const out = renderEnv(baseAnswers);
     assert.ok(out.includes('AIDEV_HOOKS_PATH=.aidev/aidev.hooks.ts'));
+  });
+
+  it('writes AIDEV_SAFE_MODE defaulting to true', () => {
+    const out = renderEnv(baseAnswers);
+    assert.ok(out.includes('AIDEV_SAFE_MODE=true'));
+    assert.ok(out.includes('.aidev/assets/secrets/'));
+  });
+
+  it('writes AIDEV_SAFE_MODE=false when disabled', () => {
+    const out = renderEnv({ ...baseAnswers, safeMode: false });
+    assert.ok(out.includes('AIDEV_SAFE_MODE=false'));
   });
 
   it('includes ACCEPTED_TAG and DONE_STATUS when set', () => {
@@ -427,6 +439,7 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     commentPrefix: p.AIDEV_COMMENT_PREFIX || '[aidev]',
     acceptedTag: p.ACCEPTED_TAG || '',
     doneStatus: p.DONE_STATUS || '',
+    safeMode: !['false', '0', 'no'].includes((p.AIDEV_SAFE_MODE || '').trim().toLowerCase()),
   };
 }
 

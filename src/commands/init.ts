@@ -182,6 +182,7 @@ export interface Answers {
   aidevEnvExtend: string;
   acceptedTag: string;
   doneStatus: string;
+  safeMode: boolean;
 }
 
 function dim(s: string) {
@@ -407,6 +408,10 @@ export function renderEnv(a: Answers): string {
       : []),
     `# DEV_NOTES_MODE: smart (only ask when unclear) | always (ask before every task)`,
     `DEV_NOTES_MODE=${a.devNotesMode}`,
+    ``,
+    `# AIDEV_SAFE_MODE: redact secrets from task prompts (default: true). Secret values found in .env files`,
+    `# are replaced with a reference to .aidev/assets/secrets/task-<id>.secrets (git-ignored).`,
+    `AIDEV_SAFE_MODE=${a.safeMode ? 'true' : 'false'}`,
     ``,
     `# AIDEV_TRIGGER_WORD: comment containing this word re-triggers task processing (default: aidev-continue)`,
     `AIDEV_TRIGGER_WORD=${envVal(a.triggerWord)}`,
@@ -865,6 +870,25 @@ export async function initCommand(): Promise<void> {
       existing.DEV_NOTES_MODE || 'smart'
     );
 
+    // ── Safe mode ────────────────────────────────────────────
+    section('Safe mode');
+    console.log(
+      chalk.dim(
+        `  When enabled, secret values from .env / .env.aidev that appear in task prompts\n` +
+        `  are redacted and stored in .aidev/assets/secrets/ (git-ignored). Agents are\n` +
+        `  nudged to pipe values via the terminal instead of reading the secrets file.`
+      )
+    );
+    const existingSafeMode = (existing.AIDEV_SAFE_MODE || '').trim().toLowerCase();
+    const safeModeDefault = !['false', '0', 'no'].includes(existingSafeMode) ? 'yes' : 'no';
+    const safeModeAnswer = await choose(
+      rl,
+      `Redact secrets from AI prompts ${hint('default: yes')}`,
+      ['yes', 'no'],
+      safeModeDefault
+    );
+    const safeMode = safeModeAnswer === 'yes';
+
     // ── Trigger word ─────────────────────────────────────────
     section('Trigger word');
     const triggerWord = await ask(
@@ -1041,6 +1065,7 @@ export async function initCommand(): Promise<void> {
       commentPrefix,
       acceptedTag,
       doneStatus,
+      safeMode,
     };
 
     ensureGitignore();

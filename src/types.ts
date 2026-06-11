@@ -150,4 +150,5 @@ export interface Config {
   autoCompress: boolean;
   compressThreshold: number;
   logTtlDays: number;
+  safeMode: boolean;
 }
