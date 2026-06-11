@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import chalk from 'chalk';
 
 const DEFAULT_LOG_FILENAME = 'aidev.log';
+const DEFAULT_LOG_TTL_DAYS = 14;
+const ISO_DATE_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/;
 
 function resolveLogFile(): string {
   const raw = (process.env.AIDEV_LOG_PATH || '').trim();
@@ -38,7 +40,37 @@ function writeLog(level: string, msg: string): void {
   fs.appendFileSync(getLogFile(), line, 'utf8');
 }
 
+export function pruneLog(): void {
+  const rawTtl = (process.env.AIDEV_LOG_TTL_DAYS || '').trim();
+  const ttlDays = rawTtl === '' ? DEFAULT_LOG_TTL_DAYS : parseInt(rawTtl, 10);
+  if (!Number.isFinite(ttlDays) || ttlDays <= 0) return;
+
+  const file = resolveLogFile();
+  if (!fs.existsSync(file)) return;
+
+  const content = fs.readFileSync(file, 'utf8');
+  const lines = content.split('\n');
+  const cutoff = Date.now() - ttlDays * 24 * 60 * 60 * 1000;
+
+  let keepFrom = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = ISO_DATE_RE.exec(lines[i]);
+    if (m) {
+      const ts = new Date(m[1]).getTime();
+      if (!Number.isNaN(ts) && ts < cutoff) {
+        keepFrom = i + 1;
+      } else {
+        break;
+      }
+    }
+  }
+
+  if (keepFrom === 0) return;
+  fs.writeFileSync(file, lines.slice(keepFrom).join('\n'), 'utf8');
+}
+
 export function logRunStart(): void {
+  pruneLog();
   const sep = '─'.repeat(60);
   fs.appendFileSync(getLogFile(), `\n${sep}\n${timestamp()} [run] started\n${sep}\n`, 'utf8');
 }
