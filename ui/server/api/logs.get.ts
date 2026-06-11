@@ -14,6 +14,7 @@ export interface LogsResponse {
   limit: number;
   query: string;
   lines: string[];
+  ttlDays: number;
 }
 
 export default defineEventHandler((event): LogsResponse => {
@@ -23,6 +24,10 @@ export default defineEventHandler((event): LogsResponse => {
   }
 
   const file = resolveLogPath(cwd);
+  const rawTtl = (process.env.AIDEV_LOG_TTL_DAYS || '').trim();
+  const ttlParsed = rawTtl === '' ? 14 : parseInt(rawTtl, 10);
+  const ttlDays = Number.isFinite(ttlParsed) && ttlParsed > 0 ? ttlParsed : 0;
+
   const query = getQuery(event);
   const rawLimit = Number.parseInt(String(query.limit ?? ''), 10);
   const limit = Number.isFinite(rawLimit) && rawLimit > 0
@@ -41,6 +46,7 @@ export default defineEventHandler((event): LogsResponse => {
       limit,
       query: q,
       lines: [],
+      ttlDays,
     };
   }
 
@@ -63,5 +69,6 @@ export default defineEventHandler((event): LogsResponse => {
     limit,
     query: q,
     lines,
+    ttlDays,
   };
 });
