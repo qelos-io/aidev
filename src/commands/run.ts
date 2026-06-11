@@ -2393,7 +2393,6 @@ async function implementNonCodeThinkingTask(
   }
 
   const previousResults: NonCodeSubTaskResult[] = [];
-  let allSucceeded = true;
 
   for (const subtask of plan.subtasks) {
     subtask.status = 'running';
@@ -2431,7 +2430,6 @@ async function implementNonCodeThinkingTask(
     if (!success) {
       subtask.status = 'failed';
       subtask.lastError = previousNotes;
-      allSucceeded = false;
       logger.error(`  Non-code step ${formatSubtaskId(subtask.id)} failed: ${subtask.title}`);
 
       try {
@@ -2442,7 +2440,8 @@ async function implementNonCodeThinkingTask(
         );
       } catch { /* ignore */ }
 
-      break;
+      previousResults.push({ id: subtask.id, title: subtask.title, summary: `[failed] ${previousNotes || 'no output'}` });
+      continue;
     }
 
     // Post the sub-task summary BEFORE marking it done — per the task spec, the
@@ -2468,18 +2467,6 @@ async function implementNonCodeThinkingTask(
         config, provider, hooks, vm
       );
     } catch { /* ignore */ }
-  }
-
-  if (!allSucceeded) {
-    logger.error('Non-code thinking task did not complete all sub-tasks');
-    try {
-      await postCommentWithHooks(
-        task,
-        `${config.commentPrefix} Non-code thinking task did not complete all sub-tasks. Manual intervention needed.`,
-        config, provider, hooks, vm
-      );
-    } catch { /* ignore */ }
-    return;
   }
 
   try {
