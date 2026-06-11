@@ -11,10 +11,22 @@
             </p>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
-            <select ref="sampleSelectEl" class="sample-select" @change="onSampleChange">
-              <option value="">Insert sample…</option>
-              <option v-for="(s, i) in CODE_SAMPLES" :key="i" :value="i">{{ s.title }}</option>
-            </select>
+            <USelectMenu
+              v-model="selectedSample"
+              :options="sampleOptions"
+              option-attribute="label"
+              placeholder="Insert sample…"
+              size="sm"
+              class="sample-select-menu"
+              @update:model-value="onSampleSelect"
+            >
+              <template #option="{ option }">
+                <div class="flex flex-col">
+                  <span class="text-sm">{{ option.label }}</span>
+                  <span class="text-xs text-gray-400">{{ option.hookName }}</span>
+                </div>
+              </template>
+            </USelectMenu>
             <UButton color="gray" variant="ghost" size="sm" :loading="loading" :disabled="loading" @click="loadHooks">
               Refresh
             </UButton>
@@ -54,7 +66,7 @@
         <h2 class="text-base font-semibold">Test hooks</h2>
       </template>
       <div v-for="hookName in HOOK_NAMES" :key="hookName" class="mb-2">
-        <details class="hook-panel">
+        <details :id="`hook-panel-${hookName}`" class="hook-panel">
           <summary class="hook-panel-summary">
             <code>{{ hookName }}</code>
           </summary>
@@ -388,7 +400,6 @@ const modalLogs = ref<string[]>([]);
 
 // ── Monaco editor (non-reactive, per-instance) ──────────────────────────────
 const editorContainer = ref<HTMLElement | null>(null);
-const sampleSelectEl = ref<HTMLSelectElement | null>(null);
 
 interface EditorInstance {
   getValue(): string;
@@ -569,22 +580,45 @@ async function executeHook(hookName: string) {
   }
 }
 
-function onSampleChange(event: Event) {
-  const select = event.target as HTMLSelectElement;
-  const idx = parseInt(select.value, 10);
-  select.value = '';
-  if (isNaN(idx)) return;
-  const sample = CODE_SAMPLES[idx];
-  if (!sample || !_editor || !_monaco) return;
-  const selection = _editor.getSelection();
-  const pos = selection?.getStartPosition() ?? { lineNumber: 1, column: 1 };
-  _editor.executeEdits('sample-insert', [
-    {
-      range: new _monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
-      text: '\n' + sample.code + '\n',
-    },
-  ]);
-  _editor.focus();
+interface SampleOption {
+  label: string;
+  hookName: HookName;
+  idx: number;
+}
+
+const selectedSample = ref<SampleOption | null>(null);
+const sampleOptions: SampleOption[] = CODE_SAMPLES.map((s, i) => ({
+  label: s.title,
+  hookName: s.hookName,
+  idx: i,
+}));
+
+function onSampleSelect(option: SampleOption | null) {
+  if (!option) return;
+  nextTick(() => { selectedSample.value = null; });
+
+  const sample = CODE_SAMPLES[option.idx];
+  if (!sample) return;
+
+  if (_editor && _monaco) {
+    const selection = _editor.getSelection();
+    const pos = selection?.getStartPosition() ?? { lineNumber: 1, column: 1 };
+    _editor.executeEdits('sample-insert', [
+      {
+        range: new _monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+        text: '\n' + sample.code + '\n',
+      },
+    ]);
+    _editor.focus();
+  }
+
+  const panelEl = document.getElementById(`hook-panel-${sample.hookName}`);
+  if (panelEl) {
+    (panelEl as HTMLDetailsElement).open = true;
+    panelEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    panelEl.classList.add('hook-panel-highlight');
+    setTimeout(() => panelEl.classList.remove('hook-panel-highlight'), 1200);
+  }
 }
 
 onMounted(() => {
@@ -611,19 +645,9 @@ onMounted(() => {
   font-size: 0.875rem;
 }
 
-.sample-select {
-  font-size: 0.875rem;
-  padding: 0.375rem 0.625rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
-  background: #fff;
-  color: #374151;
-  cursor: pointer;
-  max-width: 220px;
-}
-.sample-select:focus {
-  outline: 2px solid #3b82f6;
-  outline-offset: 1px;
+.sample-select-menu {
+  min-width: 200px;
+  max-width: 240px;
 }
 
 .hook-panel {
@@ -719,5 +743,14 @@ details[open] > .hook-panel-summary::before {
   to {
     transform: rotate(360deg);
   }
+}
+
+.hook-panel-highlight {
+  animation: hook-highlight 1.2s ease-out;
+}
+
+@keyframes hook-highlight {
+  0%   { box-shadow: 0 0 0 3px #3b82f6; }
+  100% { box-shadow: 0 0 0 3px transparent; }
 }
 </style>
