@@ -91,7 +91,11 @@
             <UButton color="gray" variant="ghost" size="xs" @click="showModal = false">✕</UButton>
           </div>
         </template>
-        <div class="space-y-3">
+        <div v-if="modalLoading" class="modal-loading">
+          <div class="modal-spinner" aria-hidden="true" />
+          <p class="text-sm text-gray-500">Executing hook…</p>
+        </div>
+        <div v-else class="space-y-3">
           <UAlert
             v-if="!modalOk"
             color="red"
@@ -376,6 +380,7 @@ const mockDataMap = ref<Record<string, string>>(
 
 const executingHook = ref<string | null>(null);
 const showModal = ref(false);
+const modalLoading = ref(false);
 const modalTitle = ref('');
 const modalOk = ref(true);
 const modalError = ref('');
@@ -528,30 +533,39 @@ async function addMissingHooks() {
 
 async function executeHook(hookName: string) {
   executingHook.value = hookName;
+  modalTitle.value = `Execute: ${hookName}`;
+  modalOk.value = true;
+  modalError.value = '';
+  modalLogs.value = [];
+  modalLoading.value = true;
+  showModal.value = true;
+
   let mockData: unknown = {};
   try {
     mockData = JSON.parse(mockDataMap.value[hookName] ?? '{}');
   } catch {
-    mockData = {};
+    modalLoading.value = false;
+    modalOk.value = false;
+    modalError.value = 'Mock data is not valid JSON';
+    executingHook.value = null;
+    return;
   }
+
   try {
     const result = await api<{ ok: boolean; logs: string[]; error?: string }>('/api/hooks-execute', {
       method: 'POST',
       body: { hookName, mockData },
     });
-    modalTitle.value = `Execute: ${hookName}`;
     modalOk.value = result.ok;
     modalError.value = result.error ?? '';
     modalLogs.value = result.logs;
-    showModal.value = true;
   } catch (err: unknown) {
-    modalTitle.value = `Execute: ${hookName}`;
     modalOk.value = false;
     modalError.value = extractMessage(err, 'Request failed');
     modalLogs.value = [];
-    showModal.value = true;
   } finally {
     executingHook.value = null;
+    modalLoading.value = false;
   }
 }
 
@@ -682,5 +696,28 @@ details[open] > .hook-panel-summary::before {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.modal-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 0;
+}
+
+.modal-spinner {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 2px solid #e5e7eb;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: modal-spin 0.7s linear infinite;
+}
+
+@keyframes modal-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
