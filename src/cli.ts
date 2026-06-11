@@ -16,6 +16,7 @@ import { Config } from './types';
 import { loadHooks, createHookVM } from './hooks';
 import { acceptedCommand } from './commands/accepted';
 import { isGhInstalled } from './github';
+import { hooksGenerateCommand, hooksUpdateCommand } from './commands/hooks';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { version } = require('../package.json') as { version: string };
@@ -213,6 +214,37 @@ tasksCmd
     const { env } = program.opts<{ env?: string }>();
     try {
       await tasksPushCommand(env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+const hooksCmd = program
+  .command('hooks')
+  .description('Manage the aidev hooks file');
+
+hooksCmd
+  .command('generate')
+  .description('Write a fresh hooks boilerplate to AIDEV_HOOKS_PATH (aborts if file exists without --force)')
+  .option('--force', 'overwrite an existing hooks file')
+  .action((opts: { force?: boolean }) => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      hooksGenerateCommand(opts, env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+hooksCmd
+  .command('update')
+  .description('Append stubs for any missing hooks to the existing hooks file')
+  .action(() => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      hooksUpdateCommand(env);
     } catch (err) {
       logger.error(String(err));
       process.exit(1);
