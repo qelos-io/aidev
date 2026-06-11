@@ -12,6 +12,10 @@
                 {{ data.total.toLocaleString() }} line(s) total<span v-if="data.truncated">, tailing last {{ data.limit.toLocaleString() }}</span>
               </span>
             </p>
+            <p class="text-xs text-gray-400 mt-0.5">
+              <span v-if="ttlDays > 0">Auto-pruned: lines older than {{ ttlDays }} day{{ ttlDays === 1 ? '' : 's' }} are removed on each run.</span>
+              <span v-else>Auto-pruning disabled (<code>AIDEV_LOG_TTL_DAYS=0</code>).</span>
+            </p>
           </div>
           <div class="flex items-center gap-2">
             <UButton
@@ -128,11 +132,13 @@ interface LogsResponse {
   limit: number;
   query: string;
   lines: string[];
+  ttlDays: number;
 }
 
 const api = useApi();
 
 const data = ref<LogsResponse | null>(null);
+const ttlDays = computed(() => data.value?.ttlDays ?? 14);
 const loadError = ref('');
 const { loading, beginFetch, endFetch } = useInitialLoading(data);
 const refreshing = ref(false);

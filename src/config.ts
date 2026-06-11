@@ -226,6 +226,9 @@ export function loadConfig(customEnvPath?: string): Config {
   const autoCompress = !['false', '0', 'no'].includes(autoCompressRaw);
   const thresholdParsed = parseInt(process.env.AIDEV_COMPRESS_THRESHOLD || '', 10);
   const compressThreshold = Number.isFinite(thresholdParsed) ? thresholdParsed : 12000;
+  const ttlRaw = (process.env.AIDEV_LOG_TTL_DAYS || '').trim();
+  const ttlParsed = ttlRaw === '' ? 14 : parseInt(ttlRaw, 10);
+  const logTtlDays = Number.isFinite(ttlParsed) ? ttlParsed : 14;
 
   return {
     provider,
@@ -287,5 +290,6 @@ export function loadConfig(customEnvPath?: string): Config {
     doneStatus,
     autoCompress,
     compressThreshold,
+    logTtlDays,
   };
 }

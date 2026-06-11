@@ -690,6 +690,20 @@ AIDEV_LOG_PATH=/var/log/aidev.log     # absolute
 AIDEV_LOG_PATH=~/aidev/run.log        # under your home directory
 ```
 
+### Log pruning
+
+At the start of every run, aidev automatically removes log lines older than **14 days** from the log file. Lines are identified by their leading ISO timestamp; all lines before the first timestamp that is still within the retention window are erased.
+
+To change the retention window, set `AIDEV_LOG_TTL_DAYS`:
+
+```bash
+AIDEV_LOG_TTL_DAYS=7     # keep only the last 7 days
+AIDEV_LOG_TTL_DAYS=30    # keep 30 days
+AIDEV_LOG_TTL_DAYS=0     # disable pruning entirely
+```
+
+Set `AIDEV_LOG_TTL_DAYS=0` (or any non-positive value) to turn off automatic pruning.
+
 ---
 
 ## Providers

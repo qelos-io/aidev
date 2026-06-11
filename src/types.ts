@@ -149,4 +149,5 @@ export interface Config {
   doneStatus: string;
   autoCompress: boolean;
   compressThreshold: number;
+  logTtlDays: number;
 }
