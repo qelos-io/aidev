@@ -50,6 +50,13 @@ export interface ReviewTaskContext {
   prompt: string;
 }
 
+export interface CommentContext {
+  task: Task;
+  config: Config;
+  /** The comment text about to be (or already) posted */
+  text: string;
+}
+
 // ─── VM — abilities available to hook functions ──────────────────────────────
 
 export interface HookVM {
@@ -96,6 +103,13 @@ export interface AidevHooks {
   beforeReviewTask?(context: ReviewTaskContext, vm: HookVM): Promise<ReviewTaskContext | void>;
   /** Called after a review task's threads have been processed */
   afterReviewTask?(context: ReviewTaskContext & { success: boolean; resolvedCount: number }, vm: HookVM): Promise<void>;
+  /**
+   * Called before a comment is posted to the task management provider.
+   * Return a modified context to change the comment text, or void to use the original.
+   */
+  beforeComment?(context: CommentContext, vm: HookVM): Promise<CommentContext | void>;
+  /** Called after a comment has been posted to the task management provider. */
+  afterComment?(context: CommentContext, vm: HookVM): Promise<void>;
 }
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
@@ -141,6 +155,7 @@ export function loadHooks(hooksPath: string): AidevHooks {
       'beforeNonCodeTask', 'afterNonCodeTask',
       'beforeThinkingTask', 'afterThinkingTask',
       'beforeReviewTask', 'afterReviewTask',
+      'beforeComment', 'afterComment',
     ]);
 
     // Keep only known hook names; drop unknown keys and non-functions
@@ -219,4 +234,26 @@ export async function executeHook<T>(
   logger.debug(`Executing hook: ${hookName}`);
   const result = await fn(context, vm);
   return (result ?? context) as T;
+}
+
+/**
+ * Post a comment through the beforeComment / afterComment hook lifecycle.
+ * If no vm is provided, the comment is posted directly without invoking hooks.
+ */
+export async function postCommentWithHooks(
+  task: Task,
+  text: string,
+  config: Config,
+  provider: TaskProvider,
+  hooks: AidevHooks,
+  vm: HookVM | undefined
+): Promise<void> {
+  if (!vm) {
+    await provider.postComment(task.id, text);
+    return;
+  }
+  let ctx: CommentContext = { task, config, text };
+  ctx = await executeHook(hooks, 'beforeComment', ctx, vm);
+  await provider.postComment(task.id, ctx.text);
+  await executeHook(hooks, 'afterComment', ctx, vm);
 }
