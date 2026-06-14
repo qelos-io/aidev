@@ -188,6 +188,12 @@ CRITICAL — each sub-task description MUST be fully isolated:
 
 Sub-task priority is optional and uses an integer 1–4 (1 = urgent, 4 = low). Omit the field if you have no opinion.
 
+Sub-task blockers: each sub-task may include an optional "blockedBy" array of 0-based indices into the "subtasks" array, listing sub-tasks that must complete before this one starts. Rules:
+  - Only set it when there is a genuine sequential dependency (e.g. a migration must run before the code that uses it).
+  - Most sub-tasks should have no blockers — omit the field entirely when not needed.
+  - Do not reference a sub-task's own index (no self-blocking).
+  - Do not create circular dependencies (if A blocks B, B must not block A).
+
 Respond with valid JSON only — no markdown fences, no extra text:
 {
   "clarification": "question text, or null if no clarification is needed",
@@ -195,7 +201,8 @@ Respond with valid JSON only — no markdown fences, no extra text:
     {
       "title": "Short, specific title",
       "description": "Fully self-contained ticket body (markdown ok). Include all paths, references, and reasoning needed to do this work without seeing the parent ticket.",
-      "priority": 2
+      "priority": 2,
+      "blockedBy": [0]
     }
   ]
 }
