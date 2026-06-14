@@ -43,4 +43,9 @@ export interface TaskProvider {
    * Adds a tag/label to a task. Optional — same guard as removeTag.
    */
   addTag?(taskId: string, tag: string): Promise<void>;
+  /**
+   * Sets blocker dependencies on a task. Optional — providers that don't
+   * support dependency tracking can omit it; callers must use optional chaining.
+   */
+  setBlockedBy?(taskId: string, blockedByIds: string[]): Promise<void>;
 }

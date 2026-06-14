@@ -154,6 +154,7 @@ export interface PlanningSubtaskDraft {
   title: string;
   description: string;
   priority?: number;
+  blockedBy?: number[];
 }
 
 export interface PlanningAnalysisResponse {
