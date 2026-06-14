@@ -1798,6 +1798,7 @@ export async function implementPlanningTask(
 
   const created: Array<{ title: string; url: string; id: string }> = [];
   const failures: Array<{ title: string; error: string }> = [];
+  const createdIdByIndex: Array<string | null> = [];
 
   for (const draft of parsed.subtasks) {
     try {
@@ -1809,11 +1810,34 @@ export async function implementPlanningTask(
         listId: task.sourceListId,
       });
       created.push({ title: draft.title, url: result.url, id: result.id });
+      createdIdByIndex.push(result.id);
       logger.success(`  Created sub-ticket "${draft.title}" — ${result.url}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn(`  Failed to create sub-ticket "${draft.title}": ${message}`);
       failures.push({ title: draft.title, error: message });
+      createdIdByIndex.push(null);
+    }
+  }
+
+  const blockerFailures: Array<{ title: string; error: string }> = [];
+  if (provider.setBlockedBy) {
+    for (let i = 0; i < parsed.subtasks.length; i++) {
+      const draft = parsed.subtasks[i];
+      const taskId = createdIdByIndex[i];
+      if (!taskId || !draft.blockedBy || draft.blockedBy.length === 0) continue;
+      const resolvedIds = draft.blockedBy
+        .map((idx) => createdIdByIndex[idx])
+        .filter((id): id is string => id !== null);
+      if (resolvedIds.length === 0) continue;
+      try {
+        await provider.setBlockedBy(taskId, resolvedIds);
+        logger.info(`  Set blockers for "${draft.title}"`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`  Failed to set blockers for "${draft.title}": ${message}`);
+        blockerFailures.push({ title: draft.title, error: message });
+      }
     }
   }
 
@@ -1831,6 +1855,12 @@ export async function implementPlanningTask(
   if (failures.length > 0) {
     summaryLines.push('', 'Failed to create:');
     for (const f of failures) {
+      summaryLines.push(`- ${f.title} — ${f.error}`);
+    }
+  }
+  if (blockerFailures.length > 0) {
+    summaryLines.push('', 'Failed to set blockers:');
+    for (const f of blockerFailures) {
       summaryLines.push(`- ${f.title} — ${f.error}`);
     }
   }
