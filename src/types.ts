@@ -64,6 +64,7 @@ export interface CreateTaskParams {
   priority?: number;
   dueDate?: number;
   listId?: string;
+  blockedBy?: number[];
 }
 
 export interface CreateTaskResult {

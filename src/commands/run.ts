@@ -154,6 +154,7 @@ export interface PlanningSubtaskDraft {
   title: string;
   description: string;
   priority?: number;
+  blockedBy?: number[];
 }
 
 export interface PlanningAnalysisResponse {
@@ -187,6 +188,12 @@ CRITICAL — each sub-task description MUST be fully isolated:
 
 Sub-task priority is optional and uses an integer 1–4 (1 = urgent, 4 = low). Omit the field if you have no opinion.
 
+Sub-task blockers: each sub-task may include an optional "blockedBy" array of 0-based indices into the "subtasks" array, listing sub-tasks that must complete before this one starts. Rules:
+  - Only set it when there is a genuine sequential dependency (e.g. a migration must run before the code that uses it).
+  - Most sub-tasks should have no blockers — omit the field entirely when not needed.
+  - Do not reference a sub-task's own index (no self-blocking).
+  - Do not create circular dependencies (if A blocks B, B must not block A).
+
 Respond with valid JSON only — no markdown fences, no extra text:
 {
   "clarification": "question text, or null if no clarification is needed",
@@ -194,7 +201,8 @@ Respond with valid JSON only — no markdown fences, no extra text:
     {
       "title": "Short, specific title",
       "description": "Fully self-contained ticket body (markdown ok). Include all paths, references, and reasoning needed to do this work without seeing the parent ticket.",
-      "priority": 2
+      "priority": 2,
+      "blockedBy": [0]
     }
   ]
 }
@@ -236,6 +244,18 @@ export function parsePlanningResponse(output: string): PlanningAnalysisResponse 
     const draft: PlanningSubtaskDraft = { title, description };
     if (typeof entry.priority === 'number' && Number.isFinite(entry.priority)) {
       draft.priority = entry.priority;
+    }
+    const idx = subtasks.length;
+    if (Array.isArray((entry as { blockedBy?: unknown }).blockedBy)) {
+      const cleaned = ((entry as { blockedBy: unknown[] }).blockedBy)
+        .filter((n): n is number =>
+          typeof n === 'number' &&
+          Number.isInteger(n) &&
+          n >= 0 &&
+          n < rawSubtasks.length &&
+          n !== idx
+        );
+      if (cleaned.length > 0) draft.blockedBy = cleaned;
     }
     subtasks.push(draft);
   }
@@ -1778,6 +1798,7 @@ export async function implementPlanningTask(
 
   const created: Array<{ title: string; url: string; id: string }> = [];
   const failures: Array<{ title: string; error: string }> = [];
+  const createdIdByIndex: Array<string | null> = [];
 
   for (const draft of parsed.subtasks) {
     try {
@@ -1789,11 +1810,34 @@ export async function implementPlanningTask(
         listId: task.sourceListId,
       });
       created.push({ title: draft.title, url: result.url, id: result.id });
+      createdIdByIndex.push(result.id);
       logger.success(`  Created sub-ticket "${draft.title}" — ${result.url}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn(`  Failed to create sub-ticket "${draft.title}": ${message}`);
       failures.push({ title: draft.title, error: message });
+      createdIdByIndex.push(null);
+    }
+  }
+
+  const blockerFailures: Array<{ title: string; error: string }> = [];
+  if (provider.setBlockedBy) {
+    for (let i = 0; i < parsed.subtasks.length; i++) {
+      const draft = parsed.subtasks[i];
+      const taskId = createdIdByIndex[i];
+      if (!taskId || !draft.blockedBy || draft.blockedBy.length === 0) continue;
+      const resolvedIds = draft.blockedBy
+        .map((idx) => createdIdByIndex[idx])
+        .filter((id): id is string => id !== null);
+      if (resolvedIds.length === 0) continue;
+      try {
+        await provider.setBlockedBy(taskId, resolvedIds);
+        logger.info(`  Set blockers for "${draft.title}"`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`  Failed to set blockers for "${draft.title}": ${message}`);
+        blockerFailures.push({ title: draft.title, error: message });
+      }
     }
   }
 
@@ -1811,6 +1855,12 @@ export async function implementPlanningTask(
   if (failures.length > 0) {
     summaryLines.push('', 'Failed to create:');
     for (const f of failures) {
+      summaryLines.push(`- ${f.title} — ${f.error}`);
+    }
+  }
+  if (blockerFailures.length > 0) {
+    summaryLines.push('', 'Failed to set blockers:');
+    for (const f of blockerFailures) {
       summaryLines.push(`- ${f.title} — ${f.error}`);
     }
   }
