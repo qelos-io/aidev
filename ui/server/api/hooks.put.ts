@@ -1,5 +1,6 @@
 import { defineEventHandler, readBody, createError } from 'h3';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 interface PutBody {
   content?: unknown;
@@ -16,6 +17,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Body must be { content: string }' });
   }
 
+  fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
   fs.writeFileSync(hooksPath, body.content, 'utf8');
   return { ok: true };
 });
