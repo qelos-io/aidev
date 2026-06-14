@@ -554,4 +554,20 @@ export class ClickUpProvider implements TaskProvider {
 
     return { id: result.id, url: result.url };
   }
+
+  async setBlockedBy(taskId: string, blockedByIds: string[]): Promise<void> {
+    if (blockedByIds.length === 0) return;
+    for (const blockerId of blockedByIds) {
+      try {
+        await this.request(`/task/${taskId}/dependency`, {
+          method: 'POST',
+          body: JSON.stringify({ depends_on: blockerId }),
+        });
+      } catch (err) {
+        logger.warn(
+          `Failed to set blocker ${blockerId} on task ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
 }
