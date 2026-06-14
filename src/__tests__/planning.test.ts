@@ -94,11 +94,18 @@ interface RecordedCreate {
   params: CreateTaskParams;
 }
 
+interface RecordedSetBlockedBy {
+  taskId: string;
+  blockedByIds: string[];
+}
+
 interface MockProviderOptions {
   createTaskImpl?: (params: CreateTaskParams) => Promise<CreateTaskResult>;
   comments?: Comment[];
   availableStatuses?: string[];
   hasRemoveTag?: boolean;
+  hasSetBlockedBy?: boolean;
+  setBlockedByImpl?: (taskId: string, blockedByIds: string[]) => Promise<void>;
 }
 
 interface MockProvider extends TaskProvider {
@@ -106,6 +113,7 @@ interface MockProvider extends TaskProvider {
   postedComments: string[];
   createdTasks: RecordedCreate[];
   removedTags: Array<{ taskId: string; tag: string }>;
+  setBlockedByCalls: RecordedSetBlockedBy[];
 }
 
 function makeMockProvider(opts: MockProviderOptions = {}): MockProvider {
@@ -113,12 +121,14 @@ function makeMockProvider(opts: MockProviderOptions = {}): MockProvider {
   const postedComments: string[] = [];
   const createdTasks: RecordedCreate[] = [];
   const removedTags: Array<{ taskId: string; tag: string }> = [];
+  const setBlockedByCalls: RecordedSetBlockedBy[] = [];
 
   const provider: Partial<MockProvider> = {
     statusUpdates,
     postedComments,
     createdTasks,
     removedTags,
+    setBlockedByCalls,
     fetchTasks: async () => [],
     fetchTasksByStatus: async () => [],
     getComments: async () => opts.comments ?? [],
@@ -142,6 +152,12 @@ function makeMockProvider(opts: MockProviderOptions = {}): MockProvider {
   if (opts.hasRemoveTag !== false) {
     provider.removeTag = async (taskId: string, tag: string) => {
       removedTags.push({ taskId, tag });
+    };
+  }
+  if (opts.hasSetBlockedBy !== false) {
+    provider.setBlockedBy = async (taskId: string, blockedByIds: string[]) => {
+      if (opts.setBlockedByImpl) return opts.setBlockedByImpl(taskId, blockedByIds);
+      setBlockedByCalls.push({ taskId, blockedByIds });
     };
   }
 
@@ -533,5 +549,197 @@ describe('routing precedence', () => {
 
     assert.equal(isPlanningTask(task, config), false);
     assert.equal(isThinkingTask(task, config), true);
+  });
+});
+
+// ─── parsePlanningResponse: blockedBy ─────────────────────────────────────────
+
+describe('parsePlanningResponse — blockedBy', () => {
+  it('parses valid blockedBy indices', () => {
+    const output = JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'First task.' },
+        { title: 'B', description: 'Second task.', blockedBy: [0] },
+        { title: 'C', description: 'Third task.', blockedBy: [0, 1] },
+      ],
+    });
+    const parsed = parsePlanningResponse(output);
+    assert.ok(parsed !== null);
+    assert.equal(parsed!.subtasks[0].blockedBy, undefined);
+    assert.deepEqual(parsed!.subtasks[1].blockedBy, [0]);
+    assert.deepEqual(parsed!.subtasks[2].blockedBy, [0, 1]);
+  });
+
+  it('strips out-of-range indices without rejecting the subtask', () => {
+    const output = JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'First.' },
+        { title: 'B', description: 'Second.', blockedBy: [0, 5, 99] },
+      ],
+    });
+    const parsed = parsePlanningResponse(output);
+    assert.ok(parsed !== null);
+    assert.equal(parsed!.subtasks.length, 2);
+    assert.deepEqual(parsed!.subtasks[1].blockedBy, [0]);
+  });
+
+  it('strips self-referential indices without rejecting the subtask', () => {
+    const output = JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'First.' },
+        { title: 'B', description: 'Second.', blockedBy: [1] },
+      ],
+    });
+    const parsed = parsePlanningResponse(output);
+    assert.ok(parsed !== null);
+    assert.equal(parsed!.subtasks.length, 2);
+    assert.equal(parsed!.subtasks[1].blockedBy, undefined);
+  });
+
+  it('strips non-integer and negative values from blockedBy', () => {
+    const output = JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'First.' },
+        { title: 'B', description: 'Second.', blockedBy: [-1, 0.5, 'foo', 0] },
+      ],
+    });
+    const parsed = parsePlanningResponse(output);
+    assert.ok(parsed !== null);
+    assert.deepEqual(parsed!.subtasks[1].blockedBy, [0]);
+  });
+
+  it('allows circular indices at parse time (AI responsibility to avoid)', () => {
+    const output = JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'First.', blockedBy: [1] },
+        { title: 'B', description: 'Second.', blockedBy: [0] },
+      ],
+    });
+    const parsed = parsePlanningResponse(output);
+    assert.ok(parsed !== null);
+    assert.deepEqual(parsed!.subtasks[0].blockedBy, [1]);
+    assert.deepEqual(parsed!.subtasks[1].blockedBy, [0]);
+  });
+
+  it('omits blockedBy entirely when cleaned list is empty', () => {
+    const output = JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'First.', blockedBy: [] },
+        { title: 'B', description: 'Second.', blockedBy: [99] },
+      ],
+    });
+    const parsed = parsePlanningResponse(output);
+    assert.ok(parsed !== null);
+    assert.equal(parsed!.subtasks[0].blockedBy, undefined);
+    assert.equal(parsed!.subtasks[1].blockedBy, undefined);
+  });
+});
+
+// ─── implementPlanningTask: setBlockedBy ──────────────────────────────────────
+
+describe('implementPlanningTask — setBlockedBy', () => {
+  it('calls setBlockedBy with resolved task IDs after creation', async () => {
+    const task = stubTask({ sourceListId: 'L1' });
+    const config = stubConfig({ planningTag: 'planning', doneStatus: 'closed' });
+    const provider = makeMockProvider();
+    const runner = stubRunner(JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'First task.' },
+        { title: 'B', description: 'Second task.', blockedBy: [0] },
+        { title: 'C', description: 'Third task.', blockedBy: [0, 1] },
+      ],
+    }));
+
+    await implementPlanningTask(task, config, provider, [runner]);
+
+    assert.equal(provider.createdTasks.length, 3);
+    assert.equal(provider.setBlockedByCalls.length, 2);
+
+    // sub-2 is blocked by sub-1
+    assert.equal(provider.setBlockedByCalls[0].taskId, 'sub-2');
+    assert.deepEqual(provider.setBlockedByCalls[0].blockedByIds, ['sub-1']);
+
+    // sub-3 is blocked by sub-1 and sub-2
+    assert.equal(provider.setBlockedByCalls[1].taskId, 'sub-3');
+    assert.deepEqual(provider.setBlockedByCalls[1].blockedByIds, ['sub-1', 'sub-2']);
+  });
+
+  it('skips setBlockedBy for tasks whose blocker failed to create', async () => {
+    const task = stubTask({ sourceListId: 'L1' });
+    const config = stubConfig({ planningTag: 'planning', doneStatus: 'closed' });
+
+    let calls = 0;
+    const provider = makeMockProvider({
+      createTaskImpl: async (_params) => {
+        calls++;
+        if (calls === 1) throw new Error('create failed');
+        return { id: `s-${calls}`, url: `https://example.test/t/s-${calls}` };
+      },
+    });
+
+    const runner = stubRunner(JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'Fails to create.' },
+        { title: 'B', description: 'Blocked by A.', blockedBy: [0] },
+      ],
+    }));
+
+    await implementPlanningTask(task, config, provider, [runner]);
+
+    // B is blocked by A but A failed — resolvedIds should be empty so setBlockedBy is not called
+    assert.equal(provider.setBlockedByCalls.length, 0);
+  });
+
+  it('does not call setBlockedBy when provider does not implement it', async () => {
+    const task = stubTask({ sourceListId: 'L1' });
+    const config = stubConfig({ planningTag: 'planning', doneStatus: 'closed' });
+    const provider = makeMockProvider({ hasSetBlockedBy: false });
+    const runner = stubRunner(JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'First.' },
+        { title: 'B', description: 'Second.', blockedBy: [0] },
+      ],
+    }));
+
+    await implementPlanningTask(task, config, provider, [runner]);
+
+    assert.equal(provider.setBlockedByCalls.length, 0);
+    // everything else should still work normally
+    assert.equal(provider.createdTasks.length, 2);
+    assert.equal(provider.statusUpdates[provider.statusUpdates.length - 1], 'closed');
+  });
+
+  it('includes blocker failures in the summary comment', async () => {
+    const task = stubTask({ sourceListId: 'L1' });
+    const config = stubConfig({ planningTag: 'planning', doneStatus: 'closed' });
+    const provider = makeMockProvider({
+      setBlockedByImpl: async (_taskId, _ids) => {
+        throw new Error('dependency API unavailable');
+      },
+    });
+    const runner = stubRunner(JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'First.' },
+        { title: 'B', description: 'Second.', blockedBy: [0] },
+      ],
+    }));
+
+    await implementPlanningTask(task, config, provider, [runner]);
+
+    const summary = provider.postedComments.find((c) => c.includes('Planning complete'));
+    assert.ok(summary, 'expected planning summary comment');
+    assert.ok(summary!.includes('Failed to set blockers'));
+    assert.ok(summary!.includes('B'));
+    assert.ok(summary!.includes('dependency API unavailable'));
   });
 });
