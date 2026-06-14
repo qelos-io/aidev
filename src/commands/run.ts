@@ -245,6 +245,18 @@ export function parsePlanningResponse(output: string): PlanningAnalysisResponse 
     if (typeof entry.priority === 'number' && Number.isFinite(entry.priority)) {
       draft.priority = entry.priority;
     }
+    const idx = subtasks.length;
+    if (Array.isArray((entry as { blockedBy?: unknown }).blockedBy)) {
+      const cleaned = ((entry as { blockedBy: unknown[] }).blockedBy)
+        .filter((n): n is number =>
+          typeof n === 'number' &&
+          Number.isInteger(n) &&
+          n >= 0 &&
+          n < rawSubtasks.length &&
+          n !== idx
+        );
+      if (cleaned.length > 0) draft.blockedBy = cleaned;
+    }
     subtasks.push(draft);
   }
 
