@@ -495,6 +495,19 @@ describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
     assert.deepEqual(task!.blockedBy, ['blocker1']);
   });
 
+  it('excludes type=2 (blocking) entries even when depends_on is set', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', [
+        { task_id: 'task1', depends_on: 'blocker1', type: 1 },
+        { task_id: 'task1', depends_on: 'other-task', type: 2 },
+      ]))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.deepEqual(task!.blockedBy, ['blocker1']);
+  });
+
   it('sets blockedBy to undefined when dependencies field is missing', async () => {
     mock.method(globalThis, 'fetch', async () =>
       jsonResponse(makeRawTask('task1'))

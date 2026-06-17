@@ -48,12 +48,15 @@ interface ClickUpRawTask {
   dependencies?: ClickUpDependency[];
 }
 
-/** ClickUp "waiting on" dependencies expose the blocker id in `depends_on`. */
+/** ClickUp "waiting on" dependencies expose the blocker id in `depends_on`.
+ * type=1 means this task is waiting on `depends_on` (blocked by it).
+ * type=2 means this task is blocking `depends_on` (the opposite direction). */
 export function getBlockedByFromClickUpDependencies(
   dependencies: ClickUpDependency[] | undefined,
 ): string[] {
   if (!dependencies?.length) return [];
   return dependencies
+    .filter((d) => d.type !== 2)
     .map((d) => d.depends_on)
     .filter((id): id is string => typeof id === 'string' && id.length > 0);
 }
