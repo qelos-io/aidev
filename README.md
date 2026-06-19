@@ -6,7 +6,7 @@
 
 **aidev** turns your tasks into merged code — automatically.
 
-It polls your task manager (ClickUp, Jira, Linear, Monday.com, Notion, Trello, or local markdown files), checks whether tasks are clear, runs Claude, Cursor, or Devin to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
+It polls your task manager (ClickUp, Jira, Linear, Monday.com, Notion, Trello, or local markdown files), checks whether tasks are clear, runs your configured AI agent (aider, Claude, Cursor, Devin, and more) to implement them, pushes a branch, and moves the task to review. All without touching your keyboard.
 
 ```
 Task  →  AI implements  →  git push  →  "in review"  →  AI resolves code review comments
@@ -319,10 +319,38 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 
 | Agent | Requires |
 |---|---|
+| `aider` | [aider](https://aider.chat) installed (`pip install aider-install && aider-install`) with an LLM API key set |
 | `antigravity` | Google **Antigravity** CLI (`agy` or `antigravity`) in PATH — see [Antigravity](https://antigravity.google/download) |
+| `anthropic-sdk` | `ANTHROPIC_API_KEY` set; drives Claude in-process via the Anthropic Agent SDK |
 | `claude` | [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated |
+| `codex` | [OpenAI Codex CLI](https://github.com/openai/codex) installed and authenticated |
 | `cursor` | Cursor **Agent CLI** (`agent`) in PATH — see [Windows](#windows-cursor-agent-cli) below |
 | `devin` | [Devin CLI](https://docs.devin.ai/cli) installed and authenticated |
+
+### Aider
+
+[aider](https://aider.chat) is an open-source AI pair programming tool that connects to many LLMs (OpenAI, Anthropic, Gemini, Ollama, and more). Install it and set an API key for your preferred model:
+
+```bash
+pip install aider-install
+aider-install
+# Then set the key for your chosen model, e.g.:
+export ANTHROPIC_API_KEY=sk-ant-...
+# or
+export OPENAI_API_KEY=sk-...
+```
+
+Pass extra CLI flags to aider via `AIDER_ARGS` in `.env.aidev`:
+
+```bash
+# Use GPT-4o and disable auto-commits (aidev manages commits itself)
+AIDER_ARGS=--model gpt-4o --no-auto-commits
+
+# Use Claude Sonnet via aider
+AIDER_ARGS=--model claude-sonnet-4-6 --no-auto-commits
+```
+
+Aider inherits `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and other LLM keys from the environment automatically.
 
 ### Windows: Cursor Agent CLI
 
@@ -351,6 +379,12 @@ AGENTS=claude,devin,cursor
 
 # Antigravity first, then Claude
 AGENTS=antigravity,claude
+
+# Aider only (uses whatever LLM key is in the environment)
+AGENTS=aider
+
+# Aider first, fall back to Claude CLI
+AGENTS=aider,claude
 
 # Devin only
 AGENTS=devin

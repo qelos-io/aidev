@@ -1,5 +1,6 @@
 import { Config } from '../types';
 import { AIRunner } from './base';
+import { AiderRunner } from './aider';
 import { AntigravityRunner } from './antigravity';
 import { AnthropicSdkRunner } from './anthropicSdk';
 import { ClaudeRunner } from './claude';
@@ -9,6 +10,7 @@ import { DevinRunner } from './devin';
 import { logger } from '../logger';
 
 const registry: Record<string, AIRunner> = {
+  aider: new AiderRunner(),
   antigravity: new AntigravityRunner(),
   'anthropic-sdk': new AnthropicSdkRunner(),
   claude: new ClaudeRunner(),
