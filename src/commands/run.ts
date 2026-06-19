@@ -505,25 +505,7 @@ export async function runCommand(
     let processed = 0;
     let skipped = 0;
 
-    for (const task of tasks) {
-      const result = await processTask(task, filter, config, provider, runners, screenAvailable, hooks, vm);
-      if (result === 'processed') processed++;
-      else skipped++;
-    }
-
-    if (nonCodeProvider && !taskId) {
-      logger.info(`Fetching non-code tasks (filter: ${filter})...`);
-      const nonCodeTasks = sortTasksByPriority(await nonCodeProvider.fetchTasks());
-      logger.info(`Found ${nonCodeTasks.length} non-code task(s)`);
-
-      for (const task of nonCodeTasks) {
-        const result = await processNonCodeTask(task, filter, config, nonCodeProvider, runners, screenAvailable, hooks, vm);
-        if (result === 'processed') processed++;
-        else skipped++;
-      }
-    }
-
-    // Review task phase: check tasks in review status for unresolved code review comments
+    // Review task phase (first): check tasks in review status for unresolved code review comments
     if (!taskId && isGitHubRemote(config.gitRemote) && isGhInstalled() && isGhAuthenticated() && config.githubRepo) {
       const reviewStatus = getInReviewStatus(config);
       logger.info(`Fetching tasks in "${reviewStatus}" status for code review checks...`);
@@ -555,6 +537,24 @@ export async function runCommand(
     } else if (!taskId) {
       if (!isGhInstalled() || !isGhAuthenticated()) {
         logger.debug('gh CLI not available — skipping review task checks');
+      }
+    }
+
+    for (const task of tasks) {
+      const result = await processTask(task, filter, config, provider, runners, screenAvailable, hooks, vm);
+      if (result === 'processed') processed++;
+      else skipped++;
+    }
+
+    if (nonCodeProvider && !taskId) {
+      logger.info(`Fetching non-code tasks (filter: ${filter})...`);
+      const nonCodeTasks = sortTasksByPriority(await nonCodeProvider.fetchTasks());
+      logger.info(`Found ${nonCodeTasks.length} non-code task(s)`);
+
+      for (const task of nonCodeTasks) {
+        const result = await processNonCodeTask(task, filter, config, nonCodeProvider, runners, screenAvailable, hooks, vm);
+        if (result === 'processed') processed++;
+        else skipped++;
       }
     }
 
