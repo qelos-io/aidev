@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { logger } from '../logger';
+import { AiderRunner } from '../ai/aider';
 import { AntigravityRunner } from '../ai/antigravity';
 import { AnthropicSdkRunner, getAnthropicSdkMaxRetries } from '../ai/anthropicSdk';
 import { ClaudeRunner } from '../ai/claude';
@@ -37,6 +38,183 @@ function spyLogger() {
     debug: mock.method(logger, 'debug', () => {}),
   };
 }
+
+// ─── AiderRunner ──────────────────────────────────────────────────────────────
+
+describe('AiderRunner', () => {
+  it('isAvailable returns boolean (depends on aider CLI in PATH)', () => {
+    const runner = new AiderRunner();
+    assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+describe('AiderRunner – failed tasks', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('returns success=false when aider exits with non-zero status', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'aider failed' });
+    spyLogger();
+
+    const runner = new AiderRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'aider failed');
+  });
+
+  it('logs a warning with exit status on failure', async () => {
+    mockSpawnSync({ status: 2, stdout: '', stderr: 'something broke' });
+    const spies = spyLogger();
+
+    const runner = new AiderRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(warnCalls.some((msg) => msg?.includes('status 2')));
+  });
+
+  it('logs stderr on failure', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'API key not set' });
+    const spies = spyLogger();
+
+    const runner = new AiderRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(warnCalls.some((msg) => msg?.includes('API key not set')));
+  });
+
+  it('logs spawn error when present', async () => {
+    mockSpawnSync({ status: null, stdout: '', stderr: '', error: new Error('ENOENT') });
+    const spies = spyLogger();
+
+    const runner = new AiderRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(warnCalls.some((msg) => msg?.includes('ENOENT')));
+  });
+
+  it('returns empty output on failure', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'err' });
+    spyLogger();
+
+    const runner = new AiderRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.output, '');
+  });
+});
+
+describe('AiderRunner – successful tasks', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('returns success=true with output when aider exits with status 0', async () => {
+    mockSpawnSync({ status: 0, stdout: 'Changes applied.', stderr: '' });
+    spyLogger();
+
+    const runner = new AiderRunner();
+    const result = await runner.run('fix the bug');
+
+    assert.equal(result.success, true);
+    assert.equal(result.output, 'Changes applied.');
+    assert.equal(result.error, '');
+  });
+
+  it('appends notes to the prompt as "Additional context"', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    const runner = new AiderRunner();
+    await runner.run('implement X', 'watch out for Y');
+
+    const messageIdx = argvSnapshots[0]?.indexOf('--message') ?? -1;
+    assert.ok(messageIdx >= 0);
+    assert.ok(argvSnapshots[0][messageIdx + 1].includes('Additional context:'));
+    assert.ok(argvSnapshots[0][messageIdx + 1].includes('watch out for Y'));
+  });
+
+  it('always passes --yes-always to aider', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: '', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    await new AiderRunner().run('do it');
+
+    assert.ok(argvSnapshots[0]?.includes('--yes-always'));
+  });
+});
+
+describe('AiderRunner – AIDER_ARGS', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('passes extra args from AIDER_ARGS env var to aider', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: '', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    const prev = process.env.AIDER_ARGS;
+    process.env.AIDER_ARGS = '--model gpt-4o --no-auto-commits';
+    try {
+      await new AiderRunner().run('do it');
+    } finally {
+      if (prev === undefined) delete process.env.AIDER_ARGS;
+      else process.env.AIDER_ARGS = prev;
+    }
+
+    const args = argvSnapshots[0] ?? [];
+    assert.ok(args.includes('--model'));
+    assert.ok(args.includes('gpt-4o'));
+    assert.ok(args.includes('--no-auto-commits'));
+  });
+
+  it('passes no extra args when AIDER_ARGS is unset', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: '', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    const prev = process.env.AIDER_ARGS;
+    delete process.env.AIDER_ARGS;
+    try {
+      await new AiderRunner().run('do it');
+    } finally {
+      if (prev === undefined) delete process.env.AIDER_ARGS;
+      else process.env.AIDER_ARGS = prev;
+    }
+
+    // Only --message <prompt> and --yes-always should be present
+    const args = argvSnapshots[0] ?? [];
+    assert.deepEqual(args, ['--message', 'do it', '--yes-always']);
+  });
+});
 
 // ─── ClaudeRunner ─────────────────────────────────────────────────────────────
 
