@@ -789,6 +789,22 @@ describe('getRunSkipReason', () => {
   it('skips open tasks for the pending filter', () => {
     assert.equal(getRunSkipReason('open', 'pending', 'pending'), 'filter=pending but task is not pending');
   });
+
+  it('skips open tasks for the review filter', () => {
+    assert.equal(getRunSkipReason('open', 'review', 'pending'), 'filter=review skips open/pending tasks');
+  });
+
+  it('skips pending tasks for the review filter', () => {
+    assert.equal(getRunSkipReason('pending', 'review', 'pending'), 'filter=review skips open/pending tasks');
+  });
+
+  it('skips tasks in custom open status for the review filter', () => {
+    assert.equal(getRunSkipReason('to do', 'review', 'pending', 'to do'), 'filter=review skips open/pending tasks');
+  });
+
+  it('skips terminal-status tasks before the review filter check', () => {
+    assert.equal(getRunSkipReason('done', 'review', 'pending'), 'terminal status: done');
+  });
 });
 
 // ─── buildConflictResolutionPrompt ───────────────────────────────────────────
