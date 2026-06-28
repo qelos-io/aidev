@@ -12,6 +12,8 @@ import {
   splitFailedSubtask,
   buildThinkingSubtaskPrompt,
   truncateForSubtaskPrompt,
+  parseThinkingAnalysisResponse,
+  parseSplitSubtaskResponse,
   SubTask,
   ThinkingTaskPlan,
   cleanupStaleThinkingArtifacts,
@@ -323,6 +325,54 @@ describe('cleanupStaleThinkingArtifacts', () => {
   });
 });
 
+// ─── parseThinkingAnalysisResponse ────────────────────────────────────────────
+
+describe('parseThinkingAnalysisResponse', () => {
+  it('parses JSON wrapped in markdown fences', () => {
+    const payload = {
+      taskSummary: 'Ship feature X.',
+      instructions: 'Use pattern { foo: bar } in docs.',
+      subtasks: [{ id: 1, title: 'Add API', description: 'Edit src/api.ts.' }],
+    };
+    const output = `Here is the plan:\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``;
+    const parsed = parseThinkingAnalysisResponse(output);
+    assert.ok(parsed);
+    assert.equal(parsed!.subtasks.length, 1);
+    assert.equal(parsed!.taskSummary, 'Ship feature X.');
+  });
+
+  it('parses JSON whose instructions field contains braces', () => {
+    const payload = {
+      instructions: 'Handle edge case when input is `{ "nested": true }` and validate schema.',
+      subtasks: [
+        { title: 'Step one', description: 'Change src/run.ts.' },
+        { title: 'Step two', description: 'Change src/run.test.ts.' },
+      ],
+    };
+    const parsed = parseThinkingAnalysisResponse(JSON.stringify(payload));
+    assert.ok(parsed);
+    assert.equal(parsed!.subtasks.length, 2);
+  });
+
+  it('prefers the last JSON object when the model emits preamble JSON', () => {
+    const output = [
+      '{"debug": true}',
+      JSON.stringify({
+        subtasks: [{ title: 'Real step', description: 'Do the work in src/foo.ts.' }],
+      }),
+    ].join('\n');
+    const parsed = parseThinkingAnalysisResponse(output);
+    assert.ok(parsed);
+    assert.equal(parsed!.subtasks[0].title, 'Real step');
+  });
+});
+
+describe('parseSplitSubtaskResponse', () => {
+  it('requires exactly two subtasks', () => {
+    assert.equal(parseSplitSubtaskResponse(JSON.stringify({ subtasks: [{ title: 'a', description: 'b' }] })), null);
+  });
+});
+
 // ─── splitFailedSubtask ───────────────────────────────────────────────────────
 
 describe('splitFailedSubtask', () => {
@@ -470,6 +520,58 @@ describe('splitFailedSubtask', () => {
     const result = await splitFailedSubtask(stubTask(), planWith(failedSubtask), failedSubtask, runners);
     assert.ok(result);
     assert.ok(secondCalled);
+  });
+
+  it('falls back to the next runner when the first fails authentication', async () => {
+    let fallbackCalled = false;
+    const runners: AIRunner[] = [
+      {
+        name: 'claude',
+        isAvailable: () => true,
+        run: async () => ({
+          success: false,
+          output: '',
+          error: 'Failed to authenticate. API Error: 401',
+        }),
+      },
+      {
+        name: 'cursor',
+        isAvailable: () => true,
+        run: async () => {
+          fallbackCalled = true;
+          return {
+            success: true,
+            output: JSON.stringify({
+              subtasks: [
+                { title: 'x', description: 'x' },
+                { title: 'y', description: 'y' },
+              ],
+            }),
+            error: '',
+          };
+        },
+      },
+    ];
+    const result = await splitFailedSubtask(stubTask(), planWith(failedSubtask), failedSubtask, runners);
+    assert.ok(result);
+    assert.ok(fallbackCalled);
+  });
+
+  it('falls back when the first runner returns unparseable output', async () => {
+    const runners: AIRunner[] = [
+      stubRunner({ output: 'I explored the repo but forgot to return JSON.' }),
+      stubRunner({
+        output: JSON.stringify({
+          subtasks: [
+            { title: 'x', description: 'x' },
+            { title: 'y', description: 'y' },
+          ],
+        }),
+      }),
+    ];
+    const result = await splitFailedSubtask(stubTask(), planWith(failedSubtask), failedSubtask, runners);
+    assert.ok(result);
+    assert.equal(result!.length, 2);
   });
 
   it('passes diagnostics into the runner prompt', async () => {
