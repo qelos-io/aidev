@@ -2,6 +2,7 @@ src/
 .claude/
 .cursor/
 .github/
+documentation/
 .env.aidev
 CLAUDE.md
 tsconfig.json
