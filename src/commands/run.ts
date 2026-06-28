@@ -162,6 +162,125 @@ export interface PlanningAnalysisResponse {
   subtasks: PlanningSubtaskDraft[];
 }
 
+export interface ThinkingAnalysisDraft {
+  taskSummary?: string;
+  instructions?: string;
+  subtasks: Array<{ id?: number | string; title: string; description: string }>;
+}
+
+function tryParseJson(text: string): unknown | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function extractBalancedJsonSlice(text: string, start: number): string | null {
+  if (text[start] !== '{') return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+/** Collects JSON object candidates from agent output (fences + balanced `{...}` slices). */
+export function extractJsonObjectsFromAgentOutput(output: string): Record<string, unknown>[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  const addCandidate = (raw: string): void => {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith('{') || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    candidates.push(trimmed);
+  };
+
+  const fenceRe = /```(?:json)?\s*\n?([\s\S]*?)```/gi;
+  let fenceMatch: RegExpExecArray | null;
+  while ((fenceMatch = fenceRe.exec(output)) !== null) {
+    addCandidate(fenceMatch[1]);
+  }
+
+  for (let i = 0; i < output.length; i++) {
+    if (output[i] !== '{') continue;
+    const slice = extractBalancedJsonSlice(output, i);
+    if (slice) addCandidate(slice);
+  }
+
+  const objects: Record<string, unknown>[] = [];
+  for (const candidate of candidates) {
+    const parsed = tryParseJson(candidate);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      objects.push(parsed as Record<string, unknown>);
+    }
+  }
+
+  return objects;
+}
+
+export function extractJsonObjectFromAgentOutput(output: string): Record<string, unknown> | null {
+  const objects = extractJsonObjectsFromAgentOutput(output);
+  return objects.length > 0 ? objects[objects.length - 1]! : null;
+}
+
+async function runAgentJsonAnalysis<T>(
+  runners: AIRunner[],
+  prompt: string,
+  parse: (output: string) => T | null,
+  label: string,
+): Promise<T | null> {
+  let previousNotes = '';
+
+  for (const runner of runners) {
+    if (!runner.isAvailable()) continue;
+
+    logger.info(`Running ${runner.name} for ${label}...`);
+    const result = await runner.run(prompt, previousNotes || undefined);
+    if (!result.success) {
+      logger.warn(`${runner.name} ${label} failed — trying next runner`);
+      previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
+      continue;
+    }
+
+    const parsed = parse(result.output);
+    if (parsed !== null) return parsed;
+
+    logger.warn(`${runner.name} ${label} returned unparseable output — trying next runner`);
+    previousNotes = `Previous runner (${runner.name}) produced unparseable output:\n${result.output}`;
+  }
+
+  logger.error(`${label} failed for all runners`);
+  return null;
+}
+
 export function buildPlanningAnalysisPrompt(task: Task, context: string): string {
   const tagsLine = task.tags.length > 0
     ? `\nParent task tags: ${task.tags.join(', ')}`
@@ -211,18 +330,15 @@ If you set "clarification" to a non-null question, "subtasks" must be an empty a
 }
 
 export function parsePlanningResponse(output: string): PlanningAnalysisResponse | null {
-  const jsonMatch = output.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch {
-    return null;
+  const objects = extractJsonObjectsFromAgentOutput(output);
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const parsed = parsePlanningResponseObject(objects[i]!);
+    if (parsed) return parsed;
   }
+  return null;
+}
 
-  if (!parsed || typeof parsed !== 'object') return null;
-  const obj = parsed as { clarification?: unknown; subtasks?: unknown };
+function parsePlanningResponseObject(obj: Record<string, unknown>): PlanningAnalysisResponse | null {
 
   let clarification: string | undefined;
   if (typeof obj.clarification === 'string') {
@@ -778,12 +894,11 @@ Respond with valid JSON only:
     }
 
     try {
-      const jsonMatch = result.output.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      const parsed = extractJsonObjectFromAgentOutput(result.output) as { clear?: boolean; question?: string | null } | null;
+      if (!parsed || typeof parsed.clear !== 'boolean') {
         logger.debug(`${runner.name} clarification response had no JSON — trying next runner`);
         continue;
       }
-      const parsed = JSON.parse(jsonMatch[0]) as { clear: boolean; question?: string | null };
       if (!parsed.clear && parsed.question) {
         return parsed.question;
       }
@@ -1174,18 +1289,8 @@ ${context}
 Please implement the required changes. Focus on correctness and follow the existing code style in the project.`;
 }
 
-async function analyzeAndPlan(
-  task: Task,
-  context: string,
-  runners: AIRunner[]
-): Promise<ThinkingTaskPlan | null> {
-  const runner = runners.find((r) => r.isAvailable());
-  if (!runner) {
-    logger.error('No AI runner available for task analysis');
-    return null;
-  }
-
-  const analysisPrompt = `You are a senior software architect breaking down a development task into smaller, sequential implementation steps.
+export function buildThinkingAnalysisPrompt(task: Task, context: string): string {
+  return `You are a senior software architect breaking down a development task into smaller, sequential implementation steps.
 
 Task name: ${task.name}
 
@@ -1211,57 +1316,115 @@ Respond with valid JSON only — no markdown fences, no extra text:
 }
 
 Keep sub-tasks focused: 2-10 sub-tasks is ideal. Order them by dependency (foundation first).`;
+}
+
+function parseThinkingAnalysisObject(obj: Record<string, unknown>): ThinkingAnalysisDraft | null {
+  const rawSubtasks = Array.isArray(obj.subtasks) ? obj.subtasks : [];
+  const subtasks: ThinkingAnalysisDraft['subtasks'] = [];
+
+  for (const s of rawSubtasks) {
+    if (!s || typeof s !== 'object') continue;
+    const entry = s as { id?: unknown; title?: unknown; description?: unknown };
+    const title = typeof entry.title === 'string' ? entry.title.trim() : '';
+    const description = typeof entry.description === 'string' ? entry.description.trim() : '';
+    if (!title || !description) continue;
+
+    const draft: ThinkingAnalysisDraft['subtasks'][number] = { title, description };
+    if (typeof entry.id === 'number' || typeof entry.id === 'string') {
+      draft.id = entry.id;
+    }
+    subtasks.push(draft);
+  }
+
+  if (subtasks.length === 0) return null;
+
+  const taskSummary = typeof obj.taskSummary === 'string' ? obj.taskSummary.trim() : undefined;
+  const instructions = typeof obj.instructions === 'string' ? obj.instructions : undefined;
+
+  return {
+    ...(taskSummary ? { taskSummary } : {}),
+    ...(instructions !== undefined ? { instructions } : {}),
+    subtasks,
+  };
+}
+
+export function parseThinkingAnalysisResponse(output: string): ThinkingAnalysisDraft | null {
+  const objects = extractJsonObjectsFromAgentOutput(output);
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const parsed = parseThinkingAnalysisObject(objects[i]!);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function buildThinkingTaskPlan(task: Task, parsed: ThinkingAnalysisDraft): ThinkingTaskPlan {
+  const taskSummaryRaw = parsed.taskSummary?.trim() ?? '';
+  const plan: ThinkingTaskPlan = {
+    taskId: task.id,
+    taskName: task.name,
+    ...(taskSummaryRaw ? { taskSummary: taskSummaryRaw } : {}),
+    subtasks: parsed.subtasks.map((s, i) => ({
+      id: s.id ?? i + 1,
+      title: s.title,
+      description: s.description,
+      status: 'pending' as const,
+      attempts: 0,
+    })),
+  };
+
+  fs.writeFileSync(
+    taskInstructionsPath(task.id),
+    parsed.instructions || `# Implementation Plan: ${task.name}\n\nSee ${task.id}.aidev.task.json for sub-tasks.`,
+    'utf8',
+  );
+  writeTaskPlan(plan);
+
+  return plan;
+}
+
+async function analyzeAndPlan(
+  task: Task,
+  context: string,
+  runners: AIRunner[]
+): Promise<ThinkingTaskPlan | null> {
+  if (runners.every((r) => !r.isAvailable())) {
+    logger.error('No AI runner available for task analysis');
+    return null;
+  }
 
   logger.info('Analyzing task and creating implementation plan...');
-  const result = await runner.run(analysisPrompt);
-  if (!result.success) {
-    logger.error('Task analysis failed');
-    return null;
+  const parsed = await runAgentJsonAnalysis(
+    runners,
+    buildThinkingAnalysisPrompt(task, context),
+    parseThinkingAnalysisResponse,
+    'task analysis',
+  );
+  if (!parsed) return null;
+
+  return buildThinkingTaskPlan(task, parsed);
+}
+
+export function parseSplitSubtaskResponse(output: string): Array<{ title: string; description: string }> | null {
+  const objects = extractJsonObjectsFromAgentOutput(output);
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const obj = objects[i]!;
+    const rawSubtasks = Array.isArray(obj.subtasks) ? obj.subtasks : [];
+    if (rawSubtasks.length !== 2) continue;
+
+    const subtasks: Array<{ title: string; description: string }> = [];
+    for (const entry of rawSubtasks) {
+      if (!entry || typeof entry !== 'object') return null;
+      const row = entry as { title?: unknown; description?: unknown };
+      const title = typeof row.title === 'string' ? row.title.trim() : '';
+      const description = typeof row.description === 'string' ? row.description.trim() : '';
+      if (!title || !description) return null;
+      subtasks.push({ title, description });
+    }
+
+    return subtasks;
   }
 
-  try {
-    const jsonMatch = result.output.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      logger.error('Could not parse analysis response — no JSON found');
-      return null;
-    }
-    const parsed = JSON.parse(jsonMatch[0]) as {
-      taskSummary?: string;
-      instructions: string;
-      subtasks: Array<{ id: number | string; title: string; description: string }>;
-    };
-
-    if (!parsed.subtasks || parsed.subtasks.length === 0) {
-      logger.error('Analysis produced no sub-tasks');
-      return null;
-    }
-
-    const taskSummaryRaw = typeof parsed.taskSummary === 'string' ? parsed.taskSummary.trim() : '';
-    const plan: ThinkingTaskPlan = {
-      taskId: task.id,
-      taskName: task.name,
-      ...(taskSummaryRaw ? { taskSummary: taskSummaryRaw } : {}),
-      subtasks: parsed.subtasks.map((s, i) => ({
-        id: s.id ?? i + 1,
-        title: s.title,
-        description: s.description,
-        status: 'pending' as const,
-        attempts: 0,
-      })),
-    };
-
-    fs.writeFileSync(
-      taskInstructionsPath(task.id),
-      parsed.instructions || `# Implementation Plan: ${task.name}\n\nSee ${task.id}.aidev.task.json for sub-tasks.`,
-      'utf8'
-    );
-    writeTaskPlan(plan);
-
-    return plan;
-  } catch (err) {
-    logger.error(`Failed to parse analysis response: ${err}`);
-    return null;
-  }
+  return null;
 }
 
 export async function splitFailedSubtask(
@@ -1270,8 +1433,7 @@ export async function splitFailedSubtask(
   failedSubtask: SubTask,
   runners: AIRunner[]
 ): Promise<SubTask[] | null> {
-  const runner = runners.find((r) => r.isAvailable());
-  if (!runner) {
+  if (runners.every((r) => !r.isAvailable())) {
     logger.error('No AI runner available for sub-task split');
     return null;
   }
@@ -1322,50 +1484,21 @@ Respond with valid JSON only — no markdown fences, no extra text:
 Exactly two entries — no more, no fewer.`;
 
   logger.info(`Splitting failed sub-task ${formatSubtaskId(failedSubtask.id)} into two smaller steps...`);
-  const result = await runner.run(splitPrompt);
-  if (!result.success) {
-    logger.error('Sub-task split failed');
-    return null;
-  }
+  const parsed = await runAgentJsonAnalysis(
+    runners,
+    splitPrompt,
+    parseSplitSubtaskResponse,
+    'sub-task split',
+  );
+  if (!parsed) return null;
 
-  try {
-    const jsonMatch = result.output.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      logger.error('Could not parse split response — no JSON found');
-      return null;
-    }
-    const parsed = JSON.parse(jsonMatch[0]) as {
-      subtasks: Array<{ title?: string; description?: string }>;
-    };
-
-    if (!parsed.subtasks || parsed.subtasks.length !== 2) {
-      logger.error(`Split response must contain exactly 2 sub-tasks (got ${parsed.subtasks?.length ?? 0})`);
-      return null;
-    }
-
-    const newSubtasks: SubTask[] = [];
-    for (let i = 0; i < 2; i++) {
-      const entry = parsed.subtasks[i];
-      const title = (entry?.title || '').trim();
-      const description = (entry?.description || '').trim();
-      if (!title || !description) {
-        logger.error(`Split response sub-task ${i + 1} has empty title or description`);
-        return null;
-      }
-      newSubtasks.push({
-        id: `${failedSubtask.id}.${i + 1}`,
-        title,
-        description,
-        status: 'pending',
-        attempts: 0,
-      });
-    }
-
-    return newSubtasks;
-  } catch (err) {
-    logger.error(`Failed to parse split response: ${err}`);
-    return null;
-  }
+  return parsed.map((entry, i) => ({
+    id: `${failedSubtask.id}.${i + 1}`,
+    title: entry.title,
+    description: entry.description,
+    status: 'pending' as const,
+    attempts: 0,
+  }));
 }
 
 async function executeSubTask(
@@ -2307,56 +2440,33 @@ async function analyzeAndPlanNonCode(
   context: string,
   runners: AIRunner[]
 ): Promise<ThinkingTaskPlan | null> {
-  const runner = runners.find((r) => r.isAvailable());
-  if (!runner) {
+  if (runners.every((r) => !r.isAvailable())) {
     logger.error('No AI runner available for non-code task analysis');
     return null;
   }
 
-  const analysisPrompt = buildNonCodeAnalysisPrompt(task, context);
-
   logger.info('Analyzing non-code task and creating sub-task plan...');
-  const result = await runner.run(analysisPrompt);
-  if (!result.success) {
-    logger.error('Non-code task analysis failed');
-    return null;
-  }
+  const parsed = await runAgentJsonAnalysis(
+    runners,
+    buildNonCodeAnalysisPrompt(task, context),
+    parseThinkingAnalysisResponse,
+    'non-code task analysis',
+  );
+  if (!parsed) return null;
 
-  try {
-    const jsonMatch = result.output.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      logger.error('Could not parse non-code analysis response — no JSON found');
-      return null;
-    }
-    const parsed = JSON.parse(jsonMatch[0]) as {
-      taskSummary?: string;
-      subtasks: Array<{ id?: number | string; title: string; description: string }>;
-    };
-
-    if (!parsed.subtasks || parsed.subtasks.length === 0) {
-      logger.error('Non-code analysis produced no sub-tasks');
-      return null;
-    }
-
-    const taskSummaryRaw = typeof parsed.taskSummary === 'string' ? parsed.taskSummary.trim() : '';
-    const plan: ThinkingTaskPlan = {
-      taskId: task.id,
-      taskName: task.name,
-      ...(taskSummaryRaw ? { taskSummary: taskSummaryRaw } : {}),
-      subtasks: parsed.subtasks.map((s, i) => ({
-        id: s.id ?? i + 1,
-        title: s.title,
-        description: s.description,
-        status: 'pending' as const,
-        attempts: 0,
-      })),
-    };
-
-    return plan;
-  } catch (err) {
-    logger.error(`Failed to parse non-code analysis response: ${err}`);
-    return null;
-  }
+  const taskSummaryRaw = parsed.taskSummary?.trim() ?? '';
+  return {
+    taskId: task.id,
+    taskName: task.name,
+    ...(taskSummaryRaw ? { taskSummary: taskSummaryRaw } : {}),
+    subtasks: parsed.subtasks.map((s, i) => ({
+      id: s.id ?? i + 1,
+      title: s.title,
+      description: s.description,
+      status: 'pending' as const,
+      attempts: 0,
+    })),
+  };
 }
 
 async function implementNonCodeThinkingTask(

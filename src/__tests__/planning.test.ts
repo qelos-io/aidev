@@ -351,6 +351,19 @@ describe('parsePlanningResponse', () => {
     assert.ok(parsed !== null);
     assert.equal(parsed!.subtasks.length, 1);
   });
+
+  it('parses JSON when descriptions contain braces', () => {
+    const output = JSON.stringify({
+      clarification: null,
+      subtasks: [{
+        title: 'Update handler',
+        description: 'Match payloads like `{ "id": 1 }` in src/handler.ts.',
+      }],
+    });
+    const parsed = parsePlanningResponse(output);
+    assert.ok(parsed !== null);
+    assert.equal(parsed!.subtasks.length, 1);
+  });
 });
 
 // ─── implementPlanningTask: happy path ────────────────────────────────────────
