@@ -435,6 +435,7 @@ const VALID_AGENTS = [
   'codex',
   'cursor',
   'devin',
+  'opencode',
 ] as const;
 
 const agentTypeOptions = VALID_AGENTS.map((id) => ({ label: id, value: id }));
@@ -469,11 +470,24 @@ const AGENT_FIELDS: Record<string, KnownField[]> = {
   cursor: [],
   codex: [],
   antigravity: [],
+  opencode: [
+    {
+      key: 'OPENCODE_CONFIG_DIR',
+      help: 'Directory for OpenCode agents, commands, modes, and plugins.',
+      placeholder: '/path/to/config-directory',
+    },
+    {
+      key: 'OPENCODE_MODEL',
+      help: 'Model in provider/model format passed to `opencode run --model`.',
+      placeholder: 'anthropic/claude-sonnet-4-6',
+    },
+  ],
 };
 
 const agentCliHelp: Record<string, string> = {
   cursor: 'Uses the `agent` CLI — no extra env keys.',
   codex: 'Uses the `codex` CLI. Set OPENAI_API_KEY or run `codex login`.',
+  opencode: 'Uses the `opencode` CLI. Set OPENCODE_CONFIG_DIR for a custom config directory.',
   antigravity: 'Uses the `agy` or `antigravity` CLI — no extra env keys.',
 };
 

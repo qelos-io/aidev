@@ -326,6 +326,7 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 | `codex` | [OpenAI Codex CLI](https://github.com/openai/codex) installed and authenticated |
 | `cursor` | Cursor **Agent CLI** (`agent`) in PATH — see [Windows](#windows-cursor-agent-cli) below |
 | `devin` | [Devin CLI](https://docs.devin.ai/cli) installed and authenticated |
+| `opencode` | [OpenCode CLI](https://opencode.ai) installed (`npm install -g opencode-ai`); optional `OPENCODE_CONFIG_DIR` for custom config |
 
 ### Aider
 

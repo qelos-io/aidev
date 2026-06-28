@@ -194,7 +194,7 @@ export function loadConfig(customEnvPath?: string): Config {
     }
   }
 
-  const validAgents: AgentName[] = ['aider', 'antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'devin'];
+  const validAgents: AgentName[] = ['aider', 'antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'devin', 'opencode'];
   const agentsRaw = process.env.AGENTS || 'claude,cursor';
   const agents = agentsRaw
     .split(',')
