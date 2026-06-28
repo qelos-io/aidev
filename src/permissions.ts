@@ -234,6 +234,23 @@ async function validateCodexPermissions(
   logger.info('Codex: CLI found (codex exec, no additional permissions needed).');
 }
 
+// ── OpenCode ─────────────────────────────────────────────────────────────────
+
+async function validateOpencodePermissions(
+  _rl: readline.Interface,
+  _dir: string
+): Promise<void> {
+  if (!commandExists('opencode')) {
+    logger.warn(
+      'OpenCode CLI not found — install with: npm install -g opencode-ai. ' +
+      'Set OPENCODE_CONFIG_DIR to use a custom config directory.'
+    );
+    return;
+  }
+
+  logger.info('OpenCode: CLI found (opencode run, no additional permissions needed).');
+}
+
 // ── Public API ────────────────────────────────────────────────────────────
 
 export async function validateAgentPermissions(
@@ -250,6 +267,8 @@ export async function validateAgentPermissions(
       await validateAntigravityPermissions(rl, dir);
     } else if (agent === 'codex') {
       await validateCodexPermissions(rl, dir);
+    } else if (agent === 'opencode') {
+      await validateOpencodePermissions(rl, dir);
     } else if (agent === 'anthropic-sdk') {
       await validateAnthropicSdkPermissions(rl, dir);
     }

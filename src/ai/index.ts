@@ -7,6 +7,7 @@ import { ClaudeRunner } from './claude';
 import { CodexRunner } from './codex';
 import { CursorRunner } from './cursor';
 import { DevinRunner } from './devin';
+import { OpencodeRunner } from './opencode';
 import { logger } from '../logger';
 
 const registry: Record<string, AIRunner> = {
@@ -17,6 +18,7 @@ const registry: Record<string, AIRunner> = {
   codex: new CodexRunner(),
   cursor: new CursorRunner(),
   devin: new DevinRunner(),
+  opencode: new OpencodeRunner(),
 };
 
 export function createRunners(config: Config): AIRunner[] {

@@ -567,6 +567,12 @@ describe('loadConfig AGENTS parsing', () => {
     const config = loadConfig();
     assert.deepEqual(config.agents, ['claude', 'anthropic-sdk', 'cursor']);
   });
+
+  it('accepts opencode as a valid agent', () => {
+    writeEnv('AGENTS=opencode');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['opencode']);
+  });
 });
 
 // ─── parseAnthropicTokens ─────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import { ClaudeRunner } from '../ai/claude';
 import { CodexRunner } from '../ai/codex';
 import { CursorRunner } from '../ai/cursor';
 import { DevinRunner } from '../ai/devin';
+import { OpencodeRunner } from '../ai/opencode';
 import { createRunners } from '../ai/index';
 import { isWindows } from '../platform';
 import type { Config } from '../types';
@@ -447,6 +448,123 @@ describe('CodexRunner – failed tasks', () => {
     const result = await runner.run('test prompt');
 
     assert.equal(result.output, '');
+  });
+});
+
+// ─── OpencodeRunner ──────────────────────────────────────────────────────────
+
+describe('OpencodeRunner', () => {
+  it('isAvailable returns boolean (depends on opencode CLI in PATH)', () => {
+    const runner = new OpencodeRunner();
+    assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+describe('OpencodeRunner – failed tasks', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('returns success=false when opencode exits with non-zero status', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'opencode failed' });
+    spyLogger();
+
+    const runner = new OpencodeRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'opencode failed');
+  });
+
+  it('logs a warning with exit status on failure', async () => {
+    mockSpawnSync({ status: 2, stdout: '', stderr: 'auth error' });
+    const spies = spyLogger();
+
+    const runner = new OpencodeRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(warnCalls.some((msg) => msg?.includes('status 2')));
+  });
+
+  it('returns empty output on failure', async () => {
+    mockSpawnSync({ status: 1, stdout: '', stderr: 'err' });
+    spyLogger();
+
+    const runner = new OpencodeRunner();
+    const result = await runner.run('test prompt');
+
+    assert.equal(result.output, '');
+  });
+});
+
+describe('OpencodeRunner – successful tasks', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('invokes opencode run with --dangerously-skip-permissions and --dir', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: 'done', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    const runner = new OpencodeRunner();
+    const result = await runner.run('Hello world');
+
+    assert.equal(result.success, true);
+    assert.equal(result.output, 'done');
+    const args = argvSnapshots[0] ?? [];
+    assert.equal(args[0], 'run');
+    assert.ok(args.includes('--dangerously-skip-permissions'));
+    assert.ok(args.includes('--dir'));
+    assert.equal(args[args.length - 1], 'Hello world');
+  });
+
+  it('passes --model when OPENCODE_MODEL is set', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: '', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    const prev = process.env.OPENCODE_MODEL;
+    process.env.OPENCODE_MODEL = 'anthropic/claude-sonnet-4-6';
+    try {
+      await new OpencodeRunner().run('do it');
+    } finally {
+      if (prev === undefined) delete process.env.OPENCODE_MODEL;
+      else process.env.OPENCODE_MODEL = prev;
+    }
+
+    const args = argvSnapshots[0] ?? [];
+    assert.ok(args.includes('--model'));
+    assert.ok(args.includes('anthropic/claude-sonnet-4-6'));
+  });
+
+  it('appends notes to the prompt as "Additional context"', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: '', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    await new OpencodeRunner().run('implement X', 'watch out for Y');
+
+    const prompt = argvSnapshots[0]?.[argvSnapshots[0].length - 1] ?? '';
+    assert.ok(prompt.includes('Additional context:'));
+    assert.ok(prompt.includes('watch out for Y'));
   });
 });
 

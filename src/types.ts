@@ -80,7 +80,7 @@ export interface Comment {
   date: number; // epoch ms
 }
 
-export type AgentName = 'aider' | 'antigravity' | 'anthropic-sdk' | 'claude' | 'codex' | 'cursor' | 'devin';
+export type AgentName = 'aider' | 'antigravity' | 'anthropic-sdk' | 'claude' | 'codex' | 'cursor' | 'devin' | 'opencode';
 
 export interface Config {
   provider: string;
