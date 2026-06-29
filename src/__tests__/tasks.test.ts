@@ -383,7 +383,70 @@ describe('processLocalTasks', () => {
     const remaining = readTasksFile();
     assert.equal(remaining.length, 1);
     assert.ok(remaining[0].id);
-    assert.match(remaining[0].id, /^[0-9a-f-]{36}$/);
+    assert.match(remaining[0].id!, /^[0-9a-f-]{36}$/);
+  });
+
+  it('pushes recurring tasks whose lastPushedAt is weeks ago (regression: 48h lookback)', async () => {
+    const weeksAgo = Date.now() - 21 * 24 * 60 * 60 * 1000;
+    const tasks: LocalTask[] = [
+      {
+        id: '99b02144-2669-41f6-a8c5-1dd684eff9ac',
+        title: 'post new linkedin post',
+        description: 'Publish draft',
+        type: 'non-code',
+        priority: 3,
+        tags: ['social'],
+        listId: '901518824337',
+        cron: '30 11 */2 * *',
+        lastPushedAt: weeksAgo,
+      },
+      {
+        title: 'write a post about given subjects',
+        description: 'save to drafts',
+        type: 'non-code',
+        priority: 3,
+        tags: ['social'],
+        listId: '901518824337',
+        cron: '30 8 */4 * *',
+        lastPushedAt: weeksAgo,
+      },
+    ];
+    writeTasksFile(tasks);
+    const code = stubProvider();
+    const nonCode = stubProvider();
+
+    const result = await processLocalTasks(
+      cfg({ clickupTag: 'code-tag', nonCodeTag: 'nc-tag' }),
+      code,
+      nonCode,
+    );
+
+    assert.deepEqual(result, { pushed: 2, skipped: 0 });
+    assert.equal(nonCode.calls.length, 2);
+    assert.equal(code.calls.length, 0);
+    assert.equal(nonCode.calls[0].listId, '901518824337');
+    assert.deepEqual(nonCode.calls[0].tags, ['nc-tag', 'social']);
+
+    const remaining = readTasksFile();
+    assert.equal(remaining.length, 2);
+    assert.ok(remaining[0].lastPushedAt! > weeksAgo);
+    assert.ok(remaining[1].lastPushedAt! > weeksAgo);
+    assert.match(remaining[1].id!, /^[0-9a-f-]{36}$/);
+  });
+
+  it('removes a one-shot task that had no id after a successful push', async () => {
+    const task: LocalTask = {
+      title: 'One shot',
+      description: 'do it',
+      type: 'code',
+    };
+    writeTasksFile([task]);
+    const provider = stubProvider();
+
+    const result = await processLocalTasks(cfg(), provider);
+
+    assert.deepEqual(result, { pushed: 1, skipped: 0 });
+    assert.deepEqual(readTasksFile(), []);
   });
 
   it('processes a mix of success and failure: pushes successes, retains failures', async () => {
