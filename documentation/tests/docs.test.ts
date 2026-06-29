@@ -1,9 +1,18 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { providers } from '../.vitepress/data/providers';
 import { agents } from '../.vitepress/data/agents';
 import { mount } from '@vue/test-utils';
 import ProviderGrid from '../.vitepress/theme/components/ProviderGrid.vue';
 import AgentGrid from '../.vitepress/theme/components/AgentGrid.vue';
+
+const publicDir = path.join(__dirname, '..', 'public');
+
+function resolveLocalIcon(icon: string): string | undefined {
+  if (!icon.startsWith('/icons/')) return undefined;
+  return path.join(publicDir, icon.slice('/icons/'.length));
+}
 
 describe('providers data', () => {
   it('lists all seven implemented providers', () => {
@@ -16,6 +25,8 @@ describe('providers data', () => {
   it('assigns an icon to every provider', () => {
     for (const provider of providers) {
       expect(provider.icon.length).toBeGreaterThan(0);
+      const localPath = resolveLocalIcon(provider.icon);
+      if (localPath) expect(fs.existsSync(localPath)).toBe(true);
     }
   });
 });
@@ -31,6 +42,8 @@ describe('agents data', () => {
   it('assigns an icon to every agent', () => {
     for (const agent of agents) {
       expect(agent.icon.length).toBeGreaterThan(0);
+      const localPath = resolveLocalIcon(agent.icon);
+      if (localPath) expect(fs.existsSync(localPath)).toBe(true);
     }
   });
 });
