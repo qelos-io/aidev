@@ -17,6 +17,80 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 | `devin` | [Devin CLI](https://docs.devin.ai/cli) installed and authenticated |
 | `opencode` | [OpenCode CLI](https://opencode.ai) installed (`npm install -g opencode-ai`) |
 
+## Claude CLI
+
+The `claude` agent shells out to the [Claude CLI](https://github.com/anthropics/claude-code). Install it and authenticate (`claude login` or set credentials via your environment).
+
+aidev runs:
+
+```bash
+claude -p "<prompt>" --dangerously-skip-permissions --model <model>
+```
+
+If the chosen model is unavailable on your plan, aidev retries with the CLI default and then `--model auto`.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `CLAUDE_MODEL` | `opusplan` | Model passed to `claude --model`. `opusplan` routes planning to opus and coding to sonnet, saving tokens vs. running opus end-to-end. |
+
+```bash
+# .env.aidev
+AGENTS=claude,cursor
+CLAUDE_MODEL=opusplan
+```
+
+## Cursor
+
+The `cursor` agent uses the Cursor **Agent CLI** (`agent` binary) — not the Cursor IDE (`cursor.exe`). aidev passes the prompt on stdin and runs headless with auto-approval flags.
+
+```bash
+agent --print --force --trust --workspace <cwd> --model auto
+```
+
+### Windows: Cursor Agent CLI
+
+On Windows, the Cursor IDE (`cursor.exe`) is separate from the headless Agent CLI. Install it in PowerShell:
+
+```powershell
+irm 'https://cursor.com/install?win32=true' | iex
+```
+
+Then ensure `agent` is on your PATH and run `agent --version` to confirm.
+
+### Environment variables
+
+Cursor has no aidev-specific env vars. Authentication and model selection are handled by the `agent` CLI itself.
+
+```bash
+AGENTS=cursor
+```
+
+## Anthropic SDK
+
+The `anthropic-sdk` agent runs Claude **in-process** via [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) instead of shelling out to the `claude` CLI. The SDK package must be installed in the project (it ships as a dependency of aidev).
+
+Because the SDK uses the `claude_code` system prompt preset with `cwd` set to the project root, it automatically picks up `.claude/skills`, `.claude/commands`, and `.claude/agents` from the repo.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | Single key or comma-separated pool; the runner rotates round-robin across `run()` calls and retries |
+| `ANTHROPIC_BASE_URL` | — | Optional API base URL override |
+| `ANTHROPIC_MODEL` | `claude-opus-4-6` | Model id passed to the SDK |
+| `ANTHROPIC_SDK_MAX_RETRIES` | `3` | Retries after transient SDK errors (connection drops, mid-stream failures). Set to `0` to disable. |
+
+```bash
+AGENTS=anthropic-sdk
+ANTHROPIC_API_KEY=sk-ant-key-1,sk-ant-key-2
+ANTHROPIC_MODEL=claude-opus-4-6
+ANTHROPIC_SDK_MAX_RETRIES=3
+```
+
+`ANTHROPIC_MODEL` is separate from `CLAUDE_MODEL` so the SDK runner and Claude CLI runner can target different models.
+
 ## Aider
 
 [aider](https://aider.chat) is an open-source AI pair programming tool that connects to many LLMs. Install it and set an API key for your preferred model:
@@ -29,22 +103,109 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 ```
 
-Pass extra CLI flags via `AIDER_ARGS` in `.env.aidev`:
+aidev runs:
 
 ```bash
+aider --message "<prompt>" --yes-always <extra-args>
+```
+
+Aider inherits `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from the environment automatically.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `AIDER_ARGS` | — | Extra CLI flags passed to aider (space-separated) |
+
+```bash
+AGENTS=aider,claude
 AIDER_ARGS=--model gpt-4o --no-auto-commits
 AIDER_ARGS=--model claude-sonnet-4-6 --no-auto-commits
 ```
 
-## Windows: Cursor Agent CLI
+## Codex
 
-On Windows, the Cursor IDE (`cursor.exe`) is separate from the headless Agent CLI. Install it in PowerShell:
+The `codex` agent uses the [OpenAI Codex CLI](https://github.com/openai/codex) in non-interactive mode.
 
-```powershell
-irm 'https://cursor.com/install?win32=true' | iex
+```bash
+npm install -g @openai/codex
+codex login   # or set OPENAI_API_KEY
 ```
 
-Then ensure `agent` is on your PATH and run `agent --version` to confirm.
+aidev runs:
+
+```bash
+codex exec --ask-for-approval never --sandbox workspace-write --cd <cwd> "<prompt>"
+```
+
+### Environment variables
+
+Codex has no aidev-specific env vars. Set `OPENAI_API_KEY` or authenticate via `codex login`.
+
+```bash
+AGENTS=codex
+```
+
+## OpenCode
+
+The `opencode` agent uses the [OpenCode CLI](https://opencode.ai) for non-interactive agent runs.
+
+```bash
+npm install -g opencode-ai
+```
+
+aidev runs:
+
+```bash
+opencode run --dangerously-skip-permissions --dir <cwd> [--model <model>] "<prompt>"
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENCODE_CONFIG_DIR` | — | Custom config directory for agents, commands, modes, and plugins |
+| `OPENCODE_MODEL` | — | Model in `provider/model` format (e.g. `anthropic/claude-sonnet-4-6`) |
+
+```bash
+AGENTS=opencode
+OPENCODE_CONFIG_DIR=/path/to/my/config-directory
+OPENCODE_MODEL=anthropic/claude-sonnet-4-6
+```
+
+## Devin
+
+The `devin` agent uses the [Devin CLI](https://docs.devin.ai/cli) in single-turn print mode. Install and authenticate per Devin's docs.
+
+aidev writes the prompt to a temp file (to avoid command-line length limits) and runs:
+
+```bash
+devin -p --permission-mode bypass --prompt-file <tmpfile>
+```
+
+### Environment variables
+
+Devin has no aidev-specific env vars. Authentication is handled by the `devin` CLI.
+
+```bash
+AGENTS=devin
+```
+
+## Antigravity
+
+The `antigravity` agent uses Google's [Antigravity](https://antigravity.google/download) CLI (`agy` or `antigravity` on some installs). aidev passes the prompt on stdin and opens the current workspace.
+
+```bash
+agy --agent --print .
+```
+
+### Environment variables
+
+Antigravity has no aidev-specific env vars.
+
+```bash
+AGENTS=antigravity,claude
+```
 
 ## Configure agent order
 
@@ -60,4 +221,9 @@ AGENTS=aider,claude
 
 # Antigravity first, then Claude
 AGENTS=antigravity,claude
+
+# In-process SDK with CLI fallback
+AGENTS=anthropic-sdk,claude,cursor
 ```
+
+See also [Behaviour configuration](/guide/configuration/behaviour) for the `AGENTS` variable reference.
