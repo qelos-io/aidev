@@ -46,7 +46,7 @@ case 'myprovider':
 
 3. Add any new config keys to `src/types.ts` (`Config` interface) and `src/config.ts`.
 
-4. Document the new env vars in `.env.aidev.example` and `README.md`.
+4. Document the new env vars in `.env.aidev.example` and the docs site under `documentation/`.
 
 ## Adding a New AI Runner
 
@@ -74,5 +74,5 @@ export class MyRunner implements AIRunner {
 ## Pull Request Guidelines
 
 - One feature/fix per PR
-- Update README.md if you add new config vars or commands
+- Update the docs site (`documentation/`) if you add new config vars or commands
 - Ensure `npm run build` passes before submitting
