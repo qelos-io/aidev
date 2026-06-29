@@ -38,7 +38,7 @@ export const agents: AgentInfo[] = [
   {
     id: 'codex',
     name: 'Codex',
-    icon: '/icons/codex.webp',
+    icon: '/icons/codex.svg',
     requires: 'OpenAI Codex CLI installed and authenticated',
     docsUrl: 'https://github.com/openai/codex',
   },
@@ -59,7 +59,7 @@ export const agents: AgentInfo[] = [
   {
     id: 'opencode',
     name: 'OpenCode',
-    icon: '/icons/opencode.png',
+    icon: '/icons/opencode.svg',
     requires: 'OpenCode CLI (npm install -g opencode-ai)',
     docsUrl: 'https://opencode.ai',
   },

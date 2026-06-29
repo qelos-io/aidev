@@ -41,7 +41,7 @@ export const providers: ProviderInfo[] = [
     name: 'Monday.com',
     status: 'implemented',
     initSupport: true,
-    icon: 'https://cdn.simpleicons.org/mondaydotcom/FF3D57',
+    icon: '/icons/monday.svg',
     description: 'Work items from a Monday.com board.',
     blocking: 'native',
   },

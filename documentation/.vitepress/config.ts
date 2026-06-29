@@ -5,10 +5,10 @@ export default defineConfig({
   description: 'Turn tasks into merged code — automatically.',
   base: '/aidev/',
   head: [
-    ['link', { rel: 'icon', href: '/aidev/icons/aider.svg' }],
+    ['link', { rel: 'icon', href: '/aidev/icons/aidev.svg' }],
   ],
   themeConfig: {
-    logo: '/icons/aider.svg',
+    logo: '/icons/aidev.svg',
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Providers', link: '/guide/providers' },
