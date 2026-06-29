@@ -104,7 +104,7 @@ export async function processLocalTasks(
   }
 
   if (modified) {
-    const remaining = tasks.filter((t) => !toRemove.has(t.id));
+    const remaining = tasks.filter((t) => !t.id || !toRemove.has(t.id));
     writeTasksFile(remaining);
   }
 
