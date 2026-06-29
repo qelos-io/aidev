@@ -28,3 +28,11 @@
 .vp-doc .custom-block.tip {
   border-color: color-mix(in srgb, var(--vp-c-brand-1) 35%, transparent);
 }
+
+.aidev-footer-logo {
+  display: block;
+  margin: 0 auto 12px;
+  max-height: 48px;
+  width: auto;
+  object-fit: contain;
+}

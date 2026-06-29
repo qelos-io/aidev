@@ -5,6 +5,11 @@ hero:
   name: aidev
   text: Turn tasks into merged code — automatically.
   tagline: Poll your task manager, run your AI agent, push a branch, and move work to review — hands-free.
+  image:
+    src: /icons/aidev-hero.png
+    alt: aidev
+    width: 480
+    height: 240
   actions:
     - theme: brand
       text: Get started

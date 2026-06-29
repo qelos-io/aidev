@@ -5,10 +5,10 @@ export default defineConfig({
   description: 'Turn tasks into merged code — automatically.',
   base: '/aidev/',
   head: [
-    ['link', { rel: 'icon', href: '/aidev/icons/aidev.svg' }],
+    ['link', { rel: 'icon', href: '/aidev/icons/favicon-32.png', type: 'image/png' }],
   ],
   themeConfig: {
-    logo: '/icons/aidev.svg',
+    logo: '/icons/aidev-nav.png',
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Providers', link: '/guide/providers' },
@@ -74,7 +74,7 @@ export default defineConfig({
       text: 'Edit this page on GitHub',
     },
     footer: {
-      message: 'Released under the MIT License.',
+      message: '<img src="/aidev/icons/aidev-nav.png" alt="aidev" width="140" height="48" class="aidev-footer-logo" />Released under the MIT License.',
       copyright: 'Copyright © Qelos',
     },
   },
