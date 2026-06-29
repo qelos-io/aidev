@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { Config, AgentName } from './types';
 import { detectRemote } from './git';
+import { logger } from './logger';
 
 export function mergeNullDelimited(stdout: string): void {
   for (const entry of stdout.split('\0')) {
@@ -196,13 +197,16 @@ export function loadConfig(customEnvPath?: string): Config {
 
   const validAgents: AgentName[] = ['aider', 'antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'devin', 'opencode'];
   const agentsRaw = process.env.AGENTS || 'claude,cursor';
-  const agents = agentsRaw
+  let agents = agentsRaw
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean) as AgentName[];
   const invalid = agents.filter((a) => !validAgents.includes(a));
   if (invalid.length) {
-    throw new Error(`Invalid agent(s): ${invalid.join(', ')}. Valid: ${validAgents.join(', ')}`);
+    logger.warn(
+      `Ignoring unknown agent(s): ${invalid.join(', ')}. Valid: ${validAgents.join(', ')}`,
+    );
+    agents = agents.filter((a) => validAgents.includes(a));
   }
   if (agents.length === 0) {
     throw new Error(`AGENTS must contain at least one agent. Valid: ${validAgents.join(', ')}`);

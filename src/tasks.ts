@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Config, LocalTask } from './types';
@@ -41,6 +42,18 @@ function resolveProvider(
   return codeProvider;
 }
 
+function ensureTaskId(task: LocalTask): string {
+  if (!task.id) {
+    task.id = crypto.randomUUID();
+  }
+  return task.id;
+}
+
+function keepQueuedTask(task: LocalTask, toRemove: Set<string>): boolean {
+  const id = task.id;
+  return id === undefined || !toRemove.has(id);
+}
+
 export interface ProcessLocalTasksResult {
   pushed: number;
   skipped: number;
@@ -60,6 +73,10 @@ export async function processLocalTasks(
   const toRemove = new Set<string>();
 
   for (const task of tasks) {
+    const hadId = Boolean(task.id);
+    const taskId = ensureTaskId(task);
+    if (!hadId) modified = true;
+
     if (task.cron) {
       if (!shouldCronFire(task.cron, task.lastPushedAt)) {
         skipped++;
@@ -88,7 +105,7 @@ export async function processLocalTasks(
         task.lastPushedAt = Date.now();
         modified = true;
       } else {
-        toRemove.add(task.id);
+        toRemove.add(taskId);
         modified = true;
       }
     } catch (err) {
@@ -98,7 +115,7 @@ export async function processLocalTasks(
   }
 
   if (modified) {
-    const remaining = tasks.filter((t) => !toRemove.has(t.id));
+    const remaining = tasks.filter((t) => keepQueuedTask(t, toRemove));
     writeTasksFile(remaining);
   }
 
