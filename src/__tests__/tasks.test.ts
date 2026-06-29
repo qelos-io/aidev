@@ -367,6 +367,25 @@ describe('processLocalTasks', () => {
     assert.equal(remaining[0].lastPushedAt, undefined);
   });
 
+  it('assigns an id to cron tasks missing one and persists it', async () => {
+    const task: LocalTask = {
+      title: 'No id yet',
+      description: '',
+      type: 'code',
+      cron: '17 3 1 1 *',
+      lastPushedAt: Date.now(),
+    };
+    writeTasksFile([task]);
+    const provider = stubProvider();
+
+    await processLocalTasks(cfg(), provider);
+
+    const remaining = readTasksFile();
+    assert.equal(remaining.length, 1);
+    assert.ok(remaining[0].id);
+    assert.match(remaining[0].id, /^[0-9a-f-]{36}$/);
+  });
+
   it('processes a mix of success and failure: pushes successes, retains failures', async () => {
     const tasks: LocalTask[] = [
       { id: 'ok', title: 'ok', description: '', type: 'code' },
@@ -486,5 +505,21 @@ describe('tasksPushCommand', () => {
     assert.equal(remaining.length, 1);
     assert.equal(remaining[0].id, 'cr');
     assert.ok(typeof remaining[0].lastPushedAt === 'number');
+  });
+
+  it('still publishes local tasks when AGENTS contains a removed agent name', async () => {
+    process.env.AGENTS = 'cursor,windsurf,claude';
+    const tasks: LocalTask[] = [
+      { id: 'a', title: 'Push me', description: 'body', type: 'code' },
+    ];
+    writeTasksFile(tasks);
+
+    await tasksPushCommand();
+
+    const openDir = path.join(tmpDir, '.aidev', 'tasks', 'open');
+    assert.ok(fs.existsSync(openDir), 'open folder should exist');
+    const created = fs.readdirSync(openDir).filter((f) => f.endsWith('.md'));
+    assert.equal(created.length, 1);
+    assert.deepEqual(readTasksFile(), []);
   });
 });

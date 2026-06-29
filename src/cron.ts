@@ -75,7 +75,7 @@ export function cronMatchesDate(fields: CronFields, date: Date): boolean {
  * and now.  If `lastPushedAt` is undefined the task has never been pushed, so
  * the answer is always true.
  *
- * Scans minute-by-minute from (lastPushedAt + 1 min) to now, capped at 48 h.
+ * Scans minute-by-minute from (lastPushedAt + 1 min) to now.
  */
 export function shouldCronFire(expr: string, lastPushedAt?: number): boolean {
   if (lastPushedAt === undefined) return true;
@@ -85,10 +85,7 @@ export function shouldCronFire(expr: string, lastPushedAt?: number): boolean {
   now.setSeconds(0, 0);
   const nowMs = now.getTime();
 
-  const MAX_LOOKBACK = 48 * 60 * 60 * 1000;
-  const startMs = Math.max(lastPushedAt + 60_000, nowMs - MAX_LOOKBACK);
-
-  const startDate = new Date(startMs);
+  const startDate = new Date(lastPushedAt + 60_000);
   startDate.setSeconds(0, 0);
 
   for (let ts = startDate.getTime(); ts <= nowMs; ts += 60_000) {

@@ -1,10 +1,11 @@
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { sourceShellProfile, mergeNullDelimited, applyEnvFiles, resolveEnvPath, loadConfig, parseAnthropicTokens, pickNextToken, envFileKeys, clearEnvFiles } from '../config';
+import { logger } from '../logger';
 
 // ─── mergeNullDelimited ────────────────────────────────────────────────────────
 
@@ -530,9 +531,16 @@ describe('loadConfig AGENTS parsing', () => {
     assert.deepEqual(config.agents, ['cursor', 'devin', 'claude']);
   });
 
-  it('throws on invalid agent name', () => {
-    writeEnv('AGENTS=cursor,invalid_agent');
-    assert.throws(() => loadConfig(), /Invalid agent/);
+  it('filters invalid agent names and keeps valid ones', () => {
+    const warnCalls: string[] = [];
+    mock.method(logger, 'warn', (m: string) => {
+      warnCalls.push(m);
+    });
+    writeEnv('AGENTS=cursor,invalid_agent,claude');
+    const config = loadConfig();
+    assert.deepEqual(config.agents, ['cursor', 'claude']);
+    assert.ok(warnCalls.some((m) => m.includes('invalid_agent')));
+    mock.restoreAll();
   });
 
   it('falls back to default when AGENTS is empty string (falsy)', () => {

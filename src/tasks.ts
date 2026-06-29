@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Config, LocalTask } from './types';
@@ -60,6 +61,11 @@ export async function processLocalTasks(
   const toRemove = new Set<string>();
 
   for (const task of tasks) {
+    if (!task.id) {
+      task.id = crypto.randomUUID();
+      modified = true;
+    }
+
     if (task.cron) {
       if (!shouldCronFire(task.cron, task.lastPushedAt)) {
         skipped++;

@@ -44,7 +44,7 @@ export interface DashboardCounts {
 }
 
 export interface LocalTask {
-  id: string;
+  id?: string;
   title: string;
   description: string;
   type: 'code' | 'non-code';
