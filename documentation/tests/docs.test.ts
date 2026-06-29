@@ -11,7 +11,7 @@ const publicDir = path.join(__dirname, '..', 'public');
 
 function resolveLocalIcon(icon: string): string | undefined {
   if (!icon.startsWith('/icons/')) return undefined;
-  return path.join(publicDir, icon.slice('/icons/'.length));
+  return path.join(publicDir, icon.slice(1));
 }
 
 describe('providers data', () => {
