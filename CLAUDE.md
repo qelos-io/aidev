@@ -1,5 +1,9 @@
 # aidev — Claude Project Rules
 
+## Naming
+- **aidev** is THIS PRODUCT (the CLI tool in this repo).
+- **aider** is a separate CLI tool that is one of the AI agents this product supports (see `src/ai/`). Do not confuse the two.
+
 ## Build & Run
 ```bash
 npm run build          # tsc + chmod +x dist/cli.js

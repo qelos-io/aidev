@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { withBase } from 'vitepress';
 import { providers, type ProviderInfo } from '../../data/providers';
 
 defineProps<{
@@ -32,7 +33,7 @@ function blockingLabel(blocking: ProviderInfo['blocking']): string {
       class="icon-card"
       :class="{ highlight: highlight === provider.id }"
     >
-      <img :src="provider.icon" :alt="`${provider.name} logo`" class="icon-card__logo" loading="lazy" />
+      <img :src="withBase(provider.icon)" :alt="`${provider.name} logo`" class="icon-card__logo" loading="lazy" />
       <div class="icon-card__body">
         <strong>{{ provider.name }}</strong>
         <p>{{ provider.description }}</p>

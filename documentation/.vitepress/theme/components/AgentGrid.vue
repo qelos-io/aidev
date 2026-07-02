@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { withBase } from 'vitepress';
 import { agents } from '../../data/agents';
 </script>
 
@@ -12,7 +13,7 @@ import { agents } from '../../data/agents';
       target="_blank"
       rel="noopener noreferrer"
     >
-      <img :src="agent.icon" :alt="`${agent.name} logo`" class="icon-card__logo" loading="lazy" />
+      <img :src="withBase(agent.icon)" :alt="`${agent.name} logo`" class="icon-card__logo" loading="lazy" />
       <div class="icon-card__body">
         <strong>{{ agent.name }}</strong>
         <code class="agent-id">{{ agent.id }}</code>
