@@ -5,12 +5,13 @@ import { resolve } from 'node:path';
 export default defineConfig({
   plugins: [vue()],
   test: {
-    environment: 'jsdom',
+    environment: 'happy-dom',
     include: ['tests/**/*.test.ts'],
   },
   resolve: {
-    alias: {
-      '@': resolve(__dirname, '.vitepress'),
-    },
+    alias: [
+      { find: '@', replacement: resolve(__dirname, '.vitepress') },
+      { find: /^vitepress$/, replacement: resolve(__dirname, 'tests/mocks/vitepress.ts') },
+    ],
   },
 });
