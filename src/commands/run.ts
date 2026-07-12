@@ -23,6 +23,14 @@ import {
 import { buildCompressedContext } from '../sessions';
 import { resolveDoneStatus } from './accepted';
 import { collectSecrets, sanitizeTaskForSafeMode } from '../safeMode';
+import {
+  checkImplementationStillActive,
+  runRunnerWithStatusWatch,
+} from '../statusWatch';
+import {
+  getOpenStatus,
+  getPendingStatus,
+} from '../taskStatus';
 
 function applySafeMode(task: Task, context: string, config: Config): { task: Task; context: string } {
   if (!config.safeMode) return { task, context };
@@ -31,27 +39,67 @@ function applySafeMode(task: Task, context: string, config: Config): { task: Tas
   return { task: { ...task, ...sanitized.task }, context: sanitized.context };
 }
 
+async function handleImplementationStoppedByStatus(
+  task: Task,
+  reason: string,
+  config: Config,
+  provider: TaskProvider,
+  hooks: AidevHooks,
+  vm: HookVM | undefined,
+  branchName?: string,
+  branchExists?: boolean,
+): Promise<void> {
+  logger.warn(`Stopping implementation: ${reason}`);
+  git.discardWorkingChanges();
+
+  if (branchName && branchExists === false) {
+    git.deleteBranch(branchName);
+  }
+
+  try {
+    await postCommentWithHooks(
+      task,
+      `${config.commentPrefix} Implementation stopped: ${reason}. Uncommitted changes were discarded.`,
+      config, provider, hooks, vm
+    );
+  } catch { /* ignore */ }
+}
+
+async function ensureImplementationStillActive(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  hooks: AidevHooks,
+  vm: HookVM | undefined,
+  branchName?: string,
+  branchExists?: boolean,
+): Promise<boolean> {
+  const check = await checkImplementationStillActive(provider, task.id, config);
+  if (check.active) return true;
+
+  await handleImplementationStoppedByStatus(
+    task,
+    check.reason,
+    config,
+    provider,
+    hooks,
+    vm,
+    branchName,
+    branchExists,
+  );
+  return false;
+}
+
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete', 'resolved', 'completed']);
 const NO_PRIORITY = Number.MAX_SAFE_INTEGER;
 const SLEEPING_MARKER = 'machine appears to be asleep';
 export const DEFAULT_TRIGGER_WORD = 'aidev-continue';
 
-export function getPendingStatus(config: Config): string {
-  const p = (config.provider || 'clickup').toLowerCase();
-  if (p === 'jira') return config.jiraPendingStatus;
-  if (p === 'linear') return config.linearPendingStatus;
-  if (p === 'notion') return config.notionPendingStatus;
-  if (p === 'trello') return config.trelloPendingStatus;
-  return config.clickupPendingStatus;
-}
-
-export function getOpenStatus(config: Config): string {
-  const p = (config.provider || 'clickup').toLowerCase();
-  if (p === 'jira') return 'open';
-  if (p === 'linear') return 'open';
-  if (p === 'trello') return config.trelloOpenStatus || 'open';
-  return config.clickupOpenStatus || 'open';
-}
+export {
+  getPendingStatus,
+  getOpenStatus,
+  getInProgressStatus,
+} from '../taskStatus';
 
 export function getInReviewStatus(config: Config): string {
   const p = (config.provider || 'clickup').toLowerCase();
@@ -60,11 +108,6 @@ export function getInReviewStatus(config: Config): string {
   if (p === 'notion') return config.notionInReviewStatus;
   if (p === 'trello') return config.trelloInReviewStatus;
   return config.clickupInReviewStatus;
-}
-
-/** Semantic status written when aidev starts implementing a task. */
-export function getInProgressStatus(_config: Config): string {
-  return 'in progress';
 }
 
 export type RunFilter = 'all' | 'open' | 'pending' | 'review';
@@ -256,6 +299,7 @@ async function runAgentJsonAnalysis<T>(
   prompt: string,
   parse: (output: string) => T | null,
   label: string,
+  watch?: { provider: TaskProvider; taskId: string; config: Config },
 ): Promise<T | null> {
   let previousNotes = '';
 
@@ -263,7 +307,12 @@ async function runAgentJsonAnalysis<T>(
     if (!runner.isAvailable()) continue;
 
     logger.info(`Running ${runner.name} for ${label}...`);
-    const result = await runner.run(prompt, previousNotes || undefined);
+    const result = watch
+      ? await runRunnerWithStatusWatch(runner, prompt, previousNotes || undefined, watch.provider, watch.taskId, watch.config)
+      : await runner.run(prompt, previousNotes || undefined);
+    if ('stoppedByStatus' in result && result.stoppedByStatus) {
+      return null;
+    }
     if (!result.success) {
       logger.warn(`${runner.name} ${label} failed — trying next runner`);
       previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
@@ -1003,7 +1052,24 @@ async function resolveConflictsWithAI(
       if (!runner.isAvailable()) continue;
 
       logger.info(`Running ${runner.name} to resolve merge conflicts...`);
-      const result = await runner.run(prompt, previousNotes || undefined);
+      const result = await runRunnerWithStatusWatch(
+        runner, prompt, previousNotes || undefined, provider, task.id, config,
+      );
+
+      if (result.stoppedByStatus) {
+        git.abortMerge();
+        await handleImplementationStoppedByStatus(
+          task,
+          result.stopReason || 'task status changed externally',
+          config,
+          provider,
+          hooks,
+          vm,
+          branchName,
+          true,
+        );
+        return false;
+      }
 
       if (result.success && !git.hasChanges()) {
         logger.warn(`${runner.name} made no changes to resolve conflicts — trying next runner`);
@@ -1205,7 +1271,23 @@ async function implementTask(
     }
 
     logger.info(`Running ${runner.name}...`);
-    const result = await runner.run(implementPrompt, previousNotes || undefined);
+    const result = await runRunnerWithStatusWatch(
+      runner, implementPrompt, previousNotes || undefined, provider, task.id, config,
+    );
+
+    if (result.stoppedByStatus) {
+      await handleImplementationStoppedByStatus(
+        task,
+        result.stopReason || 'task status changed externally',
+        config,
+        provider,
+        hooks,
+        vm,
+        branchName,
+        branchExists,
+      );
+      return;
+    }
 
     if (result.success && git.hasChanges()) {
       implemented = true;
@@ -1385,7 +1467,9 @@ function buildThinkingTaskPlan(task: Task, parsed: ThinkingAnalysisDraft): Think
 async function analyzeAndPlan(
   task: Task,
   context: string,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  provider: TaskProvider,
+  config: Config,
 ): Promise<ThinkingTaskPlan | null> {
   if (runners.every((r) => !r.isAvailable())) {
     logger.error('No AI runner available for task analysis');
@@ -1398,6 +1482,7 @@ async function analyzeAndPlan(
     buildThinkingAnalysisPrompt(task, context),
     parseThinkingAnalysisResponse,
     'task analysis',
+    { provider, taskId: task.id, config },
   );
   if (!parsed) return null;
 
@@ -1431,7 +1516,9 @@ export async function splitFailedSubtask(
   parentTask: Task,
   plan: ThinkingTaskPlan,
   failedSubtask: SubTask,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  provider?: TaskProvider,
+  config?: Config,
 ): Promise<SubTask[] | null> {
   if (runners.every((r) => !r.isAvailable())) {
     logger.error('No AI runner available for sub-task split');
@@ -1489,6 +1576,7 @@ Exactly two entries — no more, no fewer.`;
     splitPrompt,
     parseSplitSubtaskResponse,
     'sub-task split',
+    provider && config ? { provider, taskId: parentTask.id, config } : undefined,
   );
   if (!parsed) return null;
 
@@ -1506,11 +1594,12 @@ async function executeSubTask(
   task: Task,
   plan: ThinkingTaskPlan,
   config: Config,
+  provider: TaskProvider,
   runners: AIRunner[],
   reviewContext: string | undefined,
   previousError: string | undefined,
   hasTicketConversationContext: boolean,
-): Promise<boolean> {
+): Promise<'ok' | 'failed' | 'stopped'> {
   const instructionsPath = taskInstructionsPath(task.id);
   const instructions = fs.existsSync(instructionsPath)
     ? fs.readFileSync(instructionsPath, 'utf8')
@@ -1536,7 +1625,13 @@ async function executeSubTask(
     if (!runner.isAvailable()) continue;
 
     logger.info(`  Running ${runner.name} for step ${subtask.id}...`);
-    const result = await runner.run(prompt, previousNotes || undefined);
+    const result = await runRunnerWithStatusWatch(
+      runner, prompt, previousNotes || undefined, provider, task.id, config,
+    );
+
+    if (result.stoppedByStatus) {
+      return 'stopped';
+    }
 
     if (result.success && git.hasChanges()) {
       implemented = true;
@@ -1552,7 +1647,7 @@ async function executeSubTask(
     }
   }
 
-  return implemented;
+  return implemented ? 'ok' : 'failed';
 }
 
 async function implementThinkingTask(
@@ -1629,8 +1724,23 @@ async function implementThinkingTask(
   if (plan) {
     logger.info(`Found existing task plan with ${plan.subtasks.length} sub-tasks — resuming`);
   } else {
-    plan = await analyzeAndPlan(safeTask, safeContext, runners);
+    plan = await analyzeAndPlan(safeTask, safeContext, runners, provider, config);
     if (!plan) {
+      const statusCheck = await checkImplementationStillActive(provider, task.id, config);
+      if (!statusCheck.active) {
+        await handleImplementationStoppedByStatus(
+          task,
+          statusCheck.reason,
+          config,
+          provider,
+          hooks,
+          vm,
+          branchName,
+          branchExists,
+        );
+        return;
+      }
+
       logger.error('Failed to create implementation plan');
       await postCommentWithHooks(task, `${config.commentPrefix} Failed to analyze and break down the task. Manual implementation needed.`, config, provider, hooks, vm);
       cleanupThinkingFiles(task.id);
@@ -1685,6 +1795,10 @@ async function implementThinkingTask(
   for (let i = 0; i < plan.subtasks.length; i++) {
     const subtask = plan.subtasks[i];
 
+    if (!(await ensureImplementationStillActive(task, config, provider, hooks, vm, branchName, branchExists))) {
+      return;
+    }
+
     if (subtask.status === 'done') {
       logger.info(`  Step ${subtask.id} already done — skipping`);
       continue;
@@ -1700,7 +1814,23 @@ async function implementThinkingTask(
 
       if (shouldSplit) {
         const failedId = subtask.id;
-        const newSubtasks = await splitFailedSubtask(task, plan, subtask, runners);
+        const newSubtasks = await splitFailedSubtask(task, plan, subtask, runners, provider, config);
+        if (!newSubtasks) {
+          const statusCheck = await checkImplementationStillActive(provider, task.id, config);
+          if (!statusCheck.active) {
+            await handleImplementationStoppedByStatus(
+              task,
+              statusCheck.reason,
+              config,
+              provider,
+              hooks,
+              vm,
+              branchName,
+              branchExists,
+            );
+            return;
+          }
+        }
         if (newSubtasks) {
           plan.subtasks.splice(i, 1, ...newSubtasks);
           writeTaskPlan(plan);
@@ -1742,18 +1872,33 @@ async function implementThinkingTask(
     writeTaskPlan(plan);
 
     logger.info(`  Starting step ${subtask.id}: ${subtask.title} (attempt ${subtask.attempts})`);
-    const success = await executeSubTask(
+    const subtaskResult = await executeSubTask(
       subtask,
       safeTask,
       plan,
       config,
+      provider,
       runners,
       reviewContext,
       previousError,
       ticketConversationContext.trim().length > 0,
     );
 
-    if (!success) {
+    if (subtaskResult === 'stopped') {
+      await handleImplementationStoppedByStatus(
+        task,
+        'task status changed externally',
+        config,
+        provider,
+        hooks,
+        vm,
+        branchName,
+        branchExists,
+      );
+      return;
+    }
+
+    if (subtaskResult === 'failed') {
       const diagnostics = collectAndLogDiagnostics();
       subtask.status = 'failed';
       subtask.lastError = truncateError(diagnostics);
@@ -2311,7 +2456,21 @@ async function implementNonCodeTask(
     }
 
     logger.info(`Running ${runner.name}...`);
-    const result = await runner.run(nonCodePrompt, previousNotes || undefined);
+    const result = await runRunnerWithStatusWatch(
+      runner, nonCodePrompt, previousNotes || undefined, provider, task.id, config,
+    );
+
+    if (result.stoppedByStatus) {
+      await handleImplementationStoppedByStatus(
+        task,
+        result.stopReason || 'task status changed externally',
+        config,
+        provider,
+        hooks,
+        vm,
+      );
+      return;
+    }
 
     if (result.success) {
       implemented = true;
@@ -2438,7 +2597,9 @@ export function buildNonCodeThinkingCompletionComment(config: Config): string {
 async function analyzeAndPlanNonCode(
   task: Task,
   context: string,
-  runners: AIRunner[]
+  runners: AIRunner[],
+  provider: TaskProvider,
+  config: Config,
 ): Promise<ThinkingTaskPlan | null> {
   if (runners.every((r) => !r.isAvailable())) {
     logger.error('No AI runner available for non-code task analysis');
@@ -2451,6 +2612,7 @@ async function analyzeAndPlanNonCode(
     buildNonCodeAnalysisPrompt(task, context),
     parseThinkingAnalysisResponse,
     'non-code task analysis',
+    { provider, taskId: task.id, config },
   );
   if (!parsed) return null;
 
@@ -2500,8 +2662,21 @@ async function implementNonCodeThinkingTask(
 
   const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
 
-  const plan = await analyzeAndPlanNonCode(safeTask, safeContext, runners);
+  const plan = await analyzeAndPlanNonCode(safeTask, safeContext, runners, provider, config);
   if (!plan) {
+    const statusCheck = await checkImplementationStillActive(provider, task.id, config);
+    if (!statusCheck.active) {
+      await handleImplementationStoppedByStatus(
+        task,
+        statusCheck.reason,
+        config,
+        provider,
+        hooks,
+        vm,
+      );
+      return;
+    }
+
     logger.error('Failed to create non-code task plan');
     await postCommentWithHooks(
       task,
@@ -2556,6 +2731,10 @@ async function implementNonCodeThinkingTask(
   let allSucceeded = true;
 
   for (const subtask of plan.subtasks) {
+    if (!(await ensureImplementationStillActive(task, config, provider, hooks, vm))) {
+      return;
+    }
+
     subtask.status = 'running';
     subtask.attempts = (subtask.attempts ?? 0) + 1;
 
@@ -2571,7 +2750,21 @@ async function implementNonCodeThinkingTask(
       if (!runner.isAvailable()) continue;
 
       logger.info(`    Running ${runner.name} for step ${formatSubtaskId(subtask.id)}...`);
-      const result = await runner.run(prompt, previousNotes || undefined);
+      const result = await runRunnerWithStatusWatch(
+        runner, prompt, previousNotes || undefined, provider, task.id, config,
+      );
+
+      if (result.stoppedByStatus) {
+        await handleImplementationStoppedByStatus(
+          task,
+          result.stopReason || 'task status changed externally',
+          config,
+          provider,
+          hooks,
+          vm,
+        );
+        return;
+      }
 
       if (result.success && result.output.trim().length > 0) {
         summary = result.output.trim();

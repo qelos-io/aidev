@@ -1,6 +1,7 @@
-import { AIRunner, AIRunResult } from './base';
+import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
+import { commandExists, getUserShellEnv } from '../platform';
+import { runSpawnAttempts } from './spawnAttempts';
 
 /**
  * OpenCode CLI runner. Uses `opencode run` for non-interactive agent runs.
@@ -13,7 +14,7 @@ export class OpencodeRunner implements AIRunner {
     return commandExists('opencode');
   }
 
-  async run(prompt: string, notes?: string): Promise<AIRunResult> {
+  async run(prompt: string, notes?: string, options?: AIRunOptions): Promise<AIRunResult> {
     const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
 
     logger.info('Running OpenCode CLI (run)...');
@@ -27,12 +28,17 @@ export class OpencodeRunner implements AIRunner {
 
     args.push(fullPrompt);
 
-    const result = spawnCommand('opencode', args, {
+    const result = await runSpawnAttempts('opencode', [args], {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       cwd,
       env: getUserShellEnv(),
-    });
+      signal: options?.signal,
+    }, () => false);
+
+    if (result.aborted) {
+      return { success: false, output: result.stdout, error: result.stderr || 'aborted', aborted: true };
+    }
 
     const success = result.status === 0;
     const output = result.stdout || '';

@@ -1,6 +1,7 @@
-import { AIRunner, AIRunResult } from './base';
+import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv, shouldRetryAgentCliAttempt, spawnCommand } from '../platform';
+import { commandExists, getUserShellEnv } from '../platform';
+import { runSpawnAttempts } from './spawnAttempts';
 
 const DEFAULT_MODEL = 'opusplan';
 
@@ -11,7 +12,7 @@ export class ClaudeRunner implements AIRunner {
     return commandExists('claude');
   }
 
-  async run(prompt: string, notes?: string): Promise<AIRunResult> {
+  async run(prompt: string, notes?: string, options?: AIRunOptions): Promise<AIRunResult> {
     const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
 
     logger.info('Running Claude CLI...');
@@ -20,9 +21,6 @@ export class ClaudeRunner implements AIRunner {
     const model = (process.env.CLAUDE_MODEL || '').trim() || DEFAULT_MODEL;
 
     const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions'];
-    // Default to CLAUDE_MODEL (opusplan routes plan→opus and code→sonnet, saving tokens).
-    // Fall back to the CLI's own default model, then `--model auto` — both fail on
-    // some installs/plans, so they come last.
     const attempts: string[][] = [
       [...baseArgs, '--model', model],
       baseArgs,
@@ -30,22 +28,16 @@ export class ClaudeRunner implements AIRunner {
       [...baseArgs, '--model', 'auto'],
     ];
 
-    let result = spawnCommand('claude', attempts[0], {
+    const result = await runSpawnAttempts('claude', attempts, {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       cwd: process.cwd(),
       env: getUserShellEnv(),
+      signal: options?.signal,
     });
 
-    for (let i = 1; i < attempts.length; i++) {
-      if (result.status === 0) break;
-      if (!shouldRetryAgentCliAttempt(result.stderr || '', result.stdout || '')) break;
-      result = spawnCommand('claude', attempts[i], {
-        encoding: 'utf8',
-        timeout: 10 * 60 * 1000,
-        cwd: process.cwd(),
-        env: getUserShellEnv(),
-      });
+    if (result.aborted) {
+      return { success: false, output: result.stdout, error: result.stderr || 'aborted', aborted: true };
     }
 
     const success = result.status === 0;

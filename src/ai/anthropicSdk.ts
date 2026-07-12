@@ -1,4 +1,4 @@
-import { AIRunner, AIRunResult } from './base';
+import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
 import { parseAnthropicTokens, pickNextToken } from '../config';
 
@@ -74,8 +74,12 @@ export class AnthropicSdkRunner implements AIRunner {
     return Math.min(RETRY_BACKOFF_BASE_MS * 2 ** attempt, RETRY_BACKOFF_MAX_MS);
   }
 
-  async run(prompt: string, notes?: string): Promise<AIRunResult> {
+  async run(prompt: string, notes?: string, options?: AIRunOptions): Promise<AIRunResult> {
     const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
+
+    if (options?.signal?.aborted) {
+      return { success: false, output: '', error: 'aborted', aborted: true };
+    }
 
     const tokens = parseAnthropicTokens(process.env.ANTHROPIC_API_KEY || '');
     if (tokens.length === 0) {
@@ -93,6 +97,10 @@ export class AnthropicSdkRunner implements AIRunner {
 
     try {
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (options?.signal?.aborted) {
+          return { success: false, output: lastOutput, error: 'aborted', aborted: true };
+        }
+
         const { token, nextCursor } = pickNextToken(tokens, this.tokenCursor);
         this.tokenCursor = nextCursor;
 
@@ -108,7 +116,7 @@ export class AnthropicSdkRunner implements AIRunner {
         }
         logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-        const attemptResult = await this.runOnce(fullPrompt, model);
+        const attemptResult = await this.runOnce(fullPrompt, model, options?.signal);
         if (attemptResult.success) {
           return { success: true, output: attemptResult.output, error: '' };
         }
@@ -125,7 +133,10 @@ export class AnthropicSdkRunner implements AIRunner {
           logger.warn(
             `Anthropic SDK attempt ${attempt + 1} failed: ${lastError}. Retrying in ${delay}ms...`,
           );
-          await new Promise<void>((resolve) => setTimeout(resolve, delay));
+          await abortableDelay(delay, options?.signal);
+          if (options?.signal?.aborted) {
+            return { success: false, output: lastOutput, error: 'aborted', aborted: true };
+          }
         }
       }
 
@@ -138,7 +149,7 @@ export class AnthropicSdkRunner implements AIRunner {
     }
   }
 
-  private async runOnce(fullPrompt: string, model: string): Promise<RunAttemptResult> {
+  private async runOnce(fullPrompt: string, model: string, signal?: AbortSignal): Promise<RunAttemptResult> {
     let output = '';
     let timedOut = false;
     const watchdog = setTimeout(() => {
@@ -161,7 +172,7 @@ export class AnthropicSdkRunner implements AIRunner {
       });
 
       for await (const msg of q as AsyncIterable<any>) {
-        if (timedOut) break;
+        if (timedOut || signal?.aborted) break;
         if (msg?.type === 'assistant' && msg.message?.content) {
           for (const block of msg.message.content) {
             if (block?.type === 'text' && typeof block.text === 'string') {
@@ -179,6 +190,9 @@ export class AnthropicSdkRunner implements AIRunner {
       if (timedOut) {
         return { success: false, output, error: 'Anthropic SDK run timed out', timedOut: true };
       }
+      if (signal?.aborted) {
+        return { success: false, output, error: 'aborted', timedOut: false };
+      }
       return { success: true, output, error: '', timedOut: false };
     } catch (err: any) {
       const error = err?.message || String(err);
@@ -188,4 +202,29 @@ export class AnthropicSdkRunner implements AIRunner {
       clearTimeout(watchdog);
     }
   }
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort);
+  });
 }
