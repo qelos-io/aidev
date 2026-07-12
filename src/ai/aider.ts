@@ -1,6 +1,7 @@
-import { AIRunner, AIRunResult } from './base';
+import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
+import { commandExists, getUserShellEnv } from '../platform';
+import { runSpawnAttempts } from './spawnAttempts';
 
 export class AiderRunner implements AIRunner {
   readonly name = 'aider';
@@ -9,7 +10,7 @@ export class AiderRunner implements AIRunner {
     return commandExists('aider');
   }
 
-  async run(prompt: string, notes?: string): Promise<AIRunResult> {
+  async run(prompt: string, notes?: string, options?: AIRunOptions): Promise<AIRunResult> {
     const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
 
     logger.info('Running aider...');
@@ -18,12 +19,17 @@ export class AiderRunner implements AIRunner {
     const extraArgs = (process.env.AIDER_ARGS || '').split(/\s+/).filter(Boolean);
     const args = ['--message', fullPrompt, '--yes-always', ...extraArgs];
 
-    const result = spawnCommand('aider', args, {
+    const result = await runSpawnAttempts('aider', [args], {
       encoding: 'utf8',
       timeout: 15 * 60 * 1000,
       cwd: process.cwd(),
       env: getUserShellEnv(),
-    });
+      signal: options?.signal,
+    }, () => false);
+
+    if (result.aborted) {
+      return { success: false, output: result.stdout, error: result.stderr || 'aborted', aborted: true };
+    }
 
     const success = result.status === 0;
     const output = result.stdout || '';

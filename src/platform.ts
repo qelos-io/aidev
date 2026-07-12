@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcess, SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:child_process';
 
 export const isWindows = process.platform === 'win32';
 
@@ -168,24 +168,128 @@ function findNodeForCmd(cmdDir: string): string {
  * (which triggers DEP0190 and mishandles arguments containing spaces or
  * shell metacharacters).
  */
+function resolveSpawnCommand(command: string, args: string[]): { bin: string; args: string[] } {
+  if (!isWindows) {
+    return { bin: command, args };
+  }
+
+  const resolved = /\.(cmd|bat)$/i.test(command) ? command : findBin(command);
+  const winCmd = resolveWindowsCmd(resolved, args);
+  if (winCmd) {
+    return winCmd;
+  }
+
+  return { bin: resolved ?? command, args };
+}
+
 export function spawnCommand(
   command: string,
   args: string[],
   options: SpawnSyncOptionsWithStringEncoding
 ): SpawnSyncReturns<string> {
-  if (!isWindows) {
-    return spawnSync(command, args, options);
-  }
+  const { bin, args: spawnArgs } = resolveSpawnCommand(command, args);
+  return spawnSync(bin, spawnArgs, options);
+}
 
-  // If `command` is already an absolute/relative path to a .cmd/.bat, use it
-  // directly; otherwise search PATH via findBin.
-  const resolved = /\.(cmd|bat)$/i.test(command) ? command : findBin(command);
-  const winCmd = resolveWindowsCmd(resolved, args);
-  if (winCmd) {
-    return spawnSync(winCmd.bin, winCmd.args, options);
-  }
+export interface SpawnAsyncOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  input?: string;
+  timeout?: number;
+  signal?: AbortSignal;
+}
 
-  return spawnSync(resolved ?? command, args, options);
+export interface SpawnAsyncResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  aborted: boolean;
+  error?: Error;
+}
+
+function killSpawnedProcess(child: ChildProcess): void {
+  if (!child.pid) return;
+  try {
+    if (isWindows) {
+      spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore' });
+    } else {
+      child.kill('SIGTERM');
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function spawnCommandAsync(
+  command: string,
+  args: string[],
+  options: SpawnAsyncOptions = {}
+): Promise<SpawnAsyncResult> {
+  const { bin, args: spawnArgs } = resolveSpawnCommand(command, args);
+  const { cwd, env, input, timeout, signal } = options;
+
+  return new Promise((resolve) => {
+    const child = spawn(bin, spawnArgs, {
+      cwd,
+      env,
+      stdio: input ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let aborted = false;
+    let settled = false;
+
+    const finish = (result: SpawnAsyncResult): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on('data', (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+
+    if (input && child.stdin) {
+      child.stdin.write(input);
+      child.stdin.end();
+    }
+
+    const onAbort = (): void => {
+      aborted = true;
+      killSpawnedProcess(child);
+    };
+    signal?.addEventListener('abort', onAbort);
+
+    let timer: NodeJS.Timeout | undefined;
+    if (timeout) {
+      timer = setTimeout(() => {
+        killSpawnedProcess(child);
+        finish({
+          status: null,
+          stdout,
+          stderr,
+          aborted: false,
+          error: new Error('timeout'),
+        });
+      }, timeout);
+    }
+
+    child.on('close', (status) => {
+      signal?.removeEventListener('abort', onAbort);
+      finish({ status, stdout, stderr, aborted });
+    });
+
+    child.on('error', (error) => {
+      signal?.removeEventListener('abort', onAbort);
+      finish({ status: null, stdout, stderr, aborted, error });
+    });
+  });
 }
 
 let _shellEnvCache: NodeJS.ProcessEnv | undefined;

@@ -1,6 +1,7 @@
-import { AIRunner, AIRunResult } from './base';
+import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv, shouldRetryAgentCliAttempt, spawnCommand } from '../platform';
+import { commandExists, getUserShellEnv } from '../platform';
+import { runSpawnAttempts } from './spawnAttempts';
 
 /**
  * Google Antigravity agent runner. Uses the `agy` CLI (or `antigravity` on some
@@ -14,7 +15,7 @@ export class AntigravityRunner implements AIRunner {
     return commandExists('agy') || commandExists('antigravity');
   }
 
-  async run(prompt: string, notes?: string): Promise<AIRunResult> {
+  async run(prompt: string, notes?: string, options?: AIRunOptions): Promise<AIRunResult> {
     const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
 
     logger.info('Running Antigravity agent...');
@@ -29,24 +30,17 @@ export class AntigravityRunner implements AIRunner {
       baseArgs,
     ];
 
-    let result = spawnCommand(bin, attempts[0], {
+    const result = await runSpawnAttempts(bin, attempts, {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       cwd,
       env: getUserShellEnv(),
       input: fullPrompt,
+      signal: options?.signal,
     });
 
-    for (let i = 1; i < attempts.length; i++) {
-      if (result.status === 0) break;
-      if (!shouldRetryAgentCliAttempt(result.stderr || '', result.stdout || '')) break;
-      result = spawnCommand(bin, attempts[i], {
-        encoding: 'utf8',
-        timeout: 10 * 60 * 1000,
-        cwd,
-        env: getUserShellEnv(),
-        input: fullPrompt,
-      });
+    if (result.aborted) {
+      return { success: false, output: result.stdout, error: result.stderr || 'aborted', aborted: true };
     }
 
     const success = result.status === 0;

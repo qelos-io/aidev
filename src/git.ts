@@ -159,6 +159,23 @@ export function hasChanges(): boolean {
   return result.status === 0 && result.stdout.trim().length > 0;
 }
 
+/** Discards uncommitted working tree and untracked files on the current branch. */
+export function discardWorkingChanges(): boolean {
+  const reset = git(['reset', '--hard', 'HEAD']);
+  if (reset.status !== 0) {
+    logger.error(`git reset --hard failed: ${reset.stderr}`);
+    return false;
+  }
+
+  const clean = git(['clean', '-fd']);
+  if (clean.status !== 0) {
+    logger.warn(`git clean -fd failed: ${clean.stderr}`);
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * Returns true if the current branch has commits ahead of the remote base branch.
  */

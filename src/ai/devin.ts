@@ -1,9 +1,10 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { AIRunner, AIRunResult } from './base';
+import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
+import { commandExists, getUserShellEnv } from '../platform';
+import { runSpawnAttempts } from './spawnAttempts';
 
 export class DevinRunner implements AIRunner {
   readonly name = 'devin';
@@ -12,13 +13,13 @@ export class DevinRunner implements AIRunner {
     return commandExists('devin');
   }
 
-  async run(prompt: string, notes?: string): Promise<AIRunResult> {
+  async run(prompt: string, notes?: string, options?: AIRunOptions): Promise<AIRunResult> {
     const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
-    return runViaCli(fullPrompt);
+    return runViaCli(fullPrompt, options);
   }
 }
 
-async function runViaCli(fullPrompt: string): Promise<AIRunResult> {
+async function runViaCli(fullPrompt: string, options?: AIRunOptions): Promise<AIRunResult> {
   logger.info('Running Devin CLI...');
   logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
@@ -28,17 +29,19 @@ async function runViaCli(fullPrompt: string): Promise<AIRunResult> {
   try {
     fs.writeFileSync(promptFile, fullPrompt, 'utf8');
 
-    // -p: single-turn print mode (non-interactive, outputs to stdout then exits)
-    // --permission-mode bypass: auto-approve all file/shell operations
-    // --prompt-file: avoids command-line length limits for large prompts
     const args = ['-p', '--permission-mode', 'bypass', '--prompt-file', promptFile];
 
-    const result = spawnCommand('devin', args, {
+    const result = await runSpawnAttempts('devin', [args], {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       cwd,
       env: getUserShellEnv(),
-    });
+      signal: options?.signal,
+    }, () => false);
+
+    if (result.aborted) {
+      return { success: false, output: result.stdout, error: result.stderr || 'aborted', aborted: true };
+    }
 
     const success = result.status === 0;
     const output = result.stdout || '';
