@@ -13,16 +13,13 @@
     "typecheck": "nuxi typecheck"
   },
   "dependencies": {
-    "@monaco-editor/loader": "^1.4.0",
+    "@monaco-editor/loader": "^1.7.0",
     "@nuxt/ui": "^2.18.0",
-    "dotenv": "^16.4.5",
-    "isomorphic-dompurify": "^3.15.0",
-    "marked": "^18.0.4",
-    "nuxt": "^3.13.0",
-    "vue": "^3.5.0",
-    "vue-router": "^4.4.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.6.0"
+    "dotenv": "^17.4.2",
+    "isomorphic-dompurify": "^3.18.0",
+    "marked": "^18.0.6",
+    "nuxt": "^4.4.8",
+    "vue": "^3.5.39",
+    "vue-router": "^5.1.0"
   }
 }
