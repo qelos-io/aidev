@@ -25,6 +25,7 @@ import { resolveDoneStatus } from './accepted';
 import { collectSecrets, sanitizeTaskForSafeMode } from '../safeMode';
 import {
   checkImplementationStillActive,
+  ImplementationTagMode,
   runRunnerWithStatusWatch,
 } from '../statusWatch';
 import {
@@ -73,8 +74,9 @@ async function ensureImplementationStillActive(
   vm: HookVM | undefined,
   branchName?: string,
   branchExists?: boolean,
+  tagMode: ImplementationTagMode = 'code',
 ): Promise<boolean> {
-  const check = await checkImplementationStillActive(provider, task.id, config);
+  const check = await checkImplementationStillActive(provider, task.id, config, tagMode);
   if (check.active) return true;
 
   await handleImplementationStoppedByStatus(
@@ -299,7 +301,7 @@ async function runAgentJsonAnalysis<T>(
   prompt: string,
   parse: (output: string) => T | null,
   label: string,
-  watch?: { provider: TaskProvider; taskId: string; config: Config },
+  watch?: { provider: TaskProvider; taskId: string; config: Config; tagMode?: ImplementationTagMode },
 ): Promise<T | null> {
   let previousNotes = '';
 
@@ -308,7 +310,15 @@ async function runAgentJsonAnalysis<T>(
 
     logger.info(`Running ${runner.name} for ${label}...`);
     const result = watch
-      ? await runRunnerWithStatusWatch(runner, prompt, previousNotes || undefined, watch.provider, watch.taskId, watch.config)
+      ? await runRunnerWithStatusWatch(
+        runner,
+        prompt,
+        previousNotes || undefined,
+        watch.provider,
+        watch.taskId,
+        watch.config,
+        watch.tagMode ?? 'code',
+      )
       : await runner.run(prompt, previousNotes || undefined);
     if ('stoppedByStatus' in result && result.stoppedByStatus) {
       return null;
@@ -2457,7 +2467,7 @@ async function implementNonCodeTask(
 
     logger.info(`Running ${runner.name}...`);
     const result = await runRunnerWithStatusWatch(
-      runner, nonCodePrompt, previousNotes || undefined, provider, task.id, config,
+      runner, nonCodePrompt, previousNotes || undefined, provider, task.id, config, 'non-code',
     );
 
     if (result.stoppedByStatus) {
@@ -2612,7 +2622,7 @@ async function analyzeAndPlanNonCode(
     buildNonCodeAnalysisPrompt(task, context),
     parseThinkingAnalysisResponse,
     'non-code task analysis',
-    { provider, taskId: task.id, config },
+    { provider, taskId: task.id, config, tagMode: 'non-code' },
   );
   if (!parsed) return null;
 
@@ -2664,7 +2674,7 @@ async function implementNonCodeThinkingTask(
 
   const plan = await analyzeAndPlanNonCode(safeTask, safeContext, runners, provider, config);
   if (!plan) {
-    const statusCheck = await checkImplementationStillActive(provider, task.id, config);
+    const statusCheck = await checkImplementationStillActive(provider, task.id, config, 'non-code');
     if (!statusCheck.active) {
       await handleImplementationStoppedByStatus(
         task,
@@ -2731,7 +2741,7 @@ async function implementNonCodeThinkingTask(
   let allSucceeded = true;
 
   for (const subtask of plan.subtasks) {
-    if (!(await ensureImplementationStillActive(task, config, provider, hooks, vm))) {
+    if (!(await ensureImplementationStillActive(task, config, provider, hooks, vm, undefined, undefined, 'non-code'))) {
       return;
     }
 
@@ -2751,7 +2761,7 @@ async function implementNonCodeThinkingTask(
 
       logger.info(`    Running ${runner.name} for step ${formatSubtaskId(subtask.id)}...`);
       const result = await runRunnerWithStatusWatch(
-        runner, prompt, previousNotes || undefined, provider, task.id, config,
+        runner, prompt, previousNotes || undefined, provider, task.id, config, 'non-code',
       );
 
       if (result.stoppedByStatus) {
