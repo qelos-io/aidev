@@ -50,13 +50,16 @@ interface ClickUpRawTask {
 
 /** ClickUp "waiting on" dependencies expose the blocker id in `depends_on`.
  * type=1 means this task is waiting on `depends_on` (blocked by it).
- * type=2 means this task is blocking `depends_on` (the opposite direction). */
+ * type=2 means this task is blocking `depends_on` (the opposite direction).
+ * The dependencies array also includes inverse entries for tasks this one blocks;
+ * those use a different `task_id`, so only rows where `task_id` matches are kept. */
 export function getBlockedByFromClickUpDependencies(
+  taskId: string,
   dependencies: ClickUpDependency[] | undefined,
 ): string[] {
   if (!dependencies?.length) return [];
   return dependencies
-    .filter((d) => d.type !== 2)
+    .filter((d) => d.task_id === taskId && d.type === 1)
     .map((d) => d.depends_on)
     .filter((id): id is string => typeof id === 'string' && id.length > 0);
 }
@@ -298,7 +301,7 @@ export class ClickUpProvider implements TaskProvider {
   }
 
   private mapRawTaskSync(t: ClickUpRawTask, description: string, _options?: FetchTasksOptions): Task {
-    const blockedBy = getBlockedByFromClickUpDependencies(t.dependencies);
+    const blockedBy = getBlockedByFromClickUpDependencies(t.id, t.dependencies);
     return {
       id: t.id,
       name: t.name,

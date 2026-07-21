@@ -436,6 +436,25 @@ describe('ClickUpProvider.getComments', () => {
   });
 });
 
+// ─── getBlockedByFromClickUpDependencies ───────────────────────────────────────
+
+describe('getBlockedByFromClickUpDependencies', () => {
+  it('returns blocker ids only for type=1 rows owned by the task', () => {
+    const blockedBy = getBlockedByFromClickUpDependencies('task1', [
+      { task_id: 'task1', depends_on: 'blocker1', type: 1 },
+      { task_id: 'blocked-task', depends_on: 'task1', type: 1 },
+      { task_id: 'task1', depends_on: 'blocked-task', type: 2 },
+      { task_id: 'other', type: 0 },
+    ]);
+    assert.deepEqual(blockedBy, ['blocker1']);
+  });
+
+  it('returns an empty array when dependencies are missing or empty', () => {
+    assert.deepEqual(getBlockedByFromClickUpDependencies('task1', undefined), []);
+    assert.deepEqual(getBlockedByFromClickUpDependencies('task1', []), []);
+  });
+});
+
 // ─── ClickUpProvider.fetchTaskById — dependency / blockedBy mapping ──────────
 
 describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
@@ -506,6 +525,19 @@ describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
     const task = await provider.fetchTaskById('task1');
     assert.ok(task !== null);
     assert.deepEqual(task!.blockedBy, ['blocker1']);
+  });
+
+  it('ignores inverse waiting-on entries for tasks this one blocks', async () => {
+    mock.method(globalThis, 'fetch', async () =>
+      jsonResponse(makeRawTask('task1', [
+        { task_id: 'blocked-task', depends_on: 'task1', type: 1 },
+        { task_id: 'task1', depends_on: 'blocked-task', type: 2 },
+      ]))
+    );
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    const task = await provider.fetchTaskById('task1');
+    assert.ok(task !== null);
+    assert.equal(task!.blockedBy, undefined);
   });
 
   it('sets blockedBy to undefined when dependencies field is missing', async () => {
