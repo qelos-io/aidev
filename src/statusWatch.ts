@@ -8,7 +8,7 @@ export { isActiveImplementationStatus } from './taskStatus';
 
 export const STATUS_POLL_INTERVAL_MS = 5000;
 
-export type ImplementationTagMode = 'code' | 'non-code';
+export type ImplementationTagMode = 'code' | 'non-code' | 'consult';
 
 export type ImplementationStatusCheck =
   | { active: true }
@@ -17,6 +17,9 @@ export type ImplementationStatusCheck =
 export function resolveImplementationTag(config: Config, mode: ImplementationTagMode): string {
   if (mode === 'non-code') {
     return config.nonCodeTag || config.clickupTag;
+  }
+  if (mode === 'consult') {
+    return config.consultTag || config.clickupTag;
   }
   return config.clickupTag;
 }

@@ -186,6 +186,11 @@ describe('resolveImplementationTag', () => {
     const config = makeConfig({ clickupTag: 'code-tag', nonCodeTag: '' });
     assert.equal(resolveImplementationTag(config, 'non-code'), 'code-tag');
   });
+
+  it('returns consultTag for consult tasks', () => {
+    const config = makeConfig({ clickupTag: 'code-tag', consultTag: 'isaac-consult' });
+    assert.equal(resolveImplementationTag(config, 'consult'), 'isaac-consult');
+  });
 });
 
 describe('runRunnerWithStatusWatch', () => {

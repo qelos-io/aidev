@@ -8,7 +8,7 @@ import type { Config } from '../types';
 import { ClickUpProvider, getBlockedByFromClickUpDependencies } from '../providers/clickup';
 import { JiraProvider } from '../providers/jira';
 import { LinearProvider, getBlockedByFromLinearRelations } from '../providers/linear';
-import { MondayProvider, getBlockedByFromMondayColumnValues } from '../providers/monday';
+import { MondayProvider, getBlockedByFromMondayColumnValues, getTagsFromMondayColumnValues } from '../providers/monday';
 import { NotionProvider } from '../providers/notion';
 import { TrelloProvider } from '../providers/trello';
 import { logger } from '../logger';
@@ -2241,5 +2241,178 @@ describe('TrelloProvider.fetchTaskById', () => {
     const task = await provider.fetchTaskById('nonexistent');
 
     assert.equal(task, null);
+  });
+});
+
+// ─── NotionProvider tag filtering ───────────────────────────────────────────
+
+describe('NotionProvider.fetchTasks — tag filter', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('filters pages by CLICKUP_TAG in Tags multi_select', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/databases/') && !url.includes('/query') && (init?.method ?? 'GET') === 'GET') {
+        return jsonResponse({
+          id: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+          properties: {
+            Name: { type: 'title' },
+            Status: { type: 'status' },
+            Tags: { type: 'multi_select' },
+          },
+        });
+      }
+      if (url.includes('/query')) {
+        return jsonResponse({
+          results: [
+            {
+              id: 'a1b2c3d4-e5f6-7890-1234-5678abcdef01',
+              url: 'https://notion.so/page-one',
+              properties: {
+                Name: { title: [{ plain_text: 'Consult me' }] },
+                Status: { status: { name: 'pending' } },
+                Tags: { multi_select: [{ name: 'isaac-consult' }, { name: 'qelos' }] },
+              },
+            },
+            {
+              id: 'a1b2c3d4-e5f6-7890-1234-5678abcdef02',
+              url: 'https://notion.so/page-two',
+              properties: {
+                Name: { title: [{ plain_text: 'Other task' }] },
+                Status: { status: { name: 'pending' } },
+                Tags: { multi_select: [{ name: 'qelos' }] },
+              },
+            },
+          ],
+          next_cursor: null,
+          has_more: false,
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const provider = new NotionProvider({ ...baseNotionConfig, clickupTag: 'isaac-consult' } as unknown as Config);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].name, 'Consult me');
+    assert.deepEqual(tasks[0].tags, ['isaac-consult', 'qelos']);
+  });
+});
+
+// ─── MondayProvider tag filtering ─────────────────────────────────────────────
+
+describe('MondayProvider.fetchTasks — tag filter', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('filters items by CLICKUP_TAG in MONDAY_TAG_COLUMN_ID text column', async () => {
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+      const query = body.query as string;
+      if (query.includes('boards') && query.includes('items_page')) {
+        return jsonResponse({
+          data: {
+            boards: [
+              {
+                items_page: {
+                  cursor: null,
+                  items: [
+                    {
+                      id: '1001',
+                      name: 'Consult task',
+                      url: 'https://example.monday.com/boards/12345/pulses/1001',
+                      description: { description: '' },
+                      column_values: [
+                        { id: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+                        { id: 'tags_col', value: null, text: 'qelos, isaac-consult' },
+                      ],
+                    },
+                    {
+                      id: '1002',
+                      name: 'Other task',
+                      url: 'https://example.monday.com/boards/12345/pulses/1002',
+                      description: { description: '' },
+                      column_values: [
+                        { id: 'status', value: '{"label":"Working on it"}', text: 'Working on it' },
+                        { id: 'tags_col', value: null, text: 'qelos' },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new MondayProvider({
+      ...baseMondayConfig,
+      clickupTag: 'isaac-consult',
+      mondayTagColumnId: 'tags_col',
+    } as unknown as Config);
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].name, 'Consult task');
+    assert.deepEqual(tasks[0].tags, ['qelos', 'isaac-consult']);
+  });
+});
+
+describe('MondayProvider.addTag/removeTag', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('updates the configured text tag column', async () => {
+    const columnUpdates: Array<{ itemId: string; value: string }> = [];
+    let columnText = 'isaac-consult';
+
+    mock.method(globalThis, 'fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+      const query = body.query as string;
+      if (query.includes('items(ids:')) {
+        return jsonResponse({
+          data: {
+            items: [
+              {
+                id: '1001',
+                column_values: [
+                  { id: 'tags_col', value: null, text: columnText },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      if (query.includes('change_column_value')) {
+        columnUpdates.push({ itemId: body.variables.itemId, value: body.variables.value });
+        const parsed = JSON.parse(body.variables.value) as { text?: string };
+        columnText = parsed.text ?? '';
+        return jsonResponse({ data: { change_column_value: { id: '1001' } } });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new MondayProvider({
+      ...baseMondayConfig,
+      mondayTagColumnId: 'tags_col',
+    } as unknown as Config);
+
+    await provider.removeTag!('1001', 'isaac-consult');
+    await provider.addTag!('1001', 'isaac-consulted');
+
+    assert.equal(columnUpdates.length, 2);
+    assert.equal(columnUpdates[0].value, JSON.stringify({ text: '' }));
+    assert.equal(columnUpdates[1].value, JSON.stringify({ text: 'isaac-consulted' }));
+  });
+});
+
+describe('getTagsFromMondayColumnValues', () => {
+  it('parses comma-separated text tags', () => {
+    const tags = getTagsFromMondayColumnValues(
+      [{ id: 'tags_col', value: null, text: 'qelos, isaac-consult' }],
+      'tags_col',
+    );
+    assert.deepEqual(tags, ['qelos', 'isaac-consult']);
   });
 });

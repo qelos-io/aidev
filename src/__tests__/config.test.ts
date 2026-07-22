@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { sourceShellProfile, mergeNullDelimited, applyEnvFiles, resolveEnvPath, loadConfig, parseAnthropicTokens, pickNextToken, envFileKeys, clearEnvFiles } from '../config';
+import { sourceShellProfile, mergeNullDelimited, applyEnvFiles, resolveEnvPath, loadConfig, parseAnthropicTokens, pickNextToken, envFileKeys, clearEnvFiles, expandEnvTemplate } from '../config';
 import { logger } from '../logger';
 
 // ─── mergeNullDelimited ────────────────────────────────────────────────────────
@@ -402,6 +402,36 @@ describe('loadConfig tag defaults', () => {
     assert.equal(config.nonCodeTag, `${folderName}-other`);
   });
 
+  it('defaults consultTag to folder-name + "-consult" when CONSULT_TAG is unset', () => {
+    const config = loadConfig();
+    const folderName = path.basename(tmpDir);
+    assert.equal(config.consultTag, `${folderName}-consult`);
+  });
+
+  it('defaults consultedTag to folder-name + "-consulted" when CONSULTED_TAG is unset', () => {
+    const config = loadConfig();
+    const folderName = path.basename(tmpDir);
+    assert.equal(config.consultedTag, `${folderName}-consulted`);
+  });
+
+  it('defaults commentPrefix to [aidev-<folder>] when AIDEV_COMMENT_PREFIX is unset', () => {
+    delete process.env.AIDEV_COMMENT_PREFIX;
+    const config = loadConfig();
+    const folderName = path.basename(tmpDir);
+    assert.equal(config.commentPrefix, `[aidev-${folderName}]`);
+  });
+
+  it('expands $PROJECT_NAME in AIDEV_COMMENT_PREFIX', () => {
+    process.env.AIDEV_COMMENT_PREFIX = 'Bot ($PROJECT_NAME): ';
+    try {
+      const config = loadConfig();
+      const folderName = path.basename(tmpDir);
+      assert.equal(config.commentPrefix, `Bot (${folderName}): `);
+    } finally {
+      delete process.env.AIDEV_COMMENT_PREFIX;
+    }
+  });
+
   it('defaults jiraLabel to the folder name when JIRA_LABEL is unset', () => {
     const config = loadConfig();
     const folderName = path.basename(tmpDir);
@@ -651,5 +681,12 @@ describe('pickNextToken', () => {
 
   it('normalizes an out-of-range cursor via modulo', () => {
     assert.deepEqual(pickNextToken(['a', 'b', 'c'], 7), { token: 'b', nextCursor: 2 });
+  });
+});
+
+describe('expandEnvTemplate', () => {
+  it('replaces $PROJECT_NAME and $FOLDER_NAME', () => {
+    assert.equal(expandEnvTemplate('[aidev-$PROJECT_NAME]', 'qelos'), '[aidev-qelos]');
+    assert.equal(expandEnvTemplate('Bot ($FOLDER_NAME): ', 'isaac'), 'Bot (isaac): ');
   });
 });

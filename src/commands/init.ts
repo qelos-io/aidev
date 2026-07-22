@@ -417,8 +417,8 @@ export function renderEnv(a: Answers): string {
     `# AIDEV_TRIGGER_WORD: comment containing this word re-triggers task processing (default: aidev-continue)`,
     `AIDEV_TRIGGER_WORD=${envVal(a.triggerWord)}`,
     ``,
-    `# AIDEV_COMMENT_PREFIX: custom prefix for aidev comments in task providers (default: [aidev])`,
-    a.commentPrefix !== '[aidev]' ? `AIDEV_COMMENT_PREFIX=${envVal(a.commentPrefix)}` : `# AIDEV_COMMENT_PREFIX=${envVal(a.commentPrefix)}`,
+    `# AIDEV_COMMENT_PREFIX: prefix for aidev comments; $PROJECT_NAME expands to the project folder name (default: [aidev-$PROJECT_NAME])`,
+    a.commentPrefix !== '[aidev-$PROJECT_NAME]' ? `AIDEV_COMMENT_PREFIX=${envVal(a.commentPrefix)}` : `# AIDEV_COMMENT_PREFIX=${envVal(a.commentPrefix)}`,
     ``,
     `# THINKING_TAG: tasks with this tag are analyzed and broken into sub-tasks before execution`,
     line('THINKING_TAG', a.thinkingTag),
@@ -431,6 +431,9 @@ export function renderEnv(a: Answers): string {
     line('NON_CODE_CLICKUP_TEAM_ID', a.nonCodeClickupTeamId),
     line('NON_CODE_JIRA_PROJECT', a.nonCodeJiraProject),
     line('NON_CODE_LINEAR_TEAM_ID', a.nonCodeLinearTeamId),
+    ``,
+    `# CONSULT_TAG: pending tasks with this tag receive a perspective reply (no git); default: <folder>-consult`,
+    `# CONSULTED_TAG: stats marker applied after consultation; default: <folder>-consulted`,
     ``,
     `# AIDEV_HOOKS_PATH: path to hooks file (.ts or .js) for customizing the AI pipeline`,
     `AIDEV_HOOKS_PATH=.aidev/aidev.hooks.ts`,
@@ -795,8 +798,8 @@ export async function initCommand(): Promise<void> {
     section('Comment prefix');
     const commentPrefix = await ask(
       rl,
-      `Comment prefix ${hint('prefix for aidev comments in task providers')}`,
-      existing.AIDEV_COMMENT_PREFIX || '[aidev]'
+      `Comment prefix ${hint('prefix for aidev comments; $PROJECT_NAME = folder name')}`,
+      existing.AIDEV_COMMENT_PREFIX || '[aidev-$PROJECT_NAME]'
     );
 
     // ── Thinking tag ────────────────────────────────────────

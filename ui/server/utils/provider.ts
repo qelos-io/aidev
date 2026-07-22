@@ -91,6 +91,7 @@ export interface ProviderBundle {
   config: UiConfig;
   provider: UiProvider;
   nonCodeProvider?: UiProvider;
+  consultProvider?: UiProvider;
   envPath: string;
   cwd: string;
   dist: string;
@@ -159,7 +160,11 @@ export function getProvider(event: H3Event): ProviderBundle {
     clearEnvFiles: (localPath: string) => void;
   };
   const providersMod = load(pkgDir, dist, 'providers') as {
-    createProvider: (config: UiConfig) => UiProvider;
+    createProvider: (config: UiConfig, mode?: string) => UiProvider;
+  };
+  const providerViewsMod = load(pkgDir, dist, 'providerViews') as {
+    buildNonCodeProviderConfig: (config: UiConfig) => UiConfig;
+    buildConsultProviderConfig: (config: UiConfig) => UiConfig;
   };
 
   // Clear keys from local .env.aidev AND its AIDEV_ENV_EXTEND file so loadConfig
@@ -176,20 +181,22 @@ export function getProvider(event: H3Event): ProviderBundle {
   let nonCodeProvider: UiProvider | undefined;
   const nonCodeTag = (config.nonCodeTag as string | undefined) || '';
   if (nonCodeTag) {
-    const nonCodeConfig = {
-      ...config,
-      clickupTag: nonCodeTag,
-      clickupTeamId: (config.nonCodeClickupTeamId as string | undefined) || config.clickupTeamId,
-      jiraLabel: nonCodeTag,
-      jiraProject: (config.nonCodeJiraProject as string | undefined) || (config.jiraProject as string | undefined),
-      linearLabel: nonCodeTag,
-      linearTeamId: (config.nonCodeLinearTeamId as string | undefined) || config.linearTeamId,
-      trelloLabel: nonCodeTag,
-    };
-    nonCodeProvider = providersMod.createProvider(nonCodeConfig as UiConfig);
+    nonCodeProvider = providersMod.createProvider(
+      providerViewsMod.buildNonCodeProviderConfig(config),
+      'non-code',
+    );
   }
 
-  const bundle: ProviderBundle = { config, provider, nonCodeProvider, envPath: env.path, cwd, dist };
+  let consultProvider: UiProvider | undefined;
+  const consultTag = (config.consultTag as string | undefined) || '';
+  if (consultTag) {
+    consultProvider = providersMod.createProvider(
+      providerViewsMod.buildConsultProviderConfig(config),
+      'consult',
+    );
+  }
+
+  const bundle: ProviderBundle = { config, provider, nonCodeProvider, consultProvider, envPath: env.path, cwd, dist };
   ctx[CACHE_KEY] = bundle;
   return bundle;
 }

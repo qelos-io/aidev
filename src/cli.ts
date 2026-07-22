@@ -8,11 +8,11 @@ import { helpCommand } from './commands/help';
 import { stopCommand } from './commands/stop';
 import { uiCommand } from './commands/ui';
 import { loadConfig } from './config';
+import { buildConsultProviderConfig, buildNonCodeProviderConfig } from './providerViews';
 import { createProvider, TaskProvider } from './providers';
 import { createRunners } from './ai';
 import { processLocalTasks } from './tasks';
 import { logger } from './logger';
-import { Config } from './types';
 import { loadHooks, createHookVM } from './hooks';
 import { acceptedCommand } from './commands/accepted';
 import { isGhInstalled } from './github';
@@ -66,17 +66,12 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
     // the UI's "Execute" action targets exactly one remote task.
     let nonCodeProvider: TaskProvider | undefined;
     if (config.nonCodeTag && !taskId) {
-      const nonCodeConfig: Config = {
-        ...config,
-        clickupTag: config.nonCodeTag,
-        clickupTeamId: config.nonCodeClickupTeamId || config.clickupTeamId,
-        jiraLabel: config.nonCodeTag,
-        jiraProject: config.nonCodeJiraProject || config.jiraProject,
-        linearLabel: config.nonCodeTag,
-        linearTeamId: config.nonCodeLinearTeamId || config.linearTeamId,
-        trelloLabel: config.nonCodeTag,
-      };
-      nonCodeProvider = createProvider(nonCodeConfig, 'non-code');
+      nonCodeProvider = createProvider(buildNonCodeProviderConfig(config), 'non-code');
+    }
+
+    let consultProvider: TaskProvider | undefined;
+    if (config.consultTag && !taskId) {
+      consultProvider = createProvider(buildConsultProviderConfig(config), 'consult');
     }
 
     if (!taskId) {
@@ -93,7 +88,7 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
     const runners = createRunners(config);
     const hooks = loadHooks(config.hooksPath);
     const hookVM = createHookVM(provider, runners);
-    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, hooks, hookVM, taskId);
+    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, consultProvider, hooks, hookVM, taskId);
 
     // Auto-merge accepted PRs if configured (requires gh CLI)
     if (!taskId && config.acceptedTag && isGhInstalled()) {

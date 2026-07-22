@@ -22,6 +22,15 @@ export function getInProgressStatus(_config: Config): string {
   return 'in progress';
 }
 
+export function getInReviewStatus(config: Config): string {
+  const p = (config.provider || 'clickup').toLowerCase();
+  if (p === 'jira') return config.jiraInReviewStatus;
+  if (p === 'linear') return config.linearInReviewStatus;
+  if (p === 'notion') return config.notionInReviewStatus;
+  if (p === 'trello') return config.trelloInReviewStatus;
+  return config.clickupInReviewStatus;
+}
+
 export function isActiveImplementationStatus(status: string, config: Config): boolean {
   const normalized = status.toLowerCase();
   return normalized === getOpenStatus(config).toLowerCase()

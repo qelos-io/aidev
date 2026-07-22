@@ -157,15 +157,17 @@ function shortId(): string {
 
 // ─── LocalProvider ─────────────────────────────────────────────────────────────
 
-export type TaskMode = 'code' | 'non-code';
+export type TaskMode = 'code' | 'non-code' | 'consult';
 
 export class LocalProvider implements TaskProvider {
   private baseDir: string;
   private mode: TaskMode;
+  private tagFilter: string;
 
-  constructor(baseDir = process.cwd(), mode: TaskMode = 'code') {
+  constructor(baseDir = process.cwd(), mode: TaskMode = 'code', tagFilter = '') {
     this.baseDir = baseDir;
     this.mode = mode;
+    this.tagFilter = tagFilter;
     ensureTaskFolders(this.baseDir);
   }
 
@@ -174,6 +176,8 @@ export class LocalProvider implements TaskProvider {
 
     const tasks: Task[] = [];
     for (const folder of TASK_FOLDERS) {
+      if (this.mode === 'consult' && folder !== 'pending') continue;
+
       const dir = path.join(tasksRoot(this.baseDir), folder);
       if (!fs.existsSync(dir)) continue;
 
@@ -192,8 +196,17 @@ export class LocalProvider implements TaskProvider {
         const content = fs.readFileSync(filePath, 'utf8');
         const { meta, body } = parseFrontmatter(content);
 
-        const taskType: TaskMode = meta.type === 'non-code' ? 'non-code' : 'code';
-        if (taskType !== this.mode) continue;
+        const fileTags = meta.tags ? meta.tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
+
+        if (this.mode === 'consult') {
+          if (!this.tagFilter) continue;
+          const want = this.tagFilter.toLowerCase();
+          if (!fileTags.some((t) => t.toLowerCase() === want)) continue;
+        } else {
+          const taskType: TaskMode =
+            meta.type === 'non-code' ? 'non-code' : meta.type === 'consult' ? 'consult' : 'code';
+          if (taskType !== this.mode) continue;
+        }
 
         const idMatch = file.match(/^([a-f0-9]+)-/);
         const id = idMatch ? idMatch[1] : file.replace(/\.md$/, '');
@@ -204,7 +217,7 @@ export class LocalProvider implements TaskProvider {
           description: body,
           status: FOLDER_TO_STATUS[folder],
           url: filePath,
-          tags: meta.tags ? meta.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+          tags: fileTags,
           priority: meta.priority ? parseInt(meta.priority, 10) : undefined,
           sourceListId: meta.listId || meta.list_id || undefined,
         });

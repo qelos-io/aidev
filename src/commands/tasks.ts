@@ -7,6 +7,7 @@ import { processLocalTasks, readTasksFile, writeTasksFile } from '../tasks';
 import { parseCron } from '../cron';
 import { logger } from '../logger';
 import { loadConfig } from '../config';
+import { buildNonCodeProviderConfig } from '../providerViews';
 import { createProvider, TaskProvider } from '../providers';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -261,17 +262,7 @@ export async function tasksPushCommand(envPath?: string): Promise<void> {
 
   let nonCodeProvider: TaskProvider | undefined;
   if (config.nonCodeTag) {
-    const nonCodeConfig: Config = {
-      ...config,
-      clickupTag: config.nonCodeTag,
-      clickupTeamId: config.nonCodeClickupTeamId || config.clickupTeamId,
-      jiraLabel: config.nonCodeTag,
-      jiraProject: config.nonCodeJiraProject || config.jiraProject,
-      linearLabel: config.nonCodeTag,
-      linearTeamId: config.nonCodeLinearTeamId || config.linearTeamId,
-      trelloLabel: config.nonCodeTag,
-    };
-    nonCodeProvider = createProvider(nonCodeConfig, 'non-code');
+    nonCodeProvider = createProvider(buildNonCodeProviderConfig(config), 'non-code');
   }
 
   const result = await processLocalTasks(config, provider, nonCodeProvider);

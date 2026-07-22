@@ -1,6 +1,7 @@
 import { Task, Comment, Config, CreateTaskParams, CreateTaskResult } from '../types';
 import { TaskProvider } from './base';
 import { logger } from '../logger';
+import { taskMatchesTag } from '../providerViews';
 
 const MONDAY_API_URL = 'https://api.monday.com/v2';
 
@@ -116,6 +117,34 @@ function getStatusFromColumnValues(columnValues: MondayColumnValue[] | undefined
   }
 }
 
+/** Parse comma-separated tags from a Monday text/status column. */
+export function getTagsFromMondayColumnValues(
+  columnValues: MondayColumnValue[] | undefined,
+  tagColumnId: string,
+): string[] {
+  if (!tagColumnId || !columnValues) return [];
+  const col = columnValues.find((c) => c.id === tagColumnId);
+  if (!col) return [];
+
+  if (col.text && col.text.includes(',')) {
+    return col.text.split(',').map((t) => t.trim()).filter(Boolean);
+  }
+  if (col.text?.trim()) return [col.text.trim()];
+
+  try {
+    const parsed = JSON.parse(col.value || '{}') as { label?: string };
+    if (parsed.label?.trim()) return [parsed.label.trim()];
+  } catch {
+    // ignore
+  }
+
+  return [];
+}
+
+function formatMondayTextColumnValue(tags: string[]): string {
+  return JSON.stringify({ text: tags.join(', ') });
+}
+
 export class MondayProvider implements TaskProvider {
   private apiToken: string;
   private boardId: string;
@@ -123,6 +152,8 @@ export class MondayProvider implements TaskProvider {
   private groupId: string | null;
   private pendingStatus: string;
   private inReviewStatus: string;
+  private taskTag: string;
+  private tagColumnId: string;
 
   constructor(config: Config) {
     this.apiToken = config.mondayApiToken;
@@ -131,6 +162,8 @@ export class MondayProvider implements TaskProvider {
     this.groupId = config.mondayGroupId || null;
     this.pendingStatus = config.clickupPendingStatus || 'pending';
     this.inReviewStatus = config.clickupInReviewStatus || 'review';
+    this.taskTag = config.clickupTag || '';
+    this.tagColumnId = config.mondayTagColumnId || '';
   }
 
   private async graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
@@ -198,6 +231,9 @@ export class MondayProvider implements TaskProvider {
       const statusNorm = statusText.toLowerCase();
       if (statusNorm !== pending && statusNorm !== inReview) continue;
 
+      const tags = getTagsFromMondayColumnValues(item.column_values, this.tagColumnId);
+      if (!taskMatchesTag(tags, this.taskTag)) continue;
+
       const blockedBy = getBlockedByFromColumnValues(item.column_values);
       tasks.push({
         id: String(item.id),
@@ -205,7 +241,7 @@ export class MondayProvider implements TaskProvider {
         description: item.description?.description ?? '',
         status: statusText,
         url: item.url || `https://${this.boardId}.monday.com`,
-        tags: [],
+        tags,
         sourceListId: this.boardId,
         ...(blockedBy.length > 0 && { blockedBy }),
       });
@@ -325,13 +361,14 @@ export class MondayProvider implements TaskProvider {
       if (!item) return null;
       const statusText = getStatusFromColumnValues(item.column_values, this.statusColumnId);
       const blockedBy = getBlockedByFromColumnValues(item.column_values);
+      const tags = getTagsFromMondayColumnValues(item.column_values, this.tagColumnId);
       return {
         id: String(item.id),
         name: item.name,
         description: '',
         status: statusText,
         url: item.url || `https://monday.com/boards/${this.boardId}/pulses/${item.id}`,
-        tags: [],
+        tags,
         sourceListId: this.boardId,
         ...(blockedBy.length > 0 && { blockedBy }),
       };
@@ -362,6 +399,65 @@ export class MondayProvider implements TaskProvider {
 
     const id = String(data.create_item.id);
     return { id, url: `https://monday.com/boards/${this.boardId}/pulses/${id}` };
+  }
+
+  async removeTag(taskId: string, tag: string): Promise<void> {
+    if (!this.tagColumnId) return;
+    logger.debug(`Removing tag "${tag}" from Monday item ${taskId}`);
+
+    const query = `
+      query ($itemId: ID!) {
+        items(ids: [$itemId]) {
+          column_values { ${MONDAY_COLUMN_VALUES_FIELDS} }
+        }
+      }
+    `;
+    const data = await this.graphql<ItemsByIdResponse>(query, { itemId: taskId });
+    const item = data.items?.[0];
+    if (!item) return;
+
+    const want = tag.trim().toLowerCase();
+    const current = getTagsFromMondayColumnValues(item.column_values, this.tagColumnId);
+    const remaining = current.filter((t) => t.toLowerCase() !== want);
+    if (remaining.length === current.length) return;
+
+    await this.setTagColumnValue(taskId, remaining);
+  }
+
+  async addTag(taskId: string, tag: string): Promise<void> {
+    if (!this.tagColumnId) return;
+    logger.debug(`Adding tag "${tag}" to Monday item ${taskId}`);
+
+    const query = `
+      query ($itemId: ID!) {
+        items(ids: [$itemId]) {
+          column_values { ${MONDAY_COLUMN_VALUES_FIELDS} }
+        }
+      }
+    `;
+    const data = await this.graphql<ItemsByIdResponse>(query, { itemId: taskId });
+    const item = data.items?.[0];
+    if (!item) return;
+
+    const want = tag.trim().toLowerCase();
+    const current = getTagsFromMondayColumnValues(item.column_values, this.tagColumnId);
+    if (current.some((t) => t.toLowerCase() === want)) return;
+
+    await this.setTagColumnValue(taskId, [...current, tag.trim()]);
+  }
+
+  private async setTagColumnValue(taskId: string, tags: string[]): Promise<void> {
+    const mutation = `
+      mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: String!) {
+        change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $value) { id }
+      }
+    `;
+    await this.graphql<ChangeColumnValueResponse>(mutation, {
+      boardId: this.boardId,
+      itemId: taskId,
+      columnId: this.tagColumnId,
+      value: formatMondayTextColumnValue(tags),
+    });
   }
 }
 

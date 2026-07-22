@@ -21,7 +21,7 @@ export interface TasksResponse {
 }
 
 export default defineEventHandler(async (event): Promise<TasksResponse> => {
-  const { config, provider, nonCodeProvider, cwd, dist } = getProvider(event);
+  const { config, provider, nonCodeProvider, consultProvider, cwd, dist } = getProvider(event);
   const q = getQuery(event);
   const filter = (typeof q.status === 'string' ? q.status : 'all').toLowerCase();
 
@@ -54,12 +54,23 @@ export default defineEventHandler(async (event): Promise<TasksResponse> => {
     }
   }
 
+  if (consultProvider && (filter === 'pending' || filter === 'all' || filter === '')) {
+    try {
+      const consultTasks = await fetchBoardTasks(config, consultProvider);
+      tasks = mergeTasksById(tasks, consultTasks);
+    } catch {
+      // Non-fatal — consult tasks are optional on the board.
+    }
+  }
+
   // Build the list of well-known aidev tag suggestions from config.
   // Each entry has a stable label so the UI can display human-readable names
   // even when the tag value itself is a generated string like "secretary-other".
   const suggestedTagEntries: Array<{ key: string; label: string }> = [
     { key: 'clickupTag',   label: 'code' },
     { key: 'nonCodeTag',   label: 'non-code' },
+    { key: 'consultTag',   label: 'consult' },
+    { key: 'consultedTag', label: 'consulted' },
     { key: 'thinkingTag',  label: 'thinking' },
     { key: 'planningTag',  label: 'planning' },
     { key: 'acceptedTag',  label: 'accepted' },

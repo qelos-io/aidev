@@ -51,6 +51,7 @@ export default defineConfig({
           { text: 'Blocked tasks', link: '/guide/blocked-tasks' },
           { text: 'Auto-compress', link: '/guide/auto-compress' },
           { text: 'Non-code tasks', link: '/guide/non-code-tasks' },
+          { text: 'Consult tasks', link: '/guide/consult-tasks' },
           { text: 'Trigger word', link: '/guide/trigger-word' },
           { text: 'Local tasks queue', link: '/guide/local-tasks' },
           { text: 'Scheduling', link: '/guide/scheduling' },

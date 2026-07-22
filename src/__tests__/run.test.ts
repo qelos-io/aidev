@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getBlockedBySkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
@@ -217,6 +217,14 @@ describe('hasHumanReply', () => {
 });
 
 describe('hasHumanComment', () => {
+  it('returns true when a peer agent uses a different comment prefix', () => {
+    const comments = [
+      makeComment('[aidev-qelos] Need consumer repro steps?'),
+      makeComment('[aidev-isaac] Consultation complete — task remains pending.\n\n---\n\nRepro: run npm test in isaac repo'),
+    ];
+    assert.equal(hasHumanComment(comments, '[aidev-qelos]'), true);
+  });
+
   it('returns false when there are no comments', () => {
     assert.equal(hasHumanComment([]), false);
   });
@@ -804,6 +812,46 @@ describe('getRunSkipReason', () => {
 
   it('skips terminal-status tasks before the review filter check', () => {
     assert.equal(getRunSkipReason('done', 'review', 'pending'), 'terminal status: done');
+  });
+});
+
+describe('getConsultSkipReason', () => {
+  it('allows pending tasks for pending and all filters', () => {
+    assert.equal(getConsultSkipReason('pending', 'pending', 'pending'), null);
+    assert.equal(getConsultSkipReason('pending', 'all', 'pending'), null);
+  });
+
+  it('rejects open tasks even when filter=all', () => {
+    assert.equal(getConsultSkipReason('open', 'all', 'pending'), 'consult tasks only run when pending');
+  });
+
+  it('inherits filter=open skip for pending tasks', () => {
+    assert.equal(getConsultSkipReason('pending', 'open', 'pending'), 'filter=open but task is pending');
+  });
+});
+
+describe('buildConsultPrompt', () => {
+  const task = { id: '1', name: 'SDK bug', description: 'Consumer sees error X', status: 'pending', url: 'http://example.com', tags: ['qelos', 'isaac-consult'] };
+
+  it('includes consultation instructions', () => {
+    const prompt = buildConsultPrompt(task, '\n\nConversation context:\nQelos: What repro steps?');
+    assert.ok(prompt.includes('consultation agent'));
+    assert.ok(prompt.includes('LATEST comment'));
+    assert.ok(prompt.includes('Qelos: What repro steps?'));
+    assert.ok(prompt.includes('Do not declare the overall task complete'));
+  });
+});
+
+describe('buildConsultCompletionComment', () => {
+  it('stays pending instead of moving to review', () => {
+    const comment = buildConsultCompletionComment(
+      { ...baseConfig, commentPrefix: '[aidev-isaac]', clickupPendingStatus: 'pending' } as Config,
+      'Here is the consumer perspective.',
+    );
+    assert.ok(comment.includes('[aidev-isaac] Consultation complete'));
+    assert.ok(comment.includes('Here is the consumer perspective.'));
+    assert.ok(comment.includes('Status remains: pending'));
+    assert.ok(!comment.includes('review'));
   });
 });
 

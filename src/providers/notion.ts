@@ -1,6 +1,7 @@
 import { Task, Comment, Config, CreateTaskParams, CreateTaskResult } from '../types';
 import { TaskProvider } from './base';
 import { logger } from '../logger';
+import { taskMatchesTag } from '../providerViews';
 
 const NOTION_API_BASE = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
@@ -97,8 +98,10 @@ export class NotionProvider implements TaskProvider {
   private statusPropertyName: string;
   private pendingStatus: string;
   private inReviewStatus: string;
+  private taskTag: string;
   private titlePropertyName: string | null = null;
   private statusPropertyType: 'status' | 'select' | null = null;
+  private tagsPropertyName: string | null = null;
 
   constructor(config: Config) {
     this.apiKey = config.notionApiKey;
@@ -106,10 +109,11 @@ export class NotionProvider implements TaskProvider {
     this.statusPropertyName = config.notionStatusProperty || 'Status';
     this.pendingStatus = config.notionPendingStatus || 'pending';
     this.inReviewStatus = config.notionInReviewStatus || 'review';
+    this.taskTag = config.clickupTag || '';
   }
 
   private async ensureSchema(): Promise<void> {
-    if (this.titlePropertyName !== null && this.statusPropertyType !== null) return;
+    if (this.titlePropertyName !== null && this.statusPropertyType !== null && this.tagsPropertyName !== null) return;
 
     const db = await this.request<NotionDatabaseResponse>(`/databases/${this.databaseId}`, {
       method: 'GET',
@@ -120,6 +124,13 @@ export class NotionProvider implements TaskProvider {
       this.statusPropertyType = statusInfo.type;
     } else {
       this.statusPropertyType = 'select';
+    }
+    if ('Tags' in db.properties) {
+      this.tagsPropertyName = 'Tags';
+    } else if ('tags' in db.properties) {
+      this.tagsPropertyName = 'tags';
+    } else {
+      this.tagsPropertyName = '';
     }
   }
 
@@ -148,12 +159,23 @@ export class NotionProvider implements TaskProvider {
     const pending = this.pendingStatus;
     const inReview = this.inReviewStatus;
     const key = this.statusPropertyType === 'status' ? 'status' : 'select';
-    return {
+    const statusFilter = {
       or: [
         { property: prop, [key]: { equals: pending } },
         { property: prop, [key]: { equals: inReview } },
       ],
     };
+
+    if (this.taskTag && this.taskTag !== '*' && this.tagsPropertyName) {
+      return {
+        and: [
+          statusFilter,
+          { property: this.tagsPropertyName, multi_select: { contains: this.taskTag } },
+        ],
+      };
+    }
+
+    return statusFilter;
   }
 
   async fetchTasks(_options?: import('../types').FetchTasksOptions): Promise<Task[]> {
@@ -186,6 +208,8 @@ export class NotionProvider implements TaskProvider {
       const tags = Array.isArray(tagsProp?.multi_select)
         ? tagsProp.multi_select.map((o) => o.name)
         : [];
+
+      if (!taskMatchesTag(tags, this.taskTag)) continue;
 
       const blockedBy = extractBlockedBy(props);
       tasks.push({

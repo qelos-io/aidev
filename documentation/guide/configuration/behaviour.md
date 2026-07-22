@@ -6,7 +6,9 @@
 | `AGENTS` | `claude,cursor` | Comma-separated list of agents in priority order |
 | `DEV_NOTES_MODE` | `smart` | When to ask for clarification (`smart` or `always`) |
 | `AIDEV_TRIGGER_WORD` | `aidev-continue` | Comment containing this word re-triggers a skipped task |
-| `AIDEV_COMMENT_PREFIX` | `[aidev]` | Custom prefix for all aidev comments posted to task providers |
+| `AIDEV_COMMENT_PREFIX` | `[aidev-$PROJECT_NAME]` | Prefix for aidev comments; `$PROJECT_NAME` expands to the project folder name |
+| `CONSULT_TAG` | `{folder}-consult` | Tag/label this agent watches for consult requests |
+| `CONSULTED_TAG` | `{folder}-consulted` | Stats marker applied after consult completes |
 | `AIDEV_HOOKS_PATH` | — | Path to a `.ts` or `.js` module that exports hook functions (see [Hooks](/guide/hooks)) |
 | `ACCEPTED_TAG` | `accepted` | Tasks in review with this tag are auto-merged (see [Auto-merge](/guide/auto-merge)) |
 | `DONE_STATUS` | auto-detected | Status to set after auto-merging an accepted PR |

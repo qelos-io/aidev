@@ -31,7 +31,41 @@ import {
 import {
   getOpenStatus,
   getPendingStatus,
+  getInReviewStatus,
 } from '../taskStatus';
+import {
+  buildCompletionComment,
+  buildConflictResolutionPrompt,
+  buildConsultCompletionComment,
+  buildConsultPrompt,
+  buildImplementPrompt,
+  buildNonCodeAnalysisPrompt,
+  buildNonCodeCompletionComment,
+  buildNonCodePrompt,
+  buildNonCodeSubtaskPrompt,
+  buildNonCodeThinkingCompletionComment,
+  buildPlanningAnalysisPrompt,
+  buildPRBody,
+  buildPRUrl,
+  buildReviewCompletionComment,
+  buildReviewPrompt,
+  buildThinkingAnalysisPrompt,
+  buildThinkingSubtaskPrompt,
+  formatSubtaskId,
+  parseReplyDirectives,
+  SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX,
+  SUBTASK_PROMPT_COMPACT_INSTRUCTIONS_MAX,
+  truncateForSubtaskPrompt,
+} from '../prompts';
+import type {
+  NonCodeSubTaskResult,
+  PlanningAnalysisResponse,
+  PlanningSubtaskDraft,
+  SubTask,
+  ThinkingAnalysisDraft,
+  ThinkingSubtaskPromptOptions,
+  ThinkingTaskPlan,
+} from '../prompts/types';
 
 function applySafeMode(task: Task, context: string, config: Config): { task: Task; context: string } {
   if (!config.safeMode) return { task, context };
@@ -101,35 +135,45 @@ export {
   getPendingStatus,
   getOpenStatus,
   getInProgressStatus,
+  getInReviewStatus,
 } from '../taskStatus';
 
-export function getInReviewStatus(config: Config): string {
-  const p = (config.provider || 'clickup').toLowerCase();
-  if (p === 'jira') return config.jiraInReviewStatus;
-  if (p === 'linear') return config.linearInReviewStatus;
-  if (p === 'notion') return config.notionInReviewStatus;
-  if (p === 'trello') return config.trelloInReviewStatus;
-  return config.clickupInReviewStatus;
-}
+export type {
+  NonCodeSubTaskResult,
+  PlanningAnalysisResponse,
+  PlanningSubtaskDraft,
+  SubTask,
+  ThinkingAnalysisDraft,
+  ThinkingSubtaskPromptOptions,
+  ThinkingTaskPlan,
+} from '../prompts/types';
+
+export {
+  buildCompletionComment,
+  buildConflictResolutionPrompt,
+  buildConsultCompletionComment,
+  buildConsultPrompt,
+  buildImplementPrompt,
+  buildNonCodeAnalysisPrompt,
+  buildNonCodeCompletionComment,
+  buildNonCodePrompt,
+  buildNonCodeSubtaskPrompt,
+  buildNonCodeThinkingCompletionComment,
+  buildPlanningAnalysisPrompt,
+  buildPRBody,
+  buildPRUrl,
+  buildReviewCompletionComment,
+  buildReviewPrompt,
+  buildThinkingAnalysisPrompt,
+  buildThinkingSubtaskPrompt,
+  formatSubtaskId,
+  parseReplyDirectives,
+  SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX,
+  SUBTASK_PROMPT_COMPACT_INSTRUCTIONS_MAX,
+  truncateForSubtaskPrompt,
+} from '../prompts';
 
 export type RunFilter = 'all' | 'open' | 'pending' | 'review';
-
-export interface SubTask {
-  id: number | string;
-  title: string;
-  description: string;
-  status: 'pending' | 'running' | 'done' | 'failed';
-  attempts: number;
-  lastError?: string;
-}
-
-export interface ThinkingTaskPlan {
-  taskId: string;
-  taskName: string;
-  /** Short summary of the ticket goal for compact sub-task prompts (from analyze step). */
-  taskSummary?: string;
-  subtasks: SubTask[];
-}
 
 export function getRunSkipReason(status: string, filter: RunFilter, pendingStatus: string, openStatus: string = 'open'): string | null {
   const normalizedStatus = status.toLowerCase();
@@ -193,24 +237,6 @@ export function isPlanningTask(task: Task, config: Config): boolean {
   if (!config.planningTag) return false;
   const tag = config.planningTag.toLowerCase();
   return task.tags.some((t) => t.toLowerCase() === tag);
-}
-
-export interface PlanningSubtaskDraft {
-  title: string;
-  description: string;
-  priority?: number;
-  blockedBy?: number[];
-}
-
-export interface PlanningAnalysisResponse {
-  clarification?: string;
-  subtasks: PlanningSubtaskDraft[];
-}
-
-export interface ThinkingAnalysisDraft {
-  taskSummary?: string;
-  instructions?: string;
-  subtasks: Array<{ id?: number | string; title: string; description: string }>;
 }
 
 function tryParseJson(text: string): unknown | null {
@@ -338,54 +364,6 @@ async function runAgentJsonAnalysis<T>(
 
   logger.error(`${label} failed for all runners`);
   return null;
-}
-
-export function buildPlanningAnalysisPrompt(task: Task, context: string): string {
-  const tagsLine = task.tags.length > 0
-    ? `\nParent task tags: ${task.tags.join(', ')}`
-    : '';
-
-  return `You are a senior software architect operating in PLANNING MODE. Your job is to break a parent task into a list of fully self-contained sub-task tickets that will be pushed to the task management provider and worked on independently — each by a different agent, in isolation, with NO access to the parent task or to its sibling sub-tasks.
-
-Parent task name: ${task.name}
-
-Parent task description:
-${task.description || '(no description provided)'}${tagsLine}
-${context}
-
-Decide one of:
-  (a) If critical information is missing and you cannot produce useful self-contained sub-tasks without it, return a single clarification question.
-  (b) Otherwise, return a list of sub-task drafts.
-
-CRITICAL — each sub-task description MUST be fully isolated:
-  - Do NOT reference the parent task, sibling sub-tasks, or "the plan".
-  - Do NOT use phrases like "as discussed above", "see the parent ticket", "from step 1", or "after the previous sub-task". The agent executing this sub-task will not see any of that.
-  - Include every file path, function name, schema, constraint, reasoning, and reference the executing agent will need to complete the work standalone.
-  - Restate any shared context (architecture decisions, conventions, motivation) that is required to do the work correctly.
-  - Each description should read like its own complete ticket — title, what to change, why, where, and acceptance criteria.
-
-Sub-task priority is optional and uses an integer 1–4 (1 = urgent, 4 = low). Omit the field if you have no opinion.
-
-Sub-task blockers: each sub-task may include an optional "blockedBy" array of 0-based indices into the "subtasks" array, listing sub-tasks that must complete before this one starts. Rules:
-  - Only set it when there is a genuine sequential dependency (e.g. a migration must run before the code that uses it).
-  - Most sub-tasks should have no blockers — omit the field entirely when not needed.
-  - Do not reference a sub-task's own index (no self-blocking).
-  - Do not create circular dependencies (if A blocks B, B must not block A).
-
-Respond with valid JSON only — no markdown fences, no extra text:
-{
-  "clarification": "question text, or null if no clarification is needed",
-  "subtasks": [
-    {
-      "title": "Short, specific title",
-      "description": "Fully self-contained ticket body (markdown ok). Include all paths, references, and reasoning needed to do this work without seeing the parent ticket.",
-      "priority": 2,
-      "blockedBy": [0]
-    }
-  ]
-}
-
-If you set "clarification" to a non-null question, "subtasks" must be an empty array. If you provide sub-tasks, "clarification" must be null.`;
 }
 
 export function parsePlanningResponse(output: string): PlanningAnalysisResponse | null {
@@ -536,91 +514,9 @@ export function readTaskPlan(taskId: string): ThinkingTaskPlan | null {
   }
 }
 
-export function formatSubtaskId(id: number | string): string {
-  // Decimal string IDs like "3.1" already contain a dot; plain numeric IDs get
-  // a trailing dot so the list reads "1. Title", "2. Title", "3.1 Title".
-  return typeof id === 'string' ? id : `${id}.`;
-}
-
 export function subtaskDepth(id: number | string): number {
   if (typeof id === 'number') return 0;
   return (id.match(/\./g) || []).length;
-}
-
-/** Max chars for ticket description when compact mode has no {@link ThinkingTaskPlan.taskSummary}. */
-export const SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX = 3000;
-
-/** Max chars for archived instructions markdown in compact sub-task prompts. */
-export const SUBTASK_PROMPT_COMPACT_INSTRUCTIONS_MAX = 8192;
-
-export function truncateForSubtaskPrompt(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return `${text.slice(0, maxLen)}\n\n… (truncated)`;
-}
-
-export interface ThinkingSubtaskPromptOptions {
-  /** Smaller prompt: concise goal + truncated plan; used when there are no human ticket comments or on AI retry. */
-  compact: boolean;
-}
-
-export function buildThinkingSubtaskPrompt(
-  subtask: SubTask,
-  task: Task,
-  plan: ThinkingTaskPlan,
-  instructions: string,
-  reviewContext: string | undefined,
-  previousError: string | undefined,
-  options: ThinkingSubtaskPromptOptions,
-): string {
-  const completedSteps = plan.subtasks
-    .filter((s) => s.status === 'done')
-    .map((s) => `  - [done] ${s.id}. ${s.title}`)
-    .join('\n');
-
-  const retrySection = previousError && previousError !== '__git__'
-    ? `\n## Previous attempt failure diagnostics\nThis step failed on a previous attempt. Diagnostics below — please take them into account and avoid repeating the same failure.\n\n${previousError}\n`
-    : '';
-
-  const { compact } = options;
-
-  let taskContextSection = '';
-  if (compact) {
-    const summary = plan.taskSummary?.trim();
-    if (summary) {
-      taskContextSection = `\nGoal (concise):\n${summary}\n`;
-    } else if (task.description?.trim()) {
-      taskContextSection = `\nTask description (truncated):\n${truncateForSubtaskPrompt(
-        task.description.trim(),
-        SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX,
-      )}\n`;
-    }
-  } else if (task.description?.trim()) {
-    taskContextSection = `\nTask description:\n${task.description}\n`;
-  }
-
-  let instructionsSection = '';
-  const instr = instructions.trim();
-  if (compact) {
-    if (instr) {
-      instructionsSection = `## Implementation plan (truncated)\n${truncateForSubtaskPrompt(
-        instr,
-        SUBTASK_PROMPT_COMPACT_INSTRUCTIONS_MAX,
-      )}\n\n(Full plan: \`${plan.taskId}.aidev.instructions.md\`.)\n`;
-    }
-  } else if (instr) {
-    instructionsSection = `## Full implementation instructions\n${instr}\n`;
-  }
-
-  return `You are implementing step ${subtask.id} of a multi-step task.
-
-Overall task: ${task.name}${taskContextSection}
-${instructionsSection}${reviewContext || ''}${retrySection}## Progress
-${completedSteps || '(no steps completed yet)'}
-
-## Current step: ${subtask.id}. ${subtask.title}
-${subtask.description}
-
-Implement ONLY this step. Focus on correctness and follow the existing code style.`;
 }
 
 export function formatSubtaskList(plan: ThinkingTaskPlan): string {
@@ -641,6 +537,7 @@ export async function runCommand(
   provider: TaskProvider,
   runners: AIRunner[],
   nonCodeProvider?: TaskProvider,
+  consultProvider?: TaskProvider,
   hooks: AidevHooks = {},
   vm?: HookVM,
   taskId?: string
@@ -728,6 +625,18 @@ export async function runCommand(
 
       for (const task of nonCodeTasks) {
         const result = await processNonCodeTask(task, filter, config, nonCodeProvider, runners, screenAvailable, hooks, vm);
+        if (result === 'processed') processed++;
+        else skipped++;
+      }
+    }
+
+    if (consultProvider && !taskId) {
+      logger.info(`Fetching consult tasks (filter: ${filter})...`);
+      const consultTasks = sortTasksByPriority(await consultProvider.fetchTasks());
+      logger.info(`Found ${consultTasks.length} consult task(s)`);
+
+      for (const task of consultTasks) {
+        const result = await processConsultTask(task, filter, config, consultProvider, runners, screenAvailable, hooks, vm);
         if (result === 'processed') processed++;
         else skipped++;
       }
@@ -969,34 +878,6 @@ Respond with valid JSON only:
 
   logger.warn('Clarification check failed for all runners — proceeding without clarification');
   return null;
-}
-
-export function buildConflictResolutionPrompt(task: Task, conflictFiles: string[], context: string): string {
-  return `You are resolving merge conflicts in a software development task branch.
-
-The task branch has fallen behind the base branch and has merge conflicts that need to be resolved.
-
-## Task context (DO NOT break this — the task must still work after conflict resolution)
-
-Task: ${task.name}
-
-Description:
-${task.description || '(no description provided)'}
-${context}
-
-## Merge conflicts
-
-The following files have merge conflicts with conflict markers (<<<<<<< HEAD, =======, >>>>>>> ...):
-${conflictFiles.map((f) => `- ${f}`).join('\n')}
-
-## Instructions
-
-1. Open each conflicting file and resolve the conflict markers
-2. Keep BOTH the task's changes AND the base branch updates where possible
-3. If the base branch changed something the task also changed, prefer the task's intent but make sure it works with the new base branch code
-4. Remove all conflict markers (<<<<<<< HEAD, =======, >>>>>>> ...)
-5. Make sure the code compiles and is consistent after resolution
-6. Do NOT make any changes beyond what is needed to resolve the conflicts`;
 }
 
 async function resolveConflictsWithAI(
@@ -1367,47 +1248,6 @@ async function implementTask(
   }
 
   logger.success(`Task implemented: branch ${branchName} pushed`);
-}
-
-export function buildImplementPrompt(task: Task, context: string): string {
-  return `You are implementing a software development task. Make the necessary code changes to complete the task described below.
-
-Task: ${task.name}
-
-Description:
-${task.description || '(no description provided)'}
-${context}
-
-Please implement the required changes. Focus on correctness and follow the existing code style in the project.`;
-}
-
-export function buildThinkingAnalysisPrompt(task: Task, context: string): string {
-  return `You are a senior software architect breaking down a development task into smaller, sequential implementation steps.
-
-Task name: ${task.name}
-
-Description:
-${task.description || '(no description provided)'}
-${context}
-
-Analyze this task and break it into smaller, independently implementable sub-tasks that should be executed sequentially. Each sub-task should be a coherent unit of work that can be committed separately.
-
-CRITICAL: Every sub-task MUST result in actual file modifications (create, edit, or delete files) that can be committed to git. A sub-task that produces no file changes is treated as a failure. Do NOT create sub-tasks that are pure investigation, verification, or read-only steps — for example "check if this folder exists", "review the existing code", "decide on an approach", "verify the build passes", or "run the tests". Any necessary investigation must happen inside a sub-task that also produces concrete file changes (e.g. fold the discovery into the step that applies the resulting edits). Each sub-task's description must name specific files and functions to add, modify, or remove.
-
-Respond with valid JSON only — no markdown fences, no extra text:
-{
-  "taskSummary": "2-5 short sentences: overall goal and constraints only — for reuse in each sub-task prompt (no step-by-step detail; that goes in instructions and subtasks)",
-  "instructions": "Detailed implementation instructions in markdown covering the full task — architecture decisions, key files to modify, edge cases to handle, testing approach",
-  "subtasks": [
-    {
-      "id": 1,
-      "title": "Short title for the sub-task",
-      "description": "Detailed description of what to implement in this step, including specific files and functions to change. Must describe concrete file modifications."
-    }
-  ]
-}
-
-Keep sub-tasks focused: 2-10 sub-tasks is ideal. Order them by dependency (foundation first).`;
 }
 
 function parseThinkingAnalysisObject(obj: Record<string, unknown>): ThinkingAnalysisDraft | null {
@@ -2185,11 +2025,6 @@ export async function implementPlanningTask(
  * Attempts to create a PR via `gh` CLI. Falls back to a compare URL if gh is
  * unavailable or PR creation fails.
  */
-export function buildPRBody(task: Task): string {
-  const signature = process.env.PR_SIGNATURE || 'Automated PR by aidev.';
-  return `Implements: ${task.url}\n\n${signature}`;
-}
-
 export function tryCreatePR(config: Config, branch: string, task: Task): string {
   if (isGitHubRemote(config.gitRemote) && isGhAuthenticated()) {
     const result = createPullRequest(
@@ -2204,91 +2039,18 @@ export function tryCreatePR(config: Config, branch: string, task: Task): string 
   return buildPRUrl(config, branch);
 }
 
-export function buildPRUrl(config: Config, branch: string): string {
-  if (!config.githubRepo) return '';
-  const encoded = encodeURIComponent(branch);
-  return `https://github.com/${config.githubRepo}/compare/${config.githubBaseBranch}...${encoded}?expand=1`;
-}
-
-export function buildCompletionComment(branch: string, prUrl: string, config: Config): string {
-  const lines = [
-    `${config.commentPrefix} Implementation complete!`,
-    ``,
-    `Branch: \`${branch}\``,
-  ];
-
-  if (prUrl) {
-    lines.push(`Open PR: ${prUrl}`);
+export function getConsultSkipReason(
+  status: string,
+  filter: RunFilter,
+  pendingStatus: string,
+  openStatus: string = 'open',
+): string | null {
+  const base = getRunSkipReason(status, filter, pendingStatus, openStatus);
+  if (base) return base;
+  if (status.toLowerCase() !== pendingStatus.toLowerCase()) {
+    return 'consult tasks only run when pending';
   }
-
-  lines.push(``, `Status set to: ${getInReviewStatus(config)}`);
-  return lines.join('\n');
-}
-
-export function buildNonCodePrompt(task: Task, context: string): string {
-  const hasComments = context.trim().length > 0;
-
-  if (hasComments) {
-    return `Task: ${task.name}
-
-Original description:
-${task.description || '(no description provided)'}
-${context}
-
-⚠️ CRITICAL: This is a FOLLOW-UP request. The conversation above contains new comments from the user.
-YOUR PRIMARY TASK is to address the LATEST comment at the bottom of the conversation - this is the user's current request.
-The latest comment may:
-- Ask for something completely different from the original task
-- Request modifications to what was already done
-- Add new requirements
-
-DO NOT repeat what was already done. DO NOT re-execute the original task unless explicitly asked.
-Focus ENTIRELY on addressing the latest comment as your main instruction.
-
-Please provide a clear, detailed response to the LATEST comment. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who wrote the latest comment.`;
-  }
-
-  return `Task: ${task.name}
-
-Description:
-${task.description || '(no description provided)'}
-
-Please provide a clear, detailed response to this task. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who created the task.`;
-}
-
-export function buildNonCodeCompletionComment(config: Config, agentResponse?: string): string {
-  const lines = [
-    `${config.commentPrefix} Non-code task complete!`,
-  ];
-
-  if (agentResponse) {
-    // Filter out instructional text like "Here's text you can paste as the **task ticket comment**"
-    // and extract only the actual content
-    let cleanedResponse = agentResponse;
-    
-    // Look for the content after the first "---" separator, as the actual content usually follows
-    const separatorIndex = agentResponse.indexOf('---');
-    if (separatorIndex !== -1) {
-      const afterSeparator = agentResponse.substring(separatorIndex + 3).trim();
-      // Look for the start of actual content (skip any remaining instructional text)
-      const lines = afterSeparator.split('\n');
-      const contentStartIndex = lines.findIndex(line => 
-        line.trim() && 
-        !line.toLowerCase().includes('here\'s text you can paste') &&
-        !line.toLowerCase().includes('task ticket comment') &&
-        !line.toLowerCase().includes('addresses your latest ask')
-      );
-      
-      if (contentStartIndex !== -1) {
-        cleanedResponse = lines.slice(contentStartIndex).join('\n').trim();
-      }
-    }
-    
-    lines.push(``, `---`, ``, cleanedResponse);
-  }
-
-  lines.push(``, `Status set to: ${getInReviewStatus(config)}`);
-  return lines.join('\n');
+  return null;
 }
 
 export function hasAidevComment(comments: Comment[], commentPrefix: string = '[aidev]'): boolean {
@@ -2522,87 +2284,149 @@ async function implementNonCodeTask(
   logger.success(`Non-code task complete: ${task.name}`);
 }
 
-// ─── Non-code thinking task processing ──────────────────────────────────────
-
-export interface NonCodeSubTaskResult {
-  id: number | string;
-  title: string;
-  summary: string;
-}
-
-export function buildNonCodeAnalysisPrompt(task: Task, context: string): string {
-  return `You are a senior analyst breaking down a non-code task (research, investigation, documentation, communication, planning, etc.) into smaller, sequential sub-tasks.
-
-Each sub-task will be executed in order. Each later sub-task will receive a short summary of every earlier sub-task's result, so subsequent steps can build on previous findings.
-
-Task name: ${task.name}
-
-Description:
-${task.description || '(no description provided)'}
-${context}
-
-Analyze this task and break it into 2-8 focused, sequential sub-tasks. Each sub-task should be a coherent unit of work that produces a textual outcome (analysis, summary, draft, list of findings, etc.) — no code changes are expected.
-
-Respond with valid JSON only — no markdown fences, no extra text:
-{
-  "taskSummary": "2-5 short sentences: overall goal and constraints only — reused as compact context for each sub-task",
-  "subtasks": [
-    {
-      "id": 1,
-      "title": "Short title for the sub-task",
-      "description": "Detailed description of what to investigate, produce, or decide in this step"
-    }
-  ]
-}
-
-Order sub-tasks by dependency (foundation first). Keep titles short — they will appear in ticket comments.`;
-}
-
-export function buildNonCodeSubtaskPrompt(
-  subtask: SubTask,
+async function processConsultTask(
   task: Task,
-  plan: ThinkingTaskPlan,
-  previousResults: NonCodeSubTaskResult[],
-  reviewContext: string | undefined,
-): string {
-  const completedSteps = plan.subtasks
-    .filter((s) => s.status === 'done')
-    .map((s) => `  - [done] ${formatSubtaskId(s.id)} ${s.title}`)
-    .join('\n');
+  filter: RunFilter,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[],
+  screenAvailable: boolean,
+  hooks: AidevHooks = {},
+  vm?: HookVM
+): Promise<'processed' | 'skipped'> {
+  const pendingStatus = getPendingStatus(config);
+  const openStatus = getOpenStatus(config);
+  const skipReason = getConsultSkipReason(task.status, filter, pendingStatus, openStatus);
 
-  const previousSection = previousResults.length > 0
-    ? `\n## Summaries from previous sub-tasks\nUse these findings as context — do not repeat work already done.\n\n${previousResults
-        .map((r) => `### ${formatSubtaskId(r.id)} ${r.title}\n${r.summary}`)
-        .join('\n\n')}\n`
-    : '';
+  logger.task(`[${task.id}] "${task.name}" [consult] (status: ${task.status})`);
 
-  const summary = plan.taskSummary?.trim();
-  const goalSection = summary
-    ? `\nGoal (concise):\n${summary}\n`
-    : task.description?.trim()
-      ? `\nTask description:\n${task.description.trim()}\n`
-      : '';
+  if (skipReason) {
+    logger.info(`[${task.id}] "${task.name}" skipped — ${skipReason}`);
+    return 'skipped';
+  }
 
-  return `You are working on step ${formatSubtaskId(subtask.id)} of a multi-step non-code task. No code changes are expected — produce a clear textual response.
+  if (!screenAvailable) {
+    await notifySleeping(task, provider, config, hooks, vm);
+    return 'skipped';
+  }
 
-Overall task: ${task.name}${goalSection}${previousSection}${reviewContext || ''}## Progress
-${completedSteps || '(no steps completed yet)'}
-
-## Current step: ${formatSubtaskId(subtask.id)} ${subtask.title}
-${subtask.description}
-
-Focus ONLY on this step. Write the response so it can be posted directly as a ticket comment — clear, self-contained, and addressed to the task's stakeholders. Do not include preambles like "Here's text you can paste"; output only the content itself.`;
+  writeActiveTask(process.cwd(), task.id);
+  try {
+    await implementConsultTask(task, config, provider, runners, hooks, vm);
+    return 'processed';
+  } finally {
+    clearActiveTask(process.cwd());
+  }
 }
 
-export function buildNonCodeThinkingCompletionComment(config: Config): string {
-  return [
-    `${config.commentPrefix} Non-code task complete!`,
-    ``,
-    `All sub-tasks finished. Individual summaries were posted above.`,
-    ``,
-    `Status set to: ${getInReviewStatus(config)}`,
-  ].join('\n');
+async function implementConsultTask(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[],
+  hooks: AidevHooks = {},
+  vm?: HookVM
+): Promise<void> {
+  logger.info(`Running consult task: ${task.name}`);
+
+  try {
+    await provider.updateStatus(task.id, 'in progress');
+    await postCommentWithHooks(task, `${config.commentPrefix} Starting consultation`, config, provider, hooks, vm);
+  } catch (err) {
+    logger.warn(`Could not update task status: ${err}`);
+  }
+
+  let context = '';
+  try {
+    const comments = await provider.getComments(task.id);
+    context = await buildConversationContext(task.id, comments, config, runners);
+  } catch {
+    // ignore
+  }
+
+  const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
+  let consultPrompt = buildConsultPrompt(safeTask, safeContext);
+
+  if (vm) {
+    const ncCtx: NonCodeTaskContext = { task: safeTask, config, prompt: consultPrompt };
+    const modified = await executeHook(hooks, 'beforeNonCodeTask', ncCtx, vm);
+    consultPrompt = modified.prompt;
+  }
+
+  let implemented = false;
+  let agentOutput = '';
+  let previousNotes = '';
+
+  for (const runner of runners) {
+    if (!runner.isAvailable()) {
+      logger.debug(`${runner.name} not available, skipping`);
+      continue;
+    }
+
+    logger.info(`Running ${runner.name}...`);
+    const result = await runRunnerWithStatusWatch(
+      runner, consultPrompt, previousNotes || undefined, provider, task.id, config, 'consult',
+    );
+
+    if (result.stoppedByStatus) {
+      await handleImplementationStoppedByStatus(
+        task,
+        result.stopReason || 'task status changed externally',
+        config,
+        provider,
+        hooks,
+        vm,
+      );
+      return;
+    }
+
+    if (result.success) {
+      implemented = true;
+      agentOutput = result.output;
+      break;
+    }
+
+    logger.warn(`${runner.name} failed — trying next runner`);
+    previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
+  }
+
+  if (!implemented) {
+    logger.error('All AI runners failed');
+    const diagnostics = collectAndLogDiagnostics();
+    await postCommentWithHooks(
+      task,
+      `${config.commentPrefix} Consultation failed. Manual intervention needed.\n\n${diagnostics}`,
+      config, provider, hooks, vm
+    );
+    return;
+  }
+
+  try {
+    const comment = buildConsultCompletionComment(config, agentOutput);
+    await postCommentWithHooks(task, comment, config, provider, hooks, vm);
+
+    if (provider.removeTag) {
+      await provider.removeTag(task.id, config.consultTag);
+    }
+    if (provider.addTag) {
+      await provider.addTag(task.id, config.consultedTag);
+    }
+    await provider.updateStatus(task.id, getPendingStatus(config));
+  } catch (err) {
+    logger.warn(`Failed to update task after consultation: ${err instanceof Error ? err.message : err}`);
+  }
+
+  if (vm) {
+    const afterCtx: NonCodeTaskContext & { success: boolean; output: string } = {
+      task: safeTask, config, prompt: consultPrompt, success: true, output: agentOutput,
+    };
+    await executeHook(hooks, 'afterNonCodeTask', afterCtx, vm);
+  }
+
+  logger.success(`Consult task complete: ${task.name}`);
 }
+
+// ─── Non-code thinking task processing ──────────────────────────────────────
 
 async function analyzeAndPlanNonCode(
   task: Task,
@@ -2881,17 +2705,6 @@ async function implementNonCodeThinkingTask(
 
 // ─── Review task processing ─────────────────────────────────────────────────
 
-const REPLY_REGEX = /<!-- AIDEV-REPLY ([\w=+/]+) -->([\s\S]*?)<!-- \/AIDEV-REPLY -->/g;
-
-export function parseReplyDirectives(output: string): Array<{ threadId: string; body: string }> {
-  const replies: Array<{ threadId: string; body: string }> = [];
-  let match: RegExpExecArray | null;
-  while ((match = REPLY_REGEX.exec(output)) !== null) {
-    replies.push({ threadId: match[1], body: match[2].trim() });
-  }
-  return replies;
-}
-
 async function processReviewTask(
   task: Task,
   config: Config,
@@ -3061,58 +2874,4 @@ async function implementReviewTask(
   }
 
   logger.success(`Review comments addressed for: ${task.name}`);
-}
-
-export function buildReviewPrompt(task: Task, threads: ReviewThread[]): string {
-  let prompt = `You are addressing code review comments on a pull request for a software development task.
-
-Task: ${task.name}
-
-Description:
-${task.description || '(no description provided)'}
-
-## Unresolved Code Review Threads
-
-The following review threads need to be addressed. For each thread, either:
-- Fix the code as requested (make the changes directly in the files)
-- Or, if it's a discussion/question that doesn't require code changes, output a REPLY block:
-  <!-- AIDEV-REPLY thread_id -->Your reply here<!-- /AIDEV-REPLY -->
-
-Replace "thread_id" with the actual thread ID shown below.
-
-`;
-
-  for (const thread of threads) {
-    const location = thread.line
-      ? `\`${thread.path}\` (line ${thread.line})`
-      : `\`${thread.path}\``;
-    prompt += `### Thread ${thread.id} — ${location}\n`;
-    for (const comment of thread.comments) {
-      prompt += `> **${comment.author}**: ${comment.body}\n`;
-    }
-    prompt += '\n';
-  }
-
-  prompt += `## Instructions
-
-1. Read each review thread carefully
-2. For code change requests: make the fix directly in the relevant file(s)
-3. For questions or discussions: output a REPLY block with a clear, helpful response
-4. You may handle multiple threads — some with code fixes, others with replies
-5. Focus on correctness and follow the existing code style`;
-
-  return prompt;
-}
-
-export function buildReviewCompletionComment(config: Config, resolvedCount: number, repliedCount: number): string {
-  const parts: string[] = [`${config.commentPrefix} Code review comments addressed!`];
-
-  if (resolvedCount > 0) {
-    parts.push(`Resolved ${resolvedCount} thread(s) with code fixes.`);
-  }
-  if (repliedCount > 0) {
-    parts.push(`Replied to ${repliedCount} thread(s).`);
-  }
-
-  return parts.join('\n');
 }

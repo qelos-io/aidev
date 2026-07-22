@@ -96,6 +96,21 @@ tags: research
 Evaluate Auth0, Clerk, and Supabase Auth. Write a recommendation.
 ```
 
+### Consult tasks
+
+For **consult** tasks (perspective replies on pending tickets), add the consultant tag to frontmatter and place the file under `pending/`:
+
+```markdown
+---
+title: Consumer repro steps?
+tags: qelos, isaac-consult
+---
+
+Latest question from the SDK agent…
+```
+
+See [Consult tasks](/guide/consult-tasks) for the full cross-project flow.
+
 ### Session file (comments)
 
 `.aidev/tasks/open/a1b2c3d4-fix-login-bug.session.md`:

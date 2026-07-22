@@ -153,6 +153,11 @@ export function pickNextToken(
   return { token: tokens[idx], nextCursor: (idx + 1) % tokens.length };
 }
 
+/** Expands $PROJECT_NAME and $FOLDER_NAME in env string templates. */
+export function expandEnvTemplate(template: string, projectName: string): string {
+  return template.replace(/\$PROJECT_NAME/g, projectName).replace(/\$FOLDER_NAME/g, projectName);
+}
+
 export function loadConfig(customEnvPath?: string): Config {
   sourceShellProfile();
 
@@ -220,8 +225,11 @@ export function loadConfig(customEnvPath?: string): Config {
   const triggerWord = process.env.AIDEV_TRIGGER_WORD || 'aidev-continue';
   const thinkingTag = process.env.THINKING_TAG || 'thinking';
   const planningTag = process.env.PLANNING_TAG || 'planning';
-  const commentPrefix = process.env.AIDEV_COMMENT_PREFIX || '[aidev]';
+  const commentPrefixRaw = process.env.AIDEV_COMMENT_PREFIX || '[aidev-$PROJECT_NAME]';
+  const commentPrefix = expandEnvTemplate(commentPrefixRaw, folderName);
   const nonCodeTag = process.env.NON_CODE_TAG || `${folderName}-other`;
+  const consultTag = process.env.CONSULT_TAG || `${folderName}-consult`;
+  const consultedTag = process.env.CONSULTED_TAG || `${folderName}-consulted`;
   const hooksPath = process.env.AIDEV_HOOKS_PATH || '';
   const acceptedTag = process.env.ACCEPTED_TAG || 'accepted';
   const doneStatus = process.env.DONE_STATUS || '';
@@ -248,6 +256,9 @@ export function loadConfig(customEnvPath?: string): Config {
     nonCodeClickupTeamId: process.env.NON_CODE_CLICKUP_TEAM_ID || '',
     nonCodeJiraProject: process.env.NON_CODE_JIRA_PROJECT || '',
     nonCodeLinearTeamId: process.env.NON_CODE_LINEAR_TEAM_ID || '',
+    consultTag,
+    consultedTag,
+    projectName: folderName,
     jiraBaseUrl: process.env.JIRA_BASE_URL || '',
     jiraEmail: process.env.JIRA_EMAIL || '',
     jiraApiToken: process.env.JIRA_API_TOKEN || '',
@@ -264,6 +275,7 @@ export function loadConfig(customEnvPath?: string): Config {
     mondayBoardId: process.env.MONDAY_BOARD_ID || '',
     mondayStatusColumnId: process.env.MONDAY_STATUS_COLUMN_ID || 'status',
     mondayGroupId: process.env.MONDAY_GROUP_ID || '',
+    mondayTagColumnId: process.env.MONDAY_TAG_COLUMN_ID || '',
     notionApiKey: process.env.NOTION_API_KEY || '',
     notionDatabaseId: process.env.NOTION_DATABASE_ID || '',
     notionStatusProperty: process.env.NOTION_STATUS_PROPERTY || 'Status',

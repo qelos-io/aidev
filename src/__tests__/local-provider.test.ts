@@ -700,6 +700,71 @@ describe('LocalProvider mode filtering', () => {
   });
 });
 
+// ─── Consult mode filtering ───────────────────────────────────────────────────
+
+describe('LocalProvider consult mode', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-local-consult-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns only pending tasks with the consult tag', async () => {
+    writeTask(tmpDir, 'pending', 'aaaa0001-consult.md', `---
+title: Need consumer perspective
+tags: qelos, isaac-consult
+---
+
+Describe repro from isaac side.`);
+    writeTask(tmpDir, 'open', 'aaaa0002-open.md', `---
+title: Open with consult tag
+tags: isaac-consult
+---
+
+Should not appear — not pending.`);
+    writeTask(tmpDir, 'pending', 'aaaa0003-other.md', `---
+title: Pending without consult tag
+tags: qelos
+---
+
+No consult tag.`);
+
+    const provider = new LocalProvider(tmpDir, 'consult', 'isaac-consult');
+    const tasks = await provider.fetchTasks();
+
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].name, 'Need consumer perspective');
+    assert.equal(tasks[0].status, 'pending');
+  });
+
+  it('removeTag and addTag update frontmatter tags', async () => {
+    writeTask(tmpDir, 'pending', 'bbbb0001-consult.md', `---
+title: Consult task
+tags: isaac-consult
+---
+
+Body.`);
+
+    const provider = new LocalProvider(tmpDir, 'consult', 'isaac-consult');
+    const tasks = await provider.fetchTasks();
+    assert.equal(tasks.length, 1);
+
+    await provider.removeTag!(tasks[0].id, 'isaac-consult');
+    await provider.addTag!(tasks[0].id, 'isaac-consulted');
+
+    const updated = await provider.fetchTasks();
+    assert.equal(updated.length, 0);
+
+    const filePath = path.join(tasksRoot(tmpDir), 'pending', 'bbbb0001-consult.md');
+    const { meta } = parseFrontmatter(fs.readFileSync(filePath, 'utf8'));
+    assert.equal(meta.tags, 'isaac-consulted');
+  });
+});
+
 // ─── Full lifecycle ──────────────────────────────────────────────────────────
 
 describe('LocalProvider full lifecycle', () => {

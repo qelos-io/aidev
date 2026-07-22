@@ -8,6 +8,8 @@
 | `NOTION_PENDING_STATUS` | `pending` | Status value for "waiting for reply" |
 | `NOTION_IN_REVIEW_STATUS` | `review` | Status value set after implementation |
 
+Use `CLICKUP_TAG` (defaults to the project folder name) to filter pages by a **Tags** multi-select property. Required for consult and multi-project boards on a shared Notion database.
+
 ::: warning Manual setup
 Notion is fully functional but not yet included in the `aidev init` wizard. Set `PROVIDER=notion` in `.env.aidev` and fill in the variables above.
 :::

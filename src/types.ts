@@ -110,6 +110,7 @@ export interface Config {
   mondayBoardId: string;
   mondayStatusColumnId: string;
   mondayGroupId: string;
+  mondayTagColumnId: string;
   // Notion
   notionApiKey: string;
   notionDatabaseId: string;
@@ -133,6 +134,11 @@ export interface Config {
   nonCodeClickupTeamId: string;
   nonCodeJiraProject: string;
   nonCodeLinearTeamId: string;
+  // Consult tasks (cross-agent perspective on pending tickets)
+  consultTag: string;
+  consultedTag: string;
+  /** Directory name used for default tags and $PROJECT_NAME in env templates */
+  projectName: string;
   // Shared
   clickupListId: string;
   assigneeTag: string;

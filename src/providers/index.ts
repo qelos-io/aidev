@@ -16,8 +16,16 @@ export function createProvider(config: Config, mode?: TaskMode): TaskProvider {
       return new JiraProvider(config);
     case 'linear':
       return new LinearProvider(config);
-    case 'local':
-      return new LocalProvider(process.cwd(), mode || 'code');
+    case 'local': {
+      const resolvedMode = mode || 'code';
+      const tagFilter =
+        resolvedMode === 'consult'
+          ? config.consultTag
+          : resolvedMode === 'non-code'
+            ? config.nonCodeTag
+            : config.clickupTag;
+      return new LocalProvider(process.cwd(), resolvedMode, tagFilter);
+    }
     case 'monday':
       return new MondayProvider(config);
     case 'notion':

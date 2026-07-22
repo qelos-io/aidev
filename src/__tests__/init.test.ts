@@ -436,7 +436,7 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     triggerWord: p.AIDEV_TRIGGER_WORD || 'aidev-continue',
     thinkingTag: p.THINKING_TAG || '',
     planningTag: p.PLANNING_TAG || '',
-    commentPrefix: p.AIDEV_COMMENT_PREFIX || '[aidev]',
+    commentPrefix: p.AIDEV_COMMENT_PREFIX || '[aidev-$PROJECT_NAME]',
     acceptedTag: p.ACCEPTED_TAG || '',
     doneStatus: p.DONE_STATUS || '',
     safeMode: !['false', '0', 'no'].includes((p.AIDEV_SAFE_MODE || '').trim().toLowerCase()),
