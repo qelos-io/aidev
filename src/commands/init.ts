@@ -800,8 +800,9 @@ export async function initCommand(): Promise<void> {
     console.log(
       chalk.dim(
         `  When enabled, secret values from .env / .env.aidev that appear in task prompts\n` +
-        `  are redacted and stored in .aidev/assets/secrets/ (git-ignored). Agents are\n` +
-        `  nudged to pipe values via the terminal instead of reading the secrets file.`
+        `  are redacted and stored in .aidev/assets/secrets/ (git-ignored). Ticket attachments\n` +
+        `  under .aidev/assets/<task-id>/ remain readable and copyable by agents; secret files\n` +
+        `  are for shell use only — pipe or grep values, do not read *.secrets into context.`
       )
     );
     const existingSafeMode = (existing.AIDEV_SAFE_MODE || '').trim().toLowerCase();

@@ -13,8 +13,24 @@
 | `ACCEPTED_TAG` | `accepted` | Tasks in review with this tag are auto-merged (see [Auto-merge](/guide/auto-merge)) |
 | `DONE_STATUS` | auto-detected | Status to set after auto-merging an accepted PR |
 | `PR_SIGNATURE` | `Automated PR by aidev.` | Custom signature line appended to the PR body |
-| `AIDEV_SAFE_MODE` | `true` | Redact secret env values from AI prompts |
+| `AIDEV_SAFE_MODE` | `true` | Redact secret env values from AI prompts (see [Safe mode](#safe-mode) below) |
 | `AIDEV_AUTO_COMPRESS` | `true` | Auto-compress older comments when the prompt grows large |
 | `AIDEV_COMPRESS_THRESHOLD` | `12000` | Char-length threshold that triggers compression |
+
+## Safe mode
+
+When `AIDEV_SAFE_MODE` is enabled (default), aidev scans task prompts for values that match keys in `.env` / `.env.aidev`. Matches are replaced with placeholders and the original values are written to:
+
+```
+.aidev/assets/secrets/task-<task-id>.secrets
+```
+
+That file lives under the git-ignored [`.aidev/assets/`](/guide/agents#task-assets-aidevassets) tree alongside downloaded ticket attachments (`.aidev/assets/<task-id>/`).
+
+### How agents access redacted secrets
+
+Secret files are **not** meant to be read into model context. During a run, aidev appends prompt instructions that tell agents to use shell workflows (`grep`, `ls`, piping into commands) instead of opening `*.secrets` files directly.
+
+Attachment files under `.aidev/assets/<task-id>/` follow different rules: agents may read them and copy them into the project (e.g. images into `public/`). See [Task assets](/guide/agents#task-assets-aidevassets) for Cursor `--add-dir`, `.cursorignore` negation, and the prompt fallback used by other agents.
 
 [← Back to configuration overview](/guide/configuration)

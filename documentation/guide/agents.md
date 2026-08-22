@@ -207,6 +207,24 @@ Antigravity has no aidev-specific env vars.
 AGENTS=antigravity,claude
 ```
 
+## Task assets (`.aidev/assets/`)
+
+Providers download ticket attachments to `.aidev/assets/<task-id>/`. With **safe mode** enabled (default), secret values redacted from prompts are written to `.aidev/assets/secrets/task-<id>.secrets`. The whole tree is **git-ignored** (via `aidev init`) so attachments and secrets are not committed.
+
+Because git-ignored paths are often out of scope for agents, aidev grants access in two layers:
+
+1. **Cursor Agent CLI** — when task assets exist on disk, aidev passes `--add-dir` for each existing asset directory (`.aidev/assets/` and `.aidev/assets/<task-id>/`) in addition to `--workspace`. `aidev init` also adds `.cursorignore` negation rules (`!.aidev/assets/`, `!.aidev/assets/**`) so Cursor can index the folder without removing the gitignore entry.
+2. **Prompt instructions (all agents)** — when attachments exist or the task description references `.aidev/assets/`, aidev appends a short **Aidev task assets** section to the prompt before `runner.run()`. Runners without CLI support (Claude, Aider, Codex, etc.) rely on this fallback.
+
+### Attachments vs secrets
+
+| Path | Agent access |
+|---|---|
+| `.aidev/assets/<task-id>/…` | Read and copy into the project as needed (e.g. logos → `public/`). |
+| `.aidev/assets/secrets/task-<id>.secrets` | Available for **shell workflows only** — use `grep`, `ls`, or pipe values into commands. Do **not** read `*.secrets` files into chat context or use a Read tool on them. |
+
+See [Behaviour configuration — Safe mode](/guide/configuration/behaviour#safe-mode) for `AIDEV_SAFE_MODE` and secrets redaction.
+
 ## Configure agent order
 
 ```bash
