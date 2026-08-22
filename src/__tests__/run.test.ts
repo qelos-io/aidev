@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan } from '../commands/run';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
@@ -1296,5 +1299,74 @@ describe('getBlockedBySkipReason', () => {
     const task = makeBlockedTask(['b1', 'b2', 'b3']);
     const result = await getBlockedBySkipReason(task, provider);
     assert.equal(result, null);
+  });
+});
+
+// ─── augmentPromptForAssets / buildAssetRunOptions ───────────────────────────
+
+describe('augmentPromptForAssets', () => {
+  let tmpDir: string;
+
+  it('returns prompt unchanged when no assets exist', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-run-assets-'));
+    const prompt = 'Implement the feature';
+    assert.equal(augmentPromptForAssets(prompt, 'task-1', tmpDir), prompt);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('appends asset access instructions when task assets exist', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-run-assets-'));
+    const taskId = 'task-42';
+    const taskDir = path.join(tmpDir, '.aidev', 'assets', taskId);
+    fs.mkdirSync(taskDir, { recursive: true });
+    fs.writeFileSync(path.join(taskDir, 'logo.png'), 'png');
+
+    const prompt = 'Implement the feature';
+    const augmented = augmentPromptForAssets(prompt, taskId, tmpDir);
+
+    assert.ok(augmented.startsWith(prompt));
+    assert.ok(augmented.includes('## Aidev task assets'));
+    assert.ok(augmented.includes('`.aidev/assets/task-42/logo.png`'));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('appends secrets guidance when only secrets file exists', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-run-assets-'));
+    const taskId = 'task-secrets';
+    const secretsDir = path.join(tmpDir, '.aidev', 'assets', 'secrets');
+    fs.mkdirSync(secretsDir, { recursive: true });
+    fs.writeFileSync(path.join(secretsDir, `task-${taskId}.secrets`), 'KEY=value');
+
+    const prompt = 'Implement with safe mode';
+    const augmented = augmentPromptForAssets(prompt, taskId, tmpDir);
+
+    assert.ok(augmented.includes('## Aidev task assets'));
+    assert.ok(augmented.includes('*.secrets'));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe('buildAssetRunOptions', () => {
+  let tmpDir: string;
+
+  it('returns empty object when no asset dirs exist', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-run-asset-dirs-'));
+    assert.deepEqual(buildAssetRunOptions('task-1', tmpDir), {});
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns assetDirs for existing root and task directories', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-run-asset-dirs-'));
+    const taskId = 'task-99';
+    const rootDir = path.join(tmpDir, '.aidev', 'assets');
+    const taskDir = path.join(rootDir, taskId);
+    fs.mkdirSync(taskDir, { recursive: true });
+
+    const options = buildAssetRunOptions(taskId, tmpDir);
+    assert.ok(options.assetDirs);
+    assert.equal(options.assetDirs!.length, 2);
+    assert.ok(options.assetDirs!.includes(rootDir));
+    assert.ok(options.assetDirs!.includes(taskDir));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

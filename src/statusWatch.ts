@@ -1,4 +1,4 @@
-import { AIRunner, AIRunResult } from './ai/base';
+import { AIRunner, AIRunOptions, AIRunResult } from './ai/base';
 import { logger } from './logger';
 import { TaskProvider } from './providers';
 import { Config, Task } from './types';
@@ -65,9 +65,10 @@ export async function runRunnerWithStatusWatch(
   taskId: string,
   config: Config,
   tagMode: ImplementationTagMode = 'code',
+  runOptions?: Pick<AIRunOptions, 'assetDirs'>,
 ): Promise<AIRunResult & { stoppedByStatus?: boolean; stopReason?: string }> {
   if (!provider.fetchTaskById) {
-    return runner.run(prompt, notes);
+    return runner.run(prompt, notes, runOptions);
   }
 
   const controller = new AbortController();
@@ -89,7 +90,7 @@ export async function runRunnerWithStatusWatch(
   }, STATUS_POLL_INTERVAL_MS);
 
   try {
-    const result = await runner.run(prompt, notes, { signal: controller.signal });
+    const result = await runner.run(prompt, notes, { ...runOptions, signal: controller.signal });
     if (controller.signal.aborted || result.aborted) {
       return {
         success: false,
