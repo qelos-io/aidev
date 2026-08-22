@@ -159,7 +159,10 @@ async function validateCursorPermissions(
     return;
   }
 
-  logger.info('Cursor: agent CLI found (uses --trust flag, no additional permissions needed).');
+  logger.info(
+    'Cursor: agent CLI found (uses --trust flag). aidev configures .cursorignore negation ' +
+    'for .aidev/assets/ and passes --add-dir for task asset access during runs.'
+  );
 }
 
 // ── Antigravity ────────────────────────────────────────────────────────────
