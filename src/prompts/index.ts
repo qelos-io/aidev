@@ -1,3 +1,5 @@
+export { buildAssetsAccessInstructions } from './assets';
+export type { AssetsAccessInstructionsOptions } from './assets';
 export {
   buildCompletionComment,
   buildConsultCompletionComment,

@@ -28,6 +28,13 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['.aidev/assets/',          /^\/?\.aidev\/assets\/?$/m],
 ];
 
+// Negation rules for .cursorignore so Cursor agents can index gitignored task assets.
+// Each entry: [pattern to write, regex that matches equivalent existing lines]
+const CURSORIGNORE_RULES: Array<[string, RegExp]> = [
+  ['!.aidev/assets/',     /^!\/?\.aidev\/assets\/$/m],
+  ['!.aidev/assets/**',   /^!\/?\.aidev\/assets\/\*\*$/m],
+];
+
 /**
  * Returns the Windows Cursor Agent CLI init message when on Windows, cursor is
  * in the agent list, and the agent CLI is not installed. Otherwise null.
@@ -111,6 +118,27 @@ function normalizeGitignore(content: string): string {
 
   const normalized = normalizedLines.join('\n');
   return content.endsWith('\n') && !normalized.endsWith('\n') ? `${normalized}\n` : normalized;
+}
+
+export function ensureCursorignore(dir = process.cwd()): void {
+  const cursorignorePath = path.join(dir, '.cursorignore');
+  const existing = fs.existsSync(cursorignorePath)
+    ? fs.readFileSync(cursorignorePath, 'utf8')
+    : '';
+
+  const missing = CURSORIGNORE_RULES
+    .filter(([, regex]) => !regex.test(existing))
+    .map(([pattern]) => pattern);
+
+  if (missing.length === 0) return;
+
+  const addition =
+    (existing.endsWith('\n') || existing === '' ? '' : '\n') + missing.join('\n') + '\n';
+  fs.writeFileSync(cursorignorePath, existing + addition, 'utf8');
+
+  if (dir === process.cwd()) {
+    logger.info(`.cursorignore — added: ${missing.join(', ')}`);
+  }
 }
 
 interface ClickUpMember {
@@ -772,8 +800,9 @@ export async function initCommand(): Promise<void> {
     console.log(
       chalk.dim(
         `  When enabled, secret values from .env / .env.aidev that appear in task prompts\n` +
-        `  are redacted and stored in .aidev/assets/secrets/ (git-ignored). Agents are\n` +
-        `  nudged to pipe values via the terminal instead of reading the secrets file.`
+        `  are redacted and stored in .aidev/assets/secrets/ (git-ignored). Ticket attachments\n` +
+        `  under .aidev/assets/<task-id>/ remain readable and copyable by agents; secret files\n` +
+        `  are for shell use only — pipe or grep values, do not read *.secrets into context.`
       )
     );
     const existingSafeMode = (existing.AIDEV_SAFE_MODE || '').trim().toLowerCase();
@@ -966,6 +995,7 @@ export async function initCommand(): Promise<void> {
     };
 
     ensureGitignore();
+    ensureCursorignore();
     ensureHooksBoilerplate();
     fs.writeFileSync(dest, renderEnv(answers), 'utf8');
     console.log();

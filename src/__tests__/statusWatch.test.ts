@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Config, Task } from '../types';
 import { TaskProvider } from '../providers';
-import { AIRunner } from '../ai/base';
+import { AIRunner, AIRunOptions } from '../ai/base';
 import {
   checkImplementationStillActive,
   isActiveImplementationStatus,
@@ -215,5 +215,80 @@ describe('runRunnerWithStatusWatch', () => {
 
     assert.equal(result.success, true);
     assert.equal(result.stoppedByStatus, undefined);
+  });
+
+  it('forwards assetDirs to runner.run when provider cannot fetch task by id', async () => {
+    const provider: TaskProvider = {
+      fetchTasks: async () => [],
+      fetchTasksByStatus: async () => [],
+      postComment: async () => {},
+      getComments: async () => [],
+      updateStatus: async () => {},
+      createTask: async () => ({ id: 'x', url: '' }),
+    };
+
+    const assetDirs = ['/tmp/.aidev/assets', '/tmp/.aidev/assets/task-1'];
+    let receivedOptions: AIRunOptions | undefined;
+
+    const runner: AIRunner = {
+      name: 'mock-runner',
+      isAvailable: () => true,
+      run: async (_prompt, _notes, options) => {
+        receivedOptions = options;
+        return { success: true, output: 'done', error: '' };
+      },
+    };
+
+    await runRunnerWithStatusWatch(
+      runner,
+      'prompt',
+      undefined,
+      provider,
+      'task-1',
+      makeConfig(),
+      'code',
+      { assetDirs },
+    );
+
+    assert.deepEqual(receivedOptions?.assetDirs, assetDirs);
+    assert.equal(receivedOptions?.signal, undefined);
+  });
+
+  it('merges assetDirs with abort signal when status watch is active', async () => {
+    const provider: TaskProvider = {
+      fetchTasks: async () => [],
+      fetchTasksByStatus: async () => [],
+      fetchTaskById: async () => makeTask('open'),
+      postComment: async () => {},
+      getComments: async () => {},
+      updateStatus: async () => {},
+      createTask: async () => ({ id: 'x', url: '' }),
+    };
+
+    const assetDirs = ['/tmp/.aidev/assets/task-1'];
+    let receivedOptions: AIRunOptions | undefined;
+
+    const runner: AIRunner = {
+      name: 'mock-runner',
+      isAvailable: () => true,
+      run: async (_prompt, _notes, options) => {
+        receivedOptions = options;
+        return { success: true, output: 'done', error: '' };
+      },
+    };
+
+    await runRunnerWithStatusWatch(
+      runner,
+      'prompt',
+      undefined,
+      provider,
+      'task-1',
+      makeConfig(),
+      'code',
+      { assetDirs },
+    );
+
+    assert.deepEqual(receivedOptions?.assetDirs, assetDirs);
+    assert.ok(receivedOptions?.signal instanceof AbortSignal);
   });
 });

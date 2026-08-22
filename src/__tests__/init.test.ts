@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as dotenv from 'dotenv';
-import { envVal, renderEnv, ensureGitignore, ensureHooksBoilerplate, getWindowsCursorInitMessage, Answers } from '../commands/init';
+import { envVal, renderEnv, ensureGitignore, ensureCursorignore, ensureHooksBoilerplate, getWindowsCursorInitMessage, Answers } from '../commands/init';
 
 // ─── envVal ──────────────────────────────────────────────────────────────────
 
@@ -910,6 +910,85 @@ describe('ensureGitignore', () => {
       const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
       assert.ok(content.includes('.aidev/assets/'));
       assert.ok(!content.includes('.aidev/\n'));
+    });
+  });
+});
+
+// ─── ensureCursorignore ──────────────────────────────────────────────────────
+
+describe('ensureCursorignore', () => {
+  it('creates .cursorignore with asset negation rules when file does not exist', () => {
+    withTmpDir((dir) => {
+      ensureCursorignore(dir);
+      const content = fs.readFileSync(path.join(dir, '.cursorignore'), 'utf8');
+      assert.ok(content.includes('!.aidev/assets/'));
+      assert.ok(content.includes('!.aidev/assets/**'));
+    });
+  });
+
+  it('appends missing negation rules to an existing .cursorignore', () => {
+    withTmpDir((dir) => {
+      fs.writeFileSync(path.join(dir, '.cursorignore'), 'node_modules/\n');
+      ensureCursorignore(dir);
+      const content = fs.readFileSync(path.join(dir, '.cursorignore'), 'utf8');
+      assert.ok(content.includes('node_modules/'));
+      assert.ok(content.includes('!.aidev/assets/'));
+      assert.ok(content.includes('!.aidev/assets/**'));
+    });
+  });
+
+  it('does not duplicate negation rules if already present', () => {
+    withTmpDir((dir) => {
+      fs.writeFileSync(
+        path.join(dir, '.cursorignore'),
+        '!.aidev/assets/\n!.aidev/assets/**\n'
+      );
+      ensureCursorignore(dir);
+      const lines = fs.readFileSync(path.join(dir, '.cursorignore'), 'utf8').split(/\r?\n/);
+      assert.equal(lines.filter((l) => l === '!.aidev/assets/').length, 1);
+      assert.equal(lines.filter((l) => l === '!.aidev/assets/**').length, 1);
+    });
+  });
+
+  it('appends only the missing rule when one negation is already present', () => {
+    withTmpDir((dir) => {
+      fs.writeFileSync(path.join(dir, '.cursorignore'), '!.aidev/assets/\n');
+      ensureCursorignore(dir);
+      const lines = fs.readFileSync(path.join(dir, '.cursorignore'), 'utf8').split(/\r?\n/);
+      assert.equal(lines.filter((l) => l === '!.aidev/assets/').length, 1);
+      assert.equal(lines.filter((l) => l === '!.aidev/assets/**').length, 1);
+    });
+  });
+
+  it('is idempotent on re-run', () => {
+    withTmpDir((dir) => {
+      ensureCursorignore(dir);
+      const first = fs.readFileSync(path.join(dir, '.cursorignore'), 'utf8');
+      ensureCursorignore(dir);
+      const second = fs.readFileSync(path.join(dir, '.cursorignore'), 'utf8');
+      assert.equal(second, first);
+    });
+  });
+
+  it('handles existing file without trailing newline', () => {
+    withTmpDir((dir) => {
+      fs.writeFileSync(path.join(dir, '.cursorignore'), 'dist');
+      ensureCursorignore(dir);
+      const content = fs.readFileSync(path.join(dir, '.cursorignore'), 'utf8');
+      assert.ok(content.includes('\n!.aidev/assets/'));
+    });
+  });
+
+  it('treats leading-slash negation as equivalent', () => {
+    withTmpDir((dir) => {
+      fs.writeFileSync(
+        path.join(dir, '.cursorignore'),
+        '!/.aidev/assets/\n!/.aidev/assets/**\n'
+      );
+      ensureCursorignore(dir);
+      const lines = fs.readFileSync(path.join(dir, '.cursorignore'), 'utf8').split(/\r?\n/).filter(Boolean);
+      assert.equal(lines.length, 2);
+      assert.ok(lines.every((l) => l.startsWith('!/')));
     });
   });
 });

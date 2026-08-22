@@ -1,5 +1,6 @@
 export interface AIRunOptions {
   signal?: AbortSignal;
+  assetDirs?: string[];
 }
 
 export interface AIRunResult {

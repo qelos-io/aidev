@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { Config, Task, Comment } from '../types';
 import { TaskProvider } from '../providers';
 import { AIRunner } from '../ai';
+import type { AIRunOptions } from '../ai/base';
 import { logger, logRunStart } from '../logger';
 import { isScreenAvailable } from '../platform';
 import * as git from '../git';
@@ -33,7 +34,9 @@ import {
   getPendingStatus,
   getInReviewStatus,
 } from '../taskStatus';
+import { getExistingAssetDirs, listTaskAssetFiles } from '../aidevAssets';
 import {
+  buildAssetsAccessInstructions,
   buildCompletionComment,
   buildConflictResolutionPrompt,
   buildConsultCompletionComment,
@@ -72,6 +75,24 @@ function applySafeMode(task: Task, context: string, config: Config): { task: Tas
   const secrets = collectSecrets();
   const sanitized = sanitizeTaskForSafeMode(task, context, secrets);
   return { task: { ...task, ...sanitized.task }, context: sanitized.context };
+}
+
+export function augmentPromptForAssets(prompt: string, taskId: string, cwd = process.cwd()): string {
+  const assetFiles = listTaskAssetFiles(taskId, cwd);
+  const referencesAssets = prompt.includes('.aidev/assets/');
+  if (assetFiles.length === 0 && !referencesAssets) {
+    const instructions = buildAssetsAccessInstructions(taskId, cwd);
+    if (!instructions) return prompt;
+    return prompt + instructions;
+  }
+
+  const instructions = buildAssetsAccessInstructions(taskId, cwd, { assetFiles });
+  return instructions ? prompt + instructions : prompt;
+}
+
+export function buildAssetRunOptions(taskId: string, cwd = process.cwd()): Pick<AIRunOptions, 'assetDirs'> {
+  const assetDirs = getExistingAssetDirs(taskId, cwd);
+  return assetDirs.length > 0 ? { assetDirs } : {};
 }
 
 async function handleImplementationStoppedByStatus(
@@ -330,6 +351,8 @@ async function runAgentJsonAnalysis<T>(
   watch?: { provider: TaskProvider; taskId: string; config: Config; tagMode?: ImplementationTagMode },
 ): Promise<T | null> {
   let previousNotes = '';
+  const runPrompt = watch ? augmentPromptForAssets(prompt, watch.taskId) : prompt;
+  const assetOptions = watch ? buildAssetRunOptions(watch.taskId) : {};
 
   for (const runner of runners) {
     if (!runner.isAvailable()) continue;
@@ -338,14 +361,15 @@ async function runAgentJsonAnalysis<T>(
     const result = watch
       ? await runRunnerWithStatusWatch(
         runner,
-        prompt,
+        runPrompt,
         previousNotes || undefined,
         watch.provider,
         watch.taskId,
         watch.config,
         watch.tagMode ?? 'code',
+        assetOptions,
       )
-      : await runner.run(prompt, previousNotes || undefined);
+      : await runner.run(runPrompt, previousNotes || undefined);
     if ('stoppedByStatus' in result && result.stoppedByStatus) {
       return null;
     }
@@ -936,6 +960,9 @@ async function resolveConflictsWithAI(
       prompt = modified.prompt;
     }
 
+    prompt = augmentPromptForAssets(prompt, task.id);
+    const assetOptions = buildAssetRunOptions(task.id);
+
     let resolved = false;
     let previousNotes = '';
 
@@ -944,7 +971,7 @@ async function resolveConflictsWithAI(
 
       logger.info(`Running ${runner.name} to resolve merge conflicts...`);
       const result = await runRunnerWithStatusWatch(
-        runner, prompt, previousNotes || undefined, provider, task.id, config,
+        runner, prompt, previousNotes || undefined, provider, task.id, config, 'code', assetOptions,
       );
 
       if (result.stoppedByStatus) {
@@ -1151,6 +1178,9 @@ async function implementTask(
     implementPrompt = modified.prompt;
   }
 
+  implementPrompt = augmentPromptForAssets(implementPrompt, task.id);
+  const assetOptions = buildAssetRunOptions(task.id);
+
   // Run AI runners in order with fallback
   let implemented = false;
   let previousNotes = '';
@@ -1163,7 +1193,7 @@ async function implementTask(
 
     logger.info(`Running ${runner.name}...`);
     const result = await runRunnerWithStatusWatch(
-      runner, implementPrompt, previousNotes || undefined, provider, task.id, config,
+      runner, implementPrompt, previousNotes || undefined, provider, task.id, config, 'code', assetOptions,
     );
 
     if (result.stoppedByStatus) {
@@ -1458,15 +1488,19 @@ async function executeSubTask(
   const useCompactPrompt =
     (!!previousError && previousError !== '__git__') || !hasTicketConversationContext;
 
-  const prompt = buildThinkingSubtaskPrompt(
-    subtask,
-    task,
-    plan,
-    instructions,
-    reviewContext,
-    previousError,
-    { compact: useCompactPrompt },
+  const prompt = augmentPromptForAssets(
+    buildThinkingSubtaskPrompt(
+      subtask,
+      task,
+      plan,
+      instructions,
+      reviewContext,
+      previousError,
+      { compact: useCompactPrompt },
+    ),
+    task.id,
   );
+  const assetOptions = buildAssetRunOptions(task.id);
 
   let implemented = false;
   let previousNotes = '';
@@ -1476,7 +1510,7 @@ async function executeSubTask(
 
     logger.info(`  Running ${runner.name} for step ${subtask.id}...`);
     const result = await runRunnerWithStatusWatch(
-      runner, prompt, previousNotes || undefined, provider, task.id, config,
+      runner, prompt, previousNotes || undefined, provider, task.id, config, 'code', assetOptions,
     );
 
     if (result.stoppedByStatus) {
@@ -2217,6 +2251,9 @@ async function implementNonCodeTask(
     nonCodePrompt = modified.prompt;
   }
 
+  nonCodePrompt = augmentPromptForAssets(nonCodePrompt, task.id);
+  const assetOptions = buildAssetRunOptions(task.id);
+
   let implemented = false;
   let agentOutput = '';
   let previousNotes = '';
@@ -2229,7 +2266,7 @@ async function implementNonCodeTask(
 
     logger.info(`Running ${runner.name}...`);
     const result = await runRunnerWithStatusWatch(
-      runner, nonCodePrompt, previousNotes || undefined, provider, task.id, config, 'non-code',
+      runner, nonCodePrompt, previousNotes || undefined, provider, task.id, config, 'non-code', assetOptions,
     );
 
     if (result.stoppedByStatus) {
@@ -2353,6 +2390,9 @@ async function implementConsultTask(
     consultPrompt = modified.prompt;
   }
 
+  consultPrompt = augmentPromptForAssets(consultPrompt, task.id);
+  const assetOptions = buildAssetRunOptions(task.id);
+
   let implemented = false;
   let agentOutput = '';
   let previousNotes = '';
@@ -2365,7 +2405,7 @@ async function implementConsultTask(
 
     logger.info(`Running ${runner.name}...`);
     const result = await runRunnerWithStatusWatch(
-      runner, consultPrompt, previousNotes || undefined, provider, task.id, config, 'consult',
+      runner, consultPrompt, previousNotes || undefined, provider, task.id, config, 'consult', assetOptions,
     );
 
     if (result.stoppedByStatus) {
@@ -2574,7 +2614,11 @@ async function implementNonCodeThinkingTask(
 
     logger.info(`  Starting non-code step ${formatSubtaskId(subtask.id)}: ${subtask.title}`);
 
-    const prompt = buildNonCodeSubtaskPrompt(subtask, task, plan, previousResults, undefined);
+    const prompt = augmentPromptForAssets(
+      buildNonCodeSubtaskPrompt(subtask, task, plan, previousResults, undefined),
+      task.id,
+    );
+    const assetOptions = buildAssetRunOptions(task.id);
 
     let summary = '';
     let success = false;
@@ -2585,7 +2629,7 @@ async function implementNonCodeThinkingTask(
 
       logger.info(`    Running ${runner.name} for step ${formatSubtaskId(subtask.id)}...`);
       const result = await runRunnerWithStatusWatch(
-        runner, prompt, previousNotes || undefined, provider, task.id, config, 'non-code',
+        runner, prompt, previousNotes || undefined, provider, task.id, config, 'non-code', assetOptions,
       );
 
       if (result.stoppedByStatus) {
@@ -2784,6 +2828,9 @@ async function implementReviewTask(
     reviewPrompt = modified.prompt;
   }
 
+  reviewPrompt = augmentPromptForAssets(reviewPrompt, task.id);
+  const assetOptions = buildAssetRunOptions(task.id);
+
   let success = false;
   let agentOutput = '';
   let previousNotes = '';
@@ -2792,7 +2839,7 @@ async function implementReviewTask(
     if (!runner.isAvailable()) continue;
 
     logger.info(`Running ${runner.name} to address review comments...`);
-    const result = await runner.run(reviewPrompt, previousNotes || undefined);
+    const result = await runner.run(reviewPrompt, previousNotes || undefined, assetOptions);
 
     if (result.success) {
       success = true;

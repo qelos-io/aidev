@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
@@ -574,6 +577,84 @@ describe('CursorRunner', () => {
   it('isAvailable returns boolean (depends on agent CLI in PATH)', () => {
     const runner = new CursorRunner();
     assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+describe('CursorRunner – assetDirs', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    mock.restoreAll();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-cursor-assets-'));
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('passes --add-dir for each existing asset directory', async () => {
+    const assetDir1 = path.join(tmpDir, '.aidev', 'assets', 'task-1');
+    const assetDir2 = path.join(tmpDir, '.aidev', 'assets', 'task-2');
+    fs.mkdirSync(assetDir1, { recursive: true });
+    fs.mkdirSync(assetDir2, { recursive: true });
+
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    const prevCwd = process.cwd();
+    process.chdir(tmpDir);
+    try {
+      await new CursorRunner().run('use assets', undefined, {
+        assetDirs: [assetDir1, assetDir2],
+      });
+    } finally {
+      process.chdir(prevCwd);
+    }
+
+    const args = argvSnapshots[0] ?? [];
+    assert.ok(args.includes('--add-dir'));
+    assert.ok(args.includes(path.resolve(assetDir1)));
+    assert.ok(args.includes(path.resolve(assetDir2)));
+  });
+
+  it('skips missing asset directories', async () => {
+    const existingDir = path.join(tmpDir, '.aidev', 'assets', 'exists');
+    const missingDir = path.join(tmpDir, '.aidev', 'assets', 'missing');
+    fs.mkdirSync(existingDir, { recursive: true });
+
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    const prevCwd = process.cwd();
+    process.chdir(tmpDir);
+    try {
+      await new CursorRunner().run('use assets', undefined, {
+        assetDirs: [existingDir, missingDir],
+      });
+    } finally {
+      process.chdir(prevCwd);
+    }
+
+    const args = argvSnapshots[0] ?? [];
+    const addDirCount = args.filter((arg) => arg === '--add-dir').length;
+    assert.equal(addDirCount, 1);
+    assert.ok(args.includes(path.resolve(existingDir)));
+    assert.ok(!args.includes(path.resolve(missingDir)));
   });
 });
 
