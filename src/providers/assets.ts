@@ -138,7 +138,7 @@ function sanitizeFileName(fileName: string): string {
   return `${safeBase}${safeExt}`;
 }
 
-function sanitizePathSegment(value: string): string {
+export function sanitizePathSegment(value: string): string {
   const sanitized = value
     .replace(INVALID_PATH_CHARS, '-')
     .replace(/\s+/g, '-')
