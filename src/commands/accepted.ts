@@ -77,26 +77,35 @@ export function hasAlreadyNotifiedConflict(
  * common "done" names (done / closed / finish / success / prod). Returns null
  * when nothing matches and no override was given.
  */
+function matchStatusName(statuses: string[], requested: string): string | undefined {
+  const normalized = requested.trim().toLowerCase();
+  return statuses.find((s) => s.trim().toLowerCase() === normalized);
+}
+
 export async function resolveDoneStatus(
   config: Config,
   provider: TaskProvider,
 ): Promise<string | null> {
-  if (config.doneStatus) return config.doneStatus;
-  if (!provider.fetchAvailableStatuses) return null;
+  const preferred = config.doneStatus.trim();
+  if (preferred && !provider.fetchAvailableStatuses) return preferred;
+  if (!preferred && !provider.fetchAvailableStatuses) return null;
 
   let statuses: string[];
   try {
-    statuses = await provider.fetchAvailableStatuses();
+    statuses = await provider.fetchAvailableStatuses!();
   } catch (err) {
     logger.debug(
       `Could not fetch available statuses to auto-detect DONE_STATUS: ${err instanceof Error ? err.message : String(err)}`,
     );
-    return null;
+    return preferred || null;
   }
 
-  const byLower = new Map(statuses.map((s) => [s.toLowerCase(), s]));
+  if (preferred) {
+    return matchStatusName(statuses, preferred) ?? preferred;
+  }
+
   for (const candidate of DONE_STATUS_CANDIDATES) {
-    const match = byLower.get(candidate);
+    const match = matchStatusName(statuses, candidate);
     if (match) return match;
   }
   return null;

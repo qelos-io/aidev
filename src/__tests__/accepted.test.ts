@@ -120,6 +120,15 @@ describe('resolveDoneStatus', () => {
     assert.equal(result, 'Released');
   });
 
+  it('resolves configured doneStatus against board names with trim-aware matching', async () => {
+    const config = { doneStatus: 'closed' } as Config;
+    const provider = stubProvider({
+      fetchAvailableStatuses: async () => ['Open', 'review', 'closed '],
+    });
+    const result = await resolveDoneStatus(config, provider);
+    assert.equal(result, 'closed ');
+  });
+
   it('detects "done" from available board statuses', async () => {
     const config = { doneStatus: '' } as Config;
     const provider = stubProvider({
@@ -136,6 +145,15 @@ describe('resolveDoneStatus', () => {
     });
     const result = await resolveDoneStatus(config, provider);
     assert.equal(result, 'CLOSED');
+  });
+
+  it('auto-detects done status when the board name has trailing whitespace', async () => {
+    const config = { doneStatus: '' } as Config;
+    const provider = stubProvider({
+      fetchAvailableStatuses: async () => ['Open', 'review', 'closed '],
+    });
+    const result = await resolveDoneStatus(config, provider);
+    assert.equal(result, 'closed ');
   });
 
   it('prefers "done" over later candidates when multiple match', async () => {
@@ -179,5 +197,14 @@ describe('resolveDoneStatus', () => {
     });
     const result = await resolveDoneStatus(config, provider);
     assert.equal(result, null);
+  });
+
+  it('returns configured doneStatus when fetchAvailableStatuses throws', async () => {
+    const config = { doneStatus: 'closed' } as Config;
+    const provider = stubProvider({
+      fetchAvailableStatuses: async () => { throw new Error('boom'); },
+    });
+    const result = await resolveDoneStatus(config, provider);
+    assert.equal(result, 'closed');
   });
 });

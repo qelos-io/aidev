@@ -125,7 +125,10 @@ export class ClickUpProvider implements TaskProvider {
           || lastError.message.includes('ETIMEDOUT')
           || lastError.message.includes('UND_ERR_SOCKET');
 
-        if (!isNetworkError || attempt === maxAttempts) {
+        const isApiError = lastError.message.startsWith('ClickUp API error');
+
+        if (isApiError || !isNetworkError || attempt === maxAttempts) {
+          if (isApiError) throw lastError;
           const cause = (err as Record<string, unknown>)?.cause;
           const detail = cause instanceof Error ? `: ${cause.message}` : '';
           throw new Error(`ClickUp API request failed (${options.method || 'GET'} ${path})${detail}`);
@@ -507,11 +510,41 @@ export class ClickUpProvider implements TaskProvider {
     return [...seen];
   }
 
+  private async resolveStatusName(taskId: string, status: string): Promise<string> {
+    interface TaskListResponse {
+      list?: { id?: string };
+    }
+    interface ListStatusesResponse {
+      statuses?: Array<{ status: string }>;
+    }
+
+    const task = await this.request<TaskListResponse>(`/task/${taskId}`);
+    const listId = task.list?.id || this.listId;
+    if (!listId) return status;
+
+    let statuses: string[];
+    try {
+      const list = await this.request<ListStatusesResponse>(`/list/${listId}`);
+      statuses = (list.statuses || []).map((s) => s.status).filter((s) => s.length > 0);
+    } catch {
+      return status;
+    }
+
+    const normalized = status.trim().toLowerCase();
+    const match = statuses.find((s) => s.trim().toLowerCase() === normalized);
+    if (match) return match;
+
+    throw new Error(
+      `ClickUp: no status matching "${status}" on list ${listId}. Available: ${statuses.join(', ')}`,
+    );
+  }
+
   async updateStatus(taskId: string, status: string): Promise<void> {
-    logger.debug(`Updating task ${taskId} status to "${status}"`);
+    const resolved = await this.resolveStatusName(taskId, status);
+    logger.debug(`Updating task ${taskId} status to "${resolved}"`);
     await this.request(`/task/${taskId}`, {
       method: 'PUT',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status: resolved }),
     });
   }
 
