@@ -568,6 +568,73 @@ describe('ClickUpProvider.fetchTaskById — blockedBy mapping', () => {
   });
 });
 
+describe('ClickUpProvider.updateStatus', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('resolves configured status against the task list using trim-aware matching', async () => {
+    const putBodies: string[] = [];
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/task/task1') && init?.method !== 'PUT') {
+        return jsonResponse({ list: { id: 'list1' } });
+      }
+      if (url.endsWith('/list/list1')) {
+        return jsonResponse({
+          statuses: [
+            { status: 'review' },
+            { status: 'closed ' },
+          ],
+        });
+      }
+      if (url.endsWith('/task/task1') && init?.method === 'PUT') {
+        putBodies.push(String(init.body));
+        return jsonResponse({});
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const provider = new ClickUpProvider({
+      ...baseClickUpConfig,
+      clickupListId: 'list1',
+    } as unknown as Config);
+    await provider.updateStatus('task1', 'closed');
+
+    assert.equal(putBodies.length, 1);
+    assert.deepEqual(JSON.parse(putBodies[0]!), { status: 'closed ' });
+  });
+
+  it('surfaces ClickUp API error bodies instead of a generic request failure', async () => {
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/task/task1') && init?.method !== 'PUT') {
+        return jsonResponse({ list: { id: 'list1' } });
+      }
+      if (url.endsWith('/list/list1')) {
+        return jsonResponse({ statuses: [{ status: 'review' }] });
+      }
+      if (url.endsWith('/task/task1') && init?.method === 'PUT') {
+        return {
+          ok: false,
+          status: 400,
+          statusText: 'Bad Request',
+          text: async () => '{"err":"Status does not exist","ECODE":"ITEM_114"}',
+        };
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const provider = new ClickUpProvider({
+      ...baseClickUpConfig,
+      clickupListId: 'list1',
+    } as unknown as Config);
+
+    await assert.rejects(
+      () => provider.updateStatus('task1', 'review'),
+      /ClickUp API error 400: \{"err":"Status does not exist","ECODE":"ITEM_114"\}/,
+    );
+  });
+});
+
 // ─── JiraProvider.getComments ─────────────────────────────────────────────────
 
 describe('JiraProvider.getComments', () => {
