@@ -3,6 +3,7 @@ export type { AssetsAccessInstructionsOptions } from './assets';
 export {
   buildCompletionComment,
   buildConsultCompletionComment,
+  buildNoChangesCompletionComment,
   buildNonCodeCompletionComment,
   buildNonCodeThinkingCompletionComment,
   buildReviewCompletionComment,

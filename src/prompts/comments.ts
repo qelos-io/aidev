@@ -28,6 +28,21 @@ export function buildNonCodeCompletionComment(config: Config, agentResponse?: st
   return lines.join('\n');
 }
 
+export function buildNoChangesCompletionComment(config: Config, agentResponse?: string): string {
+  const lines = [`${config.commentPrefix} No file changes were made — recording the agent's response instead.`];
+
+  if (agentResponse) {
+    lines.push(``, `---`, ``, cleanAgentResponseForComment(agentResponse));
+  }
+
+  lines.push(
+    ``,
+    `Status set to: ${getPendingStatus(config)}`,
+    `Reply with a comment (or the trigger word "aidev-continue") to have the agent continue.`,
+  );
+  return lines.join('\n');
+}
+
 export function buildConsultCompletionComment(config: Config, agentResponse?: string): string {
   const lines = [`${config.commentPrefix} Consultation complete — task remains pending.`];
 

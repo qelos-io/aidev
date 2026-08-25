@@ -42,6 +42,7 @@ import {
   buildConsultCompletionComment,
   buildConsultPrompt,
   buildImplementPrompt,
+  buildNoChangesCompletionComment,
   buildNonCodeAnalysisPrompt,
   buildNonCodeCompletionComment,
   buildNonCodePrompt,
@@ -175,6 +176,7 @@ export {
   buildConsultCompletionComment,
   buildConsultPrompt,
   buildImplementPrompt,
+  buildNoChangesCompletionComment,
   buildNonCodeAnalysisPrompt,
   buildNonCodeCompletionComment,
   buildNonCodePrompt,
@@ -1184,6 +1186,7 @@ async function implementTask(
   // Run AI runners in order with fallback
   let implemented = false;
   let previousNotes = '';
+  let noChangeResponse: string | undefined;
 
   for (const runner of runners) {
     if (!runner.isAvailable()) {
@@ -1227,10 +1230,29 @@ async function implementTask(
     } else {
       logger.warn(`${runner.name} produced no file changes — trying next runner`);
       previousNotes = `Previous runner (${runner.name}) made no changes. Output:\n${result.output}`;
+      // The agent may have completed a status update, asked a question, or otherwise
+      // responded substantively without touching files (e.g. it's waiting for direction
+      // before continuing). Keep that response so it isn't silently discarded below.
+      noChangeResponse = result.output.trim() ? result.output : noChangeResponse;
     }
   }
 
   if (!implemented) {
+    if (noChangeResponse) {
+      logger.warn('No AI runner produced file changes, but received a substantive response — recording it and setting task back to pending');
+      const comment = buildNoChangesCompletionComment(config, noChangeResponse);
+      await postCommentWithHooks(task, comment, config, provider, hooks, vm);
+      try {
+        await provider.updateStatus(task.id, getPendingStatus(config));
+      } catch (err) {
+        logger.warn(`Could not update task status: ${err}`);
+      }
+      if (!branchExists) {
+        git.deleteBranch(branchName);
+      }
+      return;
+    }
+
     logger.error('All AI runners failed or produced no changes');
     const diagnostics = collectAndLogDiagnostics();
     await postCommentWithHooks(

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNoChangesCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
@@ -855,6 +855,24 @@ describe('buildConsultCompletionComment', () => {
     assert.ok(comment.includes('Here is the consumer perspective.'));
     assert.ok(comment.includes('Status remains: pending'));
     assert.ok(!comment.includes('review'));
+  });
+});
+
+describe('buildNoChangesCompletionComment', () => {
+  it('records the agent response and sets status to pending', () => {
+    const comment = buildNoChangesCompletionComment(
+      { ...baseConfig, commentPrefix: '[aidev-isaac]', clickupPendingStatus: 'pending' } as Config,
+      'The campaign is active and ready for the next batch when you decide to continue.',
+    );
+    assert.ok(comment.includes('[aidev-isaac] No file changes were made'));
+    assert.ok(comment.includes('The campaign is active and ready for the next batch'));
+    assert.ok(comment.includes('Status set to: pending'));
+    assert.ok(comment.includes('aidev-continue'));
+  });
+
+  it('omits the agent response section when not provided', () => {
+    const comment = buildNoChangesCompletionComment(baseConfig);
+    assert.ok(!comment.includes('---'));
   });
 });
 
