@@ -29,6 +29,8 @@ claude -p "<prompt>" --dangerously-skip-permissions --model <model>
 
 If the chosen model is unavailable on your plan, aidev retries with the CLI default and then `--model auto`.
 
+When [MCP servers](/guide/mcp) are configured, aidev adds `--mcp-config <path> --strict-mcp-config`.
+
 ### Environment variables
 
 | Variable | Default | Description |
@@ -59,6 +61,8 @@ irm 'https://cursor.com/install?win32=true' | iex
 
 Then ensure `agent` is on your PATH and run `agent --version` to confirm.
 
+When [MCP servers](/guide/mcp) are configured, aidev writes `.cursor/mcp.json` and adds `--approve-mcps`.
+
 ### Environment variables
 
 Cursor has no aidev-specific env vars. Authentication and model selection are handled by the `agent` CLI itself.
@@ -72,6 +76,8 @@ AGENTS=cursor
 The `anthropic-sdk` agent runs Claude **in-process** via [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) instead of shelling out to the `claude` CLI. The SDK package must be installed in the project (it ships as a dependency of aidev).
 
 Because the SDK uses the `claude_code` system prompt preset with `cwd` set to the project root, it automatically picks up `.claude/skills`, `.claude/commands`, and `.claude/agents` from the repo.
+
+When [MCP servers](/guide/mcp) are configured, aidev passes them in-process via `mcpServers` + `strictMcpConfig: true`.
 
 ### Environment variables
 
@@ -111,6 +117,8 @@ aider --message "<prompt>" --yes-always <extra-args>
 
 Aider inherits `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from the environment automatically.
 
+Aider has **no MCP support** — [MCP servers](/guide/mcp) are skipped for this agent even when configured.
+
 ### Environment variables
 
 | Variable | Default | Description |
@@ -137,6 +145,8 @@ aidev runs:
 ```bash
 codex exec --ask-for-approval never --sandbox workspace-write --cd <cwd> "<prompt>"
 ```
+
+When [MCP servers](/guide/mcp) are configured, aidev writes `.codex/config.toml` (`[mcp_servers.*]` tables) — this requires the project directory to be [trusted](https://developers.openai.com/codex).
 
 ### Environment variables
 
@@ -167,6 +177,8 @@ opencode run --dangerously-skip-permissions --dir <cwd> [--model <model>] "<prom
 | `OPENCODE_CONFIG_DIR` | — | Custom config directory for agents, commands, modes, and plugins |
 | `OPENCODE_MODEL` | — | Model in `provider/model` format (e.g. `anthropic/claude-sonnet-4-6`) |
 
+When [MCP servers](/guide/mcp) are configured, aidev merges an `mcp` block into `opencode.json`, preserving other top-level keys.
+
 ```bash
 AGENTS=opencode
 OPENCODE_CONFIG_DIR=/path/to/my/config-directory
@@ -183,6 +195,8 @@ aidev writes the prompt to a temp file (to avoid command-line length limits) and
 devin -p --permission-mode bypass --prompt-file <tmpfile>
 ```
 
+When [MCP servers](/guide/mcp) are configured, aidev merges an `mcpServers` block into `.devin/config.json`, preserving the `permissions` block.
+
 ### Environment variables
 
 Devin has no aidev-specific env vars. Authentication is handled by the `devin` CLI.
@@ -198,6 +212,8 @@ The `antigravity` agent uses Google's [Antigravity](https://antigravity.google/d
 ```bash
 agy --agent --print .
 ```
+
+When [MCP servers](/guide/mcp) are configured, aidev writes `.agents/mcp_config.json`.
 
 ### Environment variables
 

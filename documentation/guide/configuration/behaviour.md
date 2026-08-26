@@ -16,6 +16,9 @@
 | `AIDEV_SAFE_MODE` | `true` | Redact secret env values from AI prompts (see [Safe mode](#safe-mode) below) |
 | `AIDEV_AUTO_COMPRESS` | `true` | Auto-compress older comments when the prompt grows large |
 | `AIDEV_COMPRESS_THRESHOLD` | `12000` | Char-length threshold that triggers compression |
+| `MCP_JSON_PATH` | auto-discovered | Path to a generic `mcp.json` injected into every agent — see [MCP servers](/guide/mcp) |
+| `BETTER_MCP` | `false` | Route all MCP traffic through the better-mcp Docker proxy (requires `docker`) |
+| `BETTER_MCP_CONFIG_PATH` | `.aidev/better-mcp.json` | User-authored better-mcp base config; `mcpServers` is injected, `middleware` is preserved |
 
 ## Safe mode
 

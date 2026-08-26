@@ -10,6 +10,7 @@ import { scheduleSetCommand } from './schedule';
 import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
 import { commandExists, isWindows } from '../platform';
 import { generateFullHooksFile } from '../hooksTemplate';
+import { MCP_GITIGNORE_RULES } from '../mcp';
 import chalk from 'chalk';
 
 const VALID_AGENTS = ['antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'devin', 'opencode'] as const;
@@ -26,6 +27,7 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
   ['aidev.tasks.json',        /^aidev\.tasks\.json/m],
   ['.aidev/assets/',          /^\/?\.aidev\/assets\/?$/m],
+  ...MCP_GITIGNORE_RULES,
 ];
 
 // Negation rules for .cursorignore so Cursor agents can index gitignored task assets.
@@ -212,6 +214,10 @@ export interface Answers {
   acceptedTag: string;
   doneStatus: string;
   safeMode: boolean;
+  // MCP
+  mcpJsonPath: string;
+  betterMcp: boolean;
+  betterMcpConfigPath: string;
 }
 
 function dim(s: string) {
@@ -470,6 +476,23 @@ export function renderEnv(a: Answers): string {
     line('ACCEPTED_TAG', a.acceptedTag),
     `# DONE_STATUS: status to set after auto-merging an accepted PR`,
     a.doneStatus ? `DONE_STATUS=${envVal(a.doneStatus)}` : `# DONE_STATUS=done`,
+    ``,
+    `# MCP_JSON_PATH: path to a generic mcp.json ({"mcpServers": {...}}) that aidev`,
+    `# translates into every configured agent's own convention (Claude, Cursor, Codex, etc).`,
+    `# When unset, aidev auto-discovers .agents/mcp.json then .aidev/mcp.json.`,
+    a.mcpJsonPath ? `MCP_JSON_PATH=${envVal(a.mcpJsonPath)}` : `# MCP_JSON_PATH=.aidev/mcp.json`,
+    ...(a.mcpJsonPath
+      ? [
+          `# BETTER_MCP: route every agent's MCP traffic through the better-mcp Docker proxy`,
+          `# (https://github.com/qelos-io/better-mcp) instead of connecting to servers directly.`,
+          `BETTER_MCP=${a.betterMcp ? 'true' : 'false'}`,
+          `# BETTER_MCP_CONFIG_PATH: better-mcp's own config file. If it already exists, its`,
+          `# "middleware" block is preserved; aidev only injects mcpServers + namespace:true.`,
+          a.betterMcpConfigPath
+            ? `BETTER_MCP_CONFIG_PATH=${envVal(a.betterMcpConfigPath)}`
+            : `# BETTER_MCP_CONFIG_PATH=.aidev/better-mcp.json`,
+        ]
+      : []),
     ``,
   ];
   return lines.filter((l) => l !== null).join('\n');
@@ -915,6 +938,48 @@ export async function initCommand(): Promise<void> {
       }
     }
 
+    // ── MCP servers ──────────────────────────────────────────
+    section('MCP servers (optional)');
+    console.log(
+      chalk.dim(
+        `  A generic mcp.json ({"mcpServers": {...}}) that aidev translates into every\n` +
+        `  configured agent's own convention (Claude's --mcp-config, Cursor's .cursor/mcp.json,\n` +
+        `  Codex's .codex/config.toml, etc). Leave blank to skip.`
+      )
+    );
+    const mcpJsonPath = await ask(
+      rl,
+      `Path to mcp.json ${hint('leave blank to skip, or to auto-discover .agents/mcp.json / .aidev/mcp.json')}`,
+      existing.MCP_JSON_PATH || ''
+    );
+
+    let betterMcp = false;
+    let betterMcpConfigPath = '';
+    if (mcpJsonPath) {
+      console.log(
+        chalk.dim(
+          `  better-mcp (https://github.com/qelos-io/better-mcp) proxies all MCP traffic\n` +
+          `  through a single Docker container that can namespace, log, redact, and offload it.`
+        )
+      );
+      const existingBetterMcp = (existing.BETTER_MCP || '').trim().toLowerCase();
+      const betterMcpDefault = ['true', '1', 'yes'].includes(existingBetterMcp) ? 'yes' : 'no';
+      const betterMcpAnswer = await choose(
+        rl,
+        `Route MCP through the better-mcp Docker proxy? ${hint('requires docker')}`,
+        ['yes', 'no'],
+        betterMcpDefault
+      );
+      betterMcp = betterMcpAnswer === 'yes';
+      if (betterMcp) {
+        betterMcpConfigPath = await ask(
+          rl,
+          `better-mcp config path ${hint('leave blank for .aidev/better-mcp.json')}`,
+          existing.BETTER_MCP_CONFIG_PATH || ''
+        );
+      }
+    }
+
     // ── Assignee ─────────────────────────────────────────────
     section('Assignee');
     const effectiveClickUpApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
@@ -992,6 +1057,9 @@ export async function initCommand(): Promise<void> {
       acceptedTag,
       doneStatus,
       safeMode,
+      mcpJsonPath,
+      betterMcp,
+      betterMcpConfigPath,
     };
 
     ensureGitignore();

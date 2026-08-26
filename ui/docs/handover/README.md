@@ -9,6 +9,7 @@ It is launched by the `aidev ui` CLI command and stays loopback-only.
 - [logs.md](./logs.md) — log viewer with search and clear.
 - [tasks.md](./tasks.md) — provider task board + per-task execute.
 - [run.md](./run.md) — Open / Pending / Review / All buttons with live SSE.
+- [mcp.md](./mcp.md) — generic `mcp.json` editor (form + raw JSON).
 
 ## Launch
 

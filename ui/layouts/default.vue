@@ -52,6 +52,7 @@ const nav = [
   { to: '/tasks', label: 'Tasks', icon: '☰' },
   { to: '/run', label: 'Run', icon: '▶' },
   { to: '/hooks', label: 'Hooks', icon: '⚡' },
+  { to: '/mcp', label: 'MCP', icon: '⧉' },
 ];
 
 function logout() {

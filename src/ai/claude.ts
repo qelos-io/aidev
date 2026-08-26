@@ -2,6 +2,7 @@ import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
 import { commandExists, getUserShellEnv } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
+import { getMcpState } from '../mcp';
 
 const DEFAULT_MODEL = 'opusplan';
 
@@ -20,7 +21,13 @@ export class ClaudeRunner implements AIRunner {
 
     const model = (process.env.CLAUDE_MODEL || '').trim() || DEFAULT_MODEL;
 
-    const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions'];
+    // --dangerously-skip-permissions already bypasses the permission system
+    // entirely, so no --allowedTools is needed (and passing one could narrow
+    // the effective tool set on some CLI versions instead of just widening it).
+    const mcp = getMcpState();
+    const mcpArgs = mcp ? ['--mcp-config', mcp.claudeConfigPath, '--strict-mcp-config'] : [];
+
+    const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions', ...mcpArgs];
     const attempts: string[][] = [
       [...baseArgs, '--model', model],
       baseArgs,

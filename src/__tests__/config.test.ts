@@ -360,7 +360,7 @@ describe('loadConfig tag defaults', () => {
   const envKeys = [
     'CLICKUP_API_KEY', 'CLICKUP_TEAM_ID', 'CLICKUP_TAG',
     'NON_CODE_TAG', 'JIRA_LABEL', 'PROVIDER',
-    'ACCEPTED_TAG',
+    'ACCEPTED_TAG', 'MCP_JSON_PATH', 'BETTER_MCP', 'BETTER_MCP_CONFIG_PATH',
   ];
   const saved: Record<string, string | undefined> = {};
   let tmpDir: string;
@@ -485,6 +485,56 @@ describe('loadConfig tag defaults', () => {
       assert.equal(config.safeMode, false);
     } finally {
       delete process.env.AIDEV_SAFE_MODE;
+    }
+  });
+
+  it('defaults mcpJsonPath to empty string when MCP_JSON_PATH is unset', () => {
+    delete process.env.MCP_JSON_PATH;
+    const config = loadConfig();
+    assert.equal(config.mcpJsonPath, '');
+  });
+
+  it('respects explicit MCP_JSON_PATH when set', () => {
+    process.env.MCP_JSON_PATH = '.aidev/mcp.json';
+    try {
+      const config = loadConfig();
+      assert.equal(config.mcpJsonPath, '.aidev/mcp.json');
+    } finally {
+      delete process.env.MCP_JSON_PATH;
+    }
+  });
+
+  it('defaults betterMcp to false when BETTER_MCP is unset', () => {
+    delete process.env.BETTER_MCP;
+    const config = loadConfig();
+    assert.equal(config.betterMcp, false);
+  });
+
+  it('enables betterMcp only for true/1/yes', () => {
+    for (const truthy of ['true', '1', 'yes', 'TRUE', 'Yes']) {
+      process.env.BETTER_MCP = truthy;
+      assert.equal(loadConfig().betterMcp, true, `expected BETTER_MCP=${truthy} to enable betterMcp`);
+    }
+    for (const falsy of ['false', '0', 'no', '', 'garbage']) {
+      process.env.BETTER_MCP = falsy;
+      assert.equal(loadConfig().betterMcp, false, `expected BETTER_MCP=${falsy} to leave betterMcp disabled`);
+    }
+    delete process.env.BETTER_MCP;
+  });
+
+  it('defaults betterMcpConfigPath to empty string when BETTER_MCP_CONFIG_PATH is unset', () => {
+    delete process.env.BETTER_MCP_CONFIG_PATH;
+    const config = loadConfig();
+    assert.equal(config.betterMcpConfigPath, '');
+  });
+
+  it('respects explicit BETTER_MCP_CONFIG_PATH when set', () => {
+    process.env.BETTER_MCP_CONFIG_PATH = '.aidev/custom-better-mcp.json';
+    try {
+      const config = loadConfig();
+      assert.equal(config.betterMcpConfigPath, '.aidev/custom-better-mcp.json');
+    } finally {
+      delete process.env.BETTER_MCP_CONFIG_PATH;
     }
   });
 });

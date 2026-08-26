@@ -11,6 +11,7 @@ import { loadConfig } from './config';
 import { buildConsultProviderConfig, buildNonCodeProviderConfig } from './providerViews';
 import { createProvider, TaskProvider } from './providers';
 import { createRunners } from './ai';
+import { materializeMcp } from './mcp';
 import { processLocalTasks } from './tasks';
 import { logger } from './logger';
 import { loadHooks, createHookVM } from './hooks';
@@ -85,6 +86,7 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
     if (filter === 'tasks') return;
 
     const resolvedFilter: RunFilter = (filter as RunFilter) || 'all';
+    materializeMcp(config);
     const runners = createRunners(config);
     const hooks = loadHooks(config.hooksPath);
     const hookVM = createHookVM(provider, runners);

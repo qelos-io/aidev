@@ -33,6 +33,7 @@ Full documentation is published at **[qelos-io.github.io/aidev](https://qelos-io
 | Configuration | [guide/configuration](https://qelos-io.github.io/aidev/guide/configuration) |
 | Providers | [guide/providers](https://qelos-io.github.io/aidev/guide/providers) |
 | AI agents | [guide/agents](https://qelos-io.github.io/aidev/guide/agents) |
+| MCP servers | [guide/mcp](https://qelos-io.github.io/aidev/guide/mcp) |
 | Contributing | [contributing](https://qelos-io.github.io/aidev/contributing) |
 
 To work on the docs locally:

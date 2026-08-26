@@ -15,7 +15,9 @@ import { DevinRunner } from '../ai/devin';
 import { OpencodeRunner } from '../ai/opencode';
 import { createRunners } from '../ai/index';
 import { isWindows } from '../platform';
+import { setMcpState } from '../mcp';
 import type { Config } from '../types';
+import type { McpState } from '../mcp';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const childProcess = require('node:child_process');
@@ -33,6 +35,17 @@ function mockSpawnSync(overrides: Record<string, unknown>) {
     error: undefined,
     ...overrides,
   }));
+}
+
+function fakeMcpState(overrides: Partial<McpState> = {}): McpState {
+  return {
+    sourcePath: '/proj/.aidev/mcp.json',
+    servers: { fs: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '.'] } },
+    betterMcp: false,
+    claudeConfigPath: '/proj/.aidev/mcp/claude.json',
+    written: ['.aidev/mcp/claude.json'],
+    ...overrides,
+  };
 }
 
 function spyLogger() {
@@ -362,6 +375,48 @@ describe('ClaudeRunner – argv order', () => {
   });
 });
 
+describe('ClaudeRunner – MCP', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => {
+    mock.restoreAll();
+    setMcpState(null);
+  });
+
+  it('adds --mcp-config and --strict-mcp-config when MCP is active, and no --allowedTools', async () => {
+    setMcpState(fakeMcpState());
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      if (!(cmd as string).endsWith('where.exe')) argvSnapshots.push([...(args as string[])]);
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    await new ClaudeRunner().run('fix the bug');
+
+    const args = argvSnapshots[0];
+    const mcpIdx = args.indexOf('--mcp-config');
+    assert.ok(mcpIdx >= 0, 'expected --mcp-config in argv');
+    assert.equal(args[mcpIdx + 1], '/proj/.aidev/mcp/claude.json');
+    assert.ok(args.includes('--strict-mcp-config'));
+    assert.ok(!args.includes('--allowedTools'), '--allowedTools would narrow tools under --dangerously-skip-permissions');
+  });
+
+  it('omits --mcp-config when MCP is inactive', async () => {
+    setMcpState(null);
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      if (!(cmd as string).endsWith('where.exe')) argvSnapshots.push([...(args as string[])]);
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    await new ClaudeRunner().run('fix the bug');
+
+    assert.ok(!argvSnapshots[0].includes('--mcp-config'));
+    assert.ok(!argvSnapshots[0].includes('--strict-mcp-config'));
+  });
+});
+
 // ─── AntigravityRunner ────────────────────────────────────────────────────────
 
 describe('AntigravityRunner', () => {
@@ -577,6 +632,48 @@ describe('CursorRunner', () => {
   it('isAvailable returns boolean (depends on agent CLI in PATH)', () => {
     const runner = new CursorRunner();
     assert.equal(typeof runner.isAvailable(), 'boolean');
+  });
+});
+
+describe('CursorRunner – MCP', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => {
+    mock.restoreAll();
+    setMcpState(null);
+  });
+
+  it('adds --approve-mcps when MCP is active', async () => {
+    setMcpState(fakeMcpState());
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    await new CursorRunner().run('fix the bug');
+
+    assert.ok(argvSnapshots[0].includes('--approve-mcps'));
+  });
+
+  it('omits --approve-mcps when MCP is inactive', async () => {
+    setMcpState(null);
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    await new CursorRunner().run('fix the bug');
+
+    assert.ok(!argvSnapshots[0].includes('--approve-mcps'));
   });
 });
 
@@ -1025,6 +1122,49 @@ describe('AnthropicSdkRunner', () => {
       const runner = new AnthropicSdkRunner();
       assert.equal(runner.isAvailable(), false);
     });
+  });
+});
+
+describe('AnthropicSdkRunner – MCP', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => {
+    mock.restoreAll();
+    setMcpState(null);
+  });
+
+  it('passes mcpServers and strictMcpConfig, and widens allowedTools, when MCP is active', async () => {
+    spyLogger();
+    setMcpState(fakeMcpState());
+    const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
+
+    await withAnthropicEnv({ apiKey: 'sk-test' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => sdk);
+      await runner.run('p');
+    });
+
+    const options = calls[0].options as unknown as { mcpServers: unknown; strictMcpConfig: boolean; allowedTools: string[] };
+    assert.deepEqual(options.mcpServers, fakeMcpState().servers);
+    assert.equal(options.strictMcpConfig, true);
+    assert.ok(options.allowedTools.includes('mcp__*'));
+    assert.ok(options.allowedTools.includes('Bash'));
+  });
+
+  it('omits mcpServers/strictMcpConfig and keeps the base tool list when MCP is inactive', async () => {
+    spyLogger();
+    setMcpState(null);
+    const { sdk, calls } = fakeSdk([{ type: 'result', result: 'ok' }]);
+
+    await withAnthropicEnv({ apiKey: 'sk-test' }, async () => {
+      const runner = new AnthropicSdkRunner();
+      mock.method(runner, 'loadSdk', async () => sdk);
+      await runner.run('p');
+    });
+
+    const options = calls[0].options as unknown as { mcpServers?: unknown; strictMcpConfig?: boolean; allowedTools: string[] };
+    assert.equal(options.mcpServers, undefined);
+    assert.equal(options.strictMcpConfig, undefined);
+    assert.deepEqual(options.allowedTools, ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash']);
   });
 });
 

@@ -158,4 +158,8 @@ export interface Config {
   compressThreshold: number;
   logTtlDays: number;
   safeMode: boolean;
+  // MCP (Model Context Protocol)
+  mcpJsonPath: string;
+  betterMcp: boolean;
+  betterMcpConfigPath: string;
 }

@@ -4,6 +4,7 @@ import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
 import { commandExists, getUserShellEnv } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
+import { getMcpState } from '../mcp';
 
 /**
  * Cursor Agent CLI runner. Uses the `agent` binary on all platforms.
@@ -26,6 +27,10 @@ export class CursorRunner implements AIRunner {
 
     const cwd = process.cwd();
     const baseArgs = ['--print', '--force', '--trust', '--workspace', cwd];
+
+    if (getMcpState()) {
+      baseArgs.push('--approve-mcps');
+    }
 
     if (options?.assetDirs) {
       for (const dir of options.assetDirs) {

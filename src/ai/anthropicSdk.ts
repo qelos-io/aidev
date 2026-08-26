@@ -1,6 +1,7 @@
 import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
 import { parseAnthropicTokens, pickNextToken } from '../config';
+import { getMcpState } from '../mcp';
 
 const SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk';
 const RUN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -159,15 +160,18 @@ export class AnthropicSdkRunner implements AIRunner {
 
     try {
       const sdk: any = await this.loadSdk();
+      const mcp = getMcpState();
+      const allowedTools = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'];
       const q = sdk.query({
         prompt: fullPrompt,
         options: {
           cwd: process.cwd(),
-          allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
+          allowedTools: mcp ? [...allowedTools, 'mcp__*'] : allowedTools,
           permissionMode: 'acceptEdits',
           systemPrompt: { type: 'preset', preset: 'claude_code' },
           maxTurns: 20,
           model,
+          ...(mcp ? { mcpServers: mcp.servers, strictMcpConfig: true } : {}),
         },
       });
 

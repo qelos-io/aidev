@@ -244,6 +244,11 @@ export function loadConfig(customEnvPath?: string): Config {
   const ttlParsed = ttlRaw === '' ? 14 : parseInt(ttlRaw, 10);
   const logTtlDays = Number.isFinite(ttlParsed) ? ttlParsed : 14;
 
+  const mcpJsonPath = process.env.MCP_JSON_PATH || '';
+  const betterMcpRaw = (process.env.BETTER_MCP || '').trim().toLowerCase();
+  const betterMcp = ['true', '1', 'yes'].includes(betterMcpRaw);
+  const betterMcpConfigPath = process.env.BETTER_MCP_CONFIG_PATH || '';
+
   return {
     provider,
     clickupApiKey: process.env.CLICKUP_API_KEY || '',
@@ -310,5 +315,8 @@ export function loadConfig(customEnvPath?: string): Config {
     compressThreshold,
     logTtlDays,
     safeMode,
+    mcpJsonPath,
+    betterMcp,
+    betterMcpConfigPath,
   };
 }

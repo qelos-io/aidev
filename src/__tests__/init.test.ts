@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as dotenv from 'dotenv';
 import { envVal, renderEnv, ensureGitignore, ensureCursorignore, ensureHooksBoilerplate, getWindowsCursorInitMessage, Answers } from '../commands/init';
+import { MCP_GITIGNORE_RULES } from '../mcp';
 
 // ─── envVal ──────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,9 @@ const baseAnswers: Answers = {
   claudeModel: '',
   anthropicModel: '',
   safeMode: true,
+  mcpJsonPath: '',
+  betterMcp: false,
+  betterMcpConfigPath: '',
 };
 
 describe('renderEnv', () => {
@@ -440,6 +444,9 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     acceptedTag: p.ACCEPTED_TAG || '',
     doneStatus: p.DONE_STATUS || '',
     safeMode: !['false', '0', 'no'].includes((p.AIDEV_SAFE_MODE || '').trim().toLowerCase()),
+    mcpJsonPath: p.MCP_JSON_PATH || '',
+    betterMcp: ['true', '1', 'yes'].includes((p.BETTER_MCP || '').trim().toLowerCase()),
+    betterMcpConfigPath: p.BETTER_MCP_CONFIG_PATH || '',
   };
 }
 
@@ -815,6 +822,49 @@ describe('renderEnv Trello provider', () => {
   });
 });
 
+// ─── renderEnv MCP fields ────────────────────────────────────────────────────
+
+describe('renderEnv MCP fields', () => {
+  it('comments out MCP_JSON_PATH and omits BETTER_MCP block when unset', () => {
+    const out = renderEnv(baseAnswers);
+    assert.ok(out.includes('# MCP_JSON_PATH=.aidev/mcp.json'));
+    assert.ok(!out.includes('BETTER_MCP='));
+  });
+
+  it('writes an uncommented MCP_JSON_PATH and BETTER_MCP block when set', () => {
+    const out = renderEnv({ ...baseAnswers, mcpJsonPath: '.aidev/mcp.json', betterMcp: true, betterMcpConfigPath: '.aidev/better-mcp.json' });
+    assert.ok(out.includes('MCP_JSON_PATH=.aidev/mcp.json'));
+    assert.ok(!out.includes('# MCP_JSON_PATH='));
+    assert.ok(out.includes('BETTER_MCP=true'));
+    assert.ok(out.includes('BETTER_MCP_CONFIG_PATH=.aidev/better-mcp.json'));
+  });
+
+  it('re-rendering MCP answers with parsed values produces identical output', () => {
+    const answers: Answers = {
+      ...baseAnswers,
+      mcpJsonPath: '.aidev/mcp.json',
+      betterMcp: true,
+      betterMcpConfigPath: '.aidev/better-mcp.json',
+    };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.MCP_JSON_PATH, '.aidev/mcp.json');
+    assert.equal(parsed.BETTER_MCP, 'true');
+    assert.equal(parsed.BETTER_MCP_CONFIG_PATH, '.aidev/better-mcp.json');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+
+  it('BETTER_MCP=false round-trips without flipping to true', () => {
+    const answers: Answers = { ...baseAnswers, mcpJsonPath: '.aidev/mcp.json', betterMcp: false };
+    const first = renderEnv(answers);
+    const parsed = dotenv.parse(first);
+    assert.equal(parsed.BETTER_MCP, 'false');
+    const second = renderEnv(answersFromParsed(parsed));
+    assert.equal(second, first);
+  });
+});
+
 // ─── ensureHooksBoilerplate ─────────────────────────────────────────────────
 
 describe('ensureHooksBoilerplate', () => {
@@ -910,6 +960,29 @@ describe('ensureGitignore', () => {
       const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
       assert.ok(content.includes('.aidev/assets/'));
       assert.ok(!content.includes('.aidev/\n'));
+    });
+  });
+
+  it('covers every MCP-managed file pattern', () => {
+    withTmpDir((dir) => {
+      ensureGitignore(dir);
+      const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+      for (const [pattern] of MCP_GITIGNORE_RULES) {
+        assert.ok(content.includes(pattern), `expected .gitignore to include "${pattern}"`);
+      }
+    });
+  });
+
+  it('does not duplicate MCP patterns on a second run', () => {
+    withTmpDir((dir) => {
+      ensureGitignore(dir);
+      ensureGitignore(dir);
+      const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+      for (const [pattern] of MCP_GITIGNORE_RULES) {
+        const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const count = (content.match(new RegExp(escaped, 'g')) ?? []).length;
+        assert.equal(count, 1, `expected exactly one "${pattern}" line, found ${count}`);
+      }
     });
   });
 });
