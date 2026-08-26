@@ -20,19 +20,31 @@ import {
 import { logger } from '../logger';
 import type { Config } from '../types';
 
-// commandExists() -> findBin() -> fs.accessSync(). Mocking commandExists
-// itself doesn't work here: tsx/esbuild compiles named exports as
-// non-configurable getters, which node:test's mock.method can't redefine.
-// node:fs is a real builtin (not esbuild-compiled), so mocking accessSync on
-// the require()'d module object propagates through platform.ts's own import.
+// commandExists() -> findBin() -> fs.accessSync(), with a Windows-only
+// fallback to `spawnSync('where.exe', [name])` when the PATH+ext scan finds
+// nothing. Mocking commandExists itself doesn't work here: tsx/esbuild
+// compiles named exports as non-configurable getters, which node:test's
+// mock.method can't redefine. node:fs and node:child_process are real
+// builtins (not esbuild-compiled), so mocking them on the require()'d module
+// object propagates through platform.ts's own import. Both must be mocked —
+// on Windows CI runners, Docker is genuinely on PATH, so a "docker missing"
+// test that only stubs accessSync still finds it via the where.exe fallback.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fsModule = require('node:fs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const childProcessModule = require('node:child_process');
 
 function mockDockerOnPath(present: boolean) {
-  return mock.method(fsModule, 'accessSync', (target: string) => {
+  mock.method(fsModule, 'accessSync', (target: string) => {
     if (!present) throw new Error('ENOENT');
-    if (path.basename(target).startsWith('docker')) return undefined;
+    if (path.basename(target).toLowerCase().startsWith('docker')) return undefined;
     throw new Error('ENOENT');
+  });
+  return mock.method(childProcessModule, 'spawnSync', (cmd: string, args: string[]) => {
+    if (present && String(cmd).toLowerCase().includes('where') && args?.[0] === 'docker') {
+      return { status: 0, stdout: 'C:\\Program Files\\Docker\\docker.exe\r\n', stderr: '', pid: 1, output: [], signal: null };
+    }
+    return { status: 1, stdout: '', stderr: '', pid: 1, output: [], signal: null };
   });
 }
 
