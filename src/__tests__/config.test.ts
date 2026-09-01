@@ -360,7 +360,8 @@ describe('loadConfig tag defaults', () => {
   const envKeys = [
     'CLICKUP_API_KEY', 'CLICKUP_TEAM_ID', 'CLICKUP_TAG',
     'NON_CODE_TAG', 'JIRA_LABEL', 'PROVIDER',
-    'ACCEPTED_TAG', 'MCP_JSON_PATH', 'BETTER_MCP', 'BETTER_MCP_CONFIG_PATH',
+    'ACCEPTED_TAG', 'AUTO_APPROVE', 'AGENT_REVIEW_TAG', 'AUTO_REVIEW',
+    'MCP_JSON_PATH', 'BETTER_MCP', 'BETTER_MCP_CONFIG_PATH',
   ];
   const saved: Record<string, string | undefined> = {};
   let tmpDir: string;
@@ -488,6 +489,40 @@ describe('loadConfig tag defaults', () => {
       assert.equal(loadConfig().autoApprove, false, `expected AUTO_APPROVE=${falsy} to leave autoApprove disabled`);
     }
     delete process.env.AUTO_APPROVE;
+  });
+
+  it('defaults agentReviewTag to "agent review" when AGENT_REVIEW_TAG is unset', () => {
+    delete process.env.AGENT_REVIEW_TAG;
+    const config = loadConfig();
+    assert.equal(config.agentReviewTag, 'agent review');
+  });
+
+  it('respects explicit AGENT_REVIEW_TAG when set', () => {
+    process.env.AGENT_REVIEW_TAG = 'needs review';
+    try {
+      const config = loadConfig();
+      assert.equal(config.agentReviewTag, 'needs review');
+    } finally {
+      delete process.env.AGENT_REVIEW_TAG;
+    }
+  });
+
+  it('defaults autoReview to false when AUTO_REVIEW is unset', () => {
+    delete process.env.AUTO_REVIEW;
+    const config = loadConfig();
+    assert.equal(config.autoReview, false);
+  });
+
+  it('enables autoReview only for true/1/yes', () => {
+    for (const truthy of ['true', '1', 'yes', 'TRUE', 'Yes']) {
+      process.env.AUTO_REVIEW = truthy;
+      assert.equal(loadConfig().autoReview, true, `expected AUTO_REVIEW=${truthy} to enable autoReview`);
+    }
+    for (const falsy of ['false', '0', 'no', '', 'garbage']) {
+      process.env.AUTO_REVIEW = falsy;
+      assert.equal(loadConfig().autoReview, false, `expected AUTO_REVIEW=${falsy} to leave autoReview disabled`);
+    }
+    delete process.env.AUTO_REVIEW;
   });
 
   it('defaults safeMode to true when AIDEV_SAFE_MODE is unset', () => {
