@@ -247,6 +247,23 @@ export async function applyAutoApproveTag(
   logger.info(`[${task.id}] Applied accepted tag "${tag}" (autoApprove)`);
 }
 
+/** Apply {@link Config.agentReviewTag} when {@link Config.autoReview} is enabled for a first-time open pickup. */
+export async function applyAutoReviewTag(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+): Promise<void> {
+  if (!config.autoReview || !config.agentReviewTag) return;
+  if (!provider.addTag) {
+    logger.warn(`[${task.id}] autoReview enabled but provider does not support addTag`);
+    return;
+  }
+  const tag = config.agentReviewTag;
+  if (task.tags.some((t) => t.toLowerCase() === tag.toLowerCase())) return;
+  await provider.addTag(task.id, tag);
+  logger.info(`[${task.id}] Applied agent review tag "${tag}" (autoReview)`);
+}
+
 export async function getBlockedBySkipReason(task: Task, provider: TaskProvider): Promise<string | null> {
   if (!task.blockedBy || task.blockedBy.length === 0) return null;
   if (!provider.fetchTaskById) {
@@ -760,6 +777,7 @@ async function processTask(
     }
   } else {
     await applyAutoApproveTag(task, config, provider);
+    await applyAutoReviewTag(task, config, provider);
 
     if (!screenAvailable) {
       await notifySleeping(task, provider, config, hooks, vm);
