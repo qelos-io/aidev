@@ -472,6 +472,24 @@ describe('loadConfig tag defaults', () => {
     }
   });
 
+  it('defaults autoApprove to false when AUTO_APPROVE is unset', () => {
+    delete process.env.AUTO_APPROVE;
+    const config = loadConfig();
+    assert.equal(config.autoApprove, false);
+  });
+
+  it('enables autoApprove only for true/1/yes', () => {
+    for (const truthy of ['true', '1', 'yes', 'TRUE', 'Yes']) {
+      process.env.AUTO_APPROVE = truthy;
+      assert.equal(loadConfig().autoApprove, true, `expected AUTO_APPROVE=${truthy} to enable autoApprove`);
+    }
+    for (const falsy of ['false', '0', 'no', '', 'garbage']) {
+      process.env.AUTO_APPROVE = falsy;
+      assert.equal(loadConfig().autoApprove, false, `expected AUTO_APPROVE=${falsy} to leave autoApprove disabled`);
+    }
+    delete process.env.AUTO_APPROVE;
+  });
+
   it('defaults safeMode to true when AIDEV_SAFE_MODE is unset', () => {
     delete process.env.AIDEV_SAFE_MODE;
     const config = loadConfig();

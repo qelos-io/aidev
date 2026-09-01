@@ -83,6 +83,7 @@ function stubConfig(overrides: Partial<Config> = {}): Config {
     commentPrefix: '[aidev]',
     hooksPath: '',
     acceptedTag: '',
+    autoApprove: false,
     doneStatus: '',
     autoCompress: false,
     compressThreshold: 0,

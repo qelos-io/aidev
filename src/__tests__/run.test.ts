@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNoChangesCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNoChangesCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, applyAutoApproveTag, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
 import type { AIRunner, AIRunResult } from '../ai/base';
+import type { TaskProvider } from '../providers/base';
 
 const baseConfig = {
   provider: 'clickup',
@@ -815,6 +816,61 @@ describe('getRunSkipReason', () => {
 
   it('skips terminal-status tasks before the review filter check', () => {
     assert.equal(getRunSkipReason('done', 'review', 'pending'), 'terminal status: done');
+  });
+});
+
+describe('applyAutoApproveTag', () => {
+  const task: Task = {
+    id: 'task-1',
+    name: 'Fix bug',
+    description: '',
+    status: 'open',
+    url: '',
+    tags: ['myproject'],
+  };
+
+  it('adds accepted tag when autoApprove is enabled', async () => {
+    const added: string[] = [];
+    const provider = {
+      addTag: async (_taskId: string, tag: string) => { added.push(tag); },
+    } as TaskProvider;
+    const config = { ...baseConfig, autoApprove: true, acceptedTag: 'accepted' } as Config;
+
+    await applyAutoApproveTag(task, config, provider);
+
+    assert.deepEqual(added, ['accepted']);
+  });
+
+  it('does nothing when autoApprove is disabled', async () => {
+    let called = false;
+    const provider = {
+      addTag: async () => { called = true; },
+    } as TaskProvider;
+    const config = { ...baseConfig, autoApprove: false, acceptedTag: 'accepted' } as Config;
+
+    await applyAutoApproveTag(task, config, provider);
+
+    assert.equal(called, false);
+  });
+
+  it('does nothing when task already has the accepted tag', async () => {
+    let called = false;
+    const provider = {
+      addTag: async () => { called = true; },
+    } as TaskProvider;
+    const config = { ...baseConfig, autoApprove: true, acceptedTag: 'accepted' } as Config;
+    const taggedTask = { ...task, tags: ['myproject', 'Accepted'] };
+
+    await applyAutoApproveTag(taggedTask, config, provider);
+
+    assert.equal(called, false);
+  });
+
+  it('does nothing when provider lacks addTag', async () => {
+    const provider = {} as TaskProvider;
+    const config = { ...baseConfig, autoApprove: true, acceptedTag: 'accepted' } as Config;
+
+    await applyAutoApproveTag(task, config, provider);
   });
 });
 
