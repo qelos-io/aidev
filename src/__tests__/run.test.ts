@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNoChangesCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, applyAutoApproveTag, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNoChangesCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, applyAutoApproveTag, applyAutoReviewTag, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
@@ -871,6 +871,61 @@ describe('applyAutoApproveTag', () => {
     const config = { ...baseConfig, autoApprove: true, acceptedTag: 'accepted' } as Config;
 
     await applyAutoApproveTag(task, config, provider);
+  });
+});
+
+describe('applyAutoReviewTag', () => {
+  const task: Task = {
+    id: 'task-1',
+    name: 'Fix bug',
+    description: '',
+    status: 'open',
+    url: '',
+    tags: ['myproject'],
+  };
+
+  it('adds agent review tag when autoReview is enabled', async () => {
+    const added: string[] = [];
+    const provider = {
+      addTag: async (_taskId: string, tag: string) => { added.push(tag); },
+    } as TaskProvider;
+    const config = { ...baseConfig, autoReview: true, agentReviewTag: 'agent review' } as Config;
+
+    await applyAutoReviewTag(task, config, provider);
+
+    assert.deepEqual(added, ['agent review']);
+  });
+
+  it('does nothing when autoReview is disabled', async () => {
+    let called = false;
+    const provider = {
+      addTag: async () => { called = true; },
+    } as TaskProvider;
+    const config = { ...baseConfig, autoReview: false, agentReviewTag: 'agent review' } as Config;
+
+    await applyAutoReviewTag(task, config, provider);
+
+    assert.equal(called, false);
+  });
+
+  it('does nothing when task already has the agent review tag', async () => {
+    let called = false;
+    const provider = {
+      addTag: async () => { called = true; },
+    } as TaskProvider;
+    const config = { ...baseConfig, autoReview: true, agentReviewTag: 'agent review' } as Config;
+    const taggedTask = { ...task, tags: ['myproject', 'Agent Review'] };
+
+    await applyAutoReviewTag(taggedTask, config, provider);
+
+    assert.equal(called, false);
+  });
+
+  it('does nothing when provider lacks addTag', async () => {
+    const provider = {} as TaskProvider;
+    const config = { ...baseConfig, autoReview: true, agentReviewTag: 'agent review' } as Config;
+
+    await applyAutoReviewTag(task, config, provider);
   });
 });
 
