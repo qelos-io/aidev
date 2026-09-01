@@ -153,6 +153,8 @@ export interface Config {
   commentPrefix: string;
   hooksPath: string;
   acceptedTag: string;
+  /** When true, apply {@link acceptedTag} as soon as an open task is picked up */
+  autoApprove: boolean;
   doneStatus: string;
   autoCompress: boolean;
   compressThreshold: number;

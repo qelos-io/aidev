@@ -270,6 +270,9 @@
         <UFormGroup label="ACCEPTED_TAG" help="Tag marking a task as accepted for implementation.">
           <UInput v-model="kv.ACCEPTED_TAG" placeholder="accepted" />
         </UFormGroup>
+        <UFormGroup label="AUTO_APPROVE" help="When true, apply ACCEPTED_TAG as soon as an open task is picked up.">
+          <UInput v-model="kv.AUTO_APPROVE" placeholder="false" />
+        </UFormGroup>
         <UFormGroup label="DONE_STATUS" help="Provider status treated as done/closed.">
           <UInput v-model="kv.DONE_STATUS" />
         </UFormGroup>
@@ -571,6 +574,7 @@ const KNOWN_WORKFLOW_KEYS = [
   'THINKING_TAG',
   'PLANNING_TAG',
   'ACCEPTED_TAG',
+  'AUTO_APPROVE',
   'DONE_STATUS',
   'AIDEV_COMMENT_PREFIX',
   'AIDEV_HOOKS_PATH',

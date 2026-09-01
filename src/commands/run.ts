@@ -230,6 +230,23 @@ export function getRunSkipReason(status: string, filter: RunFilter, pendingStatu
   return null;
 }
 
+/** Apply {@link Config.acceptedTag} when {@link Config.autoApprove} is enabled for a first-time open pickup. */
+export async function applyAutoApproveTag(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+): Promise<void> {
+  if (!config.autoApprove || !config.acceptedTag) return;
+  if (!provider.addTag) {
+    logger.warn(`[${task.id}] autoApprove enabled but provider does not support addTag`);
+    return;
+  }
+  const tag = config.acceptedTag;
+  if (task.tags.some((t) => t.toLowerCase() === tag.toLowerCase())) return;
+  await provider.addTag(task.id, tag);
+  logger.info(`[${task.id}] Applied accepted tag "${tag}" (autoApprove)`);
+}
+
 export async function getBlockedBySkipReason(task: Task, provider: TaskProvider): Promise<string | null> {
   if (!task.blockedBy || task.blockedBy.length === 0) return null;
   if (!provider.fetchTaskById) {
@@ -742,6 +759,8 @@ async function processTask(
       return 'skipped';
     }
   } else {
+    await applyAutoApproveTag(task, config, provider);
+
     if (!screenAvailable) {
       await notifySleeping(task, provider, config, hooks, vm);
       return 'skipped';
