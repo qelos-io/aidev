@@ -87,7 +87,10 @@ const baseAnswers: Answers = {
   commentPrefix: '[aidev]',
   aidevEnvExtend: '',
   acceptedTag: '',
+  autoApprove: false,
   doneStatus: '',
+  agentReviewTag: '',
+  autoReview: false,
   anthropicApiKey: '',
   anthropicBaseUrl: '',
   claudeModel: '',
@@ -148,6 +151,32 @@ describe('renderEnv', () => {
     const out = renderEnv({ ...baseAnswers, acceptedTag: 'accepted', doneStatus: 'done' });
     assert.ok(out.includes('ACCEPTED_TAG=accepted'));
     assert.ok(out.includes('DONE_STATUS=done'));
+  });
+
+  it('writes AUTO_APPROVE=false by default', () => {
+    const out = renderEnv(baseAnswers);
+    assert.ok(out.includes('AUTO_APPROVE=false'));
+  });
+
+  it('writes AUTO_APPROVE=true when enabled', () => {
+    const out = renderEnv({ ...baseAnswers, autoApprove: true });
+    assert.ok(out.includes('AUTO_APPROVE=true'));
+  });
+
+  it('includes AGENT_REVIEW_TAG and AUTO_REVIEW when set', () => {
+    const out = renderEnv({
+      ...baseAnswers,
+      agentReviewTag: 'agent review',
+      autoReview: true,
+    });
+    assert.ok(out.includes('AGENT_REVIEW_TAG="agent review"'));
+    assert.ok(out.includes('AUTO_REVIEW=true'));
+  });
+
+  it('writes AUTO_REVIEW=false when disabled', () => {
+    const out = renderEnv({ ...baseAnswers, agentReviewTag: 'review', autoReview: false });
+    assert.ok(out.includes('AGENT_REVIEW_TAG=review'));
+    assert.ok(out.includes('AUTO_REVIEW=false'));
   });
 
   it('renders PLANNING_TAG with the configured value', () => {
@@ -442,7 +471,10 @@ function answersFromParsed(p: Record<string, string>, folderName = 'myproject'):
     planningTag: p.PLANNING_TAG || '',
     commentPrefix: p.AIDEV_COMMENT_PREFIX || '[aidev-$PROJECT_NAME]',
     acceptedTag: p.ACCEPTED_TAG || '',
+    autoApprove: ['true', '1', 'yes'].includes((p.AUTO_APPROVE || '').trim().toLowerCase()),
     doneStatus: p.DONE_STATUS || '',
+    agentReviewTag: p.AGENT_REVIEW_TAG || '',
+    autoReview: ['true', '1', 'yes'].includes((p.AUTO_REVIEW || '').trim().toLowerCase()),
     safeMode: !['false', '0', 'no'].includes((p.AIDEV_SAFE_MODE || '').trim().toLowerCase()),
     mcpJsonPath: p.MCP_JSON_PATH || '',
     betterMcp: ['true', '1', 'yes'].includes((p.BETTER_MCP || '').trim().toLowerCase()),

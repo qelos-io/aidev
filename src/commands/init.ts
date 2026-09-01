@@ -212,7 +212,10 @@ export interface Answers {
   commentPrefix: string;
   aidevEnvExtend: string;
   acceptedTag: string;
+  autoApprove: boolean;
   doneStatus: string;
+  agentReviewTag: string;
+  autoReview: boolean;
   safeMode: boolean;
   // MCP
   mcpJsonPath: string;
@@ -474,8 +477,15 @@ export function renderEnv(a: Answers): string {
     ``,
     `# ACCEPTED_TAG: tasks in review with this tag are auto-merged (squash + delete branch)`,
     line('ACCEPTED_TAG', a.acceptedTag),
+    `# AUTO_APPROVE: when true, apply ACCEPTED_TAG as soon as an open task is picked up`,
+    `AUTO_APPROVE=${a.autoApprove ? 'true' : 'false'}`,
     `# DONE_STATUS: status to set after auto-merging an accepted PR`,
     a.doneStatus ? `DONE_STATUS=${envVal(a.doneStatus)}` : `# DONE_STATUS=done`,
+    ``,
+    `# AGENT_REVIEW_TAG: tasks in review with this tag get an automated PR code review`,
+    line('AGENT_REVIEW_TAG', a.agentReviewTag),
+    `# AUTO_REVIEW: when true, apply AGENT_REVIEW_TAG as soon as an open task is picked up`,
+    `AUTO_REVIEW=${a.autoReview ? 'true' : 'false'}`,
     ``,
     `# MCP_JSON_PATH: path to a generic mcp.json ({"mcpServers": {...}}) that aidev`,
     `# translates into every configured agent's own convention (Claude, Cursor, Codex, etc).`,
@@ -912,7 +922,10 @@ export async function initCommand(): Promise<void> {
 
     // ── Accepted (auto-merge) — prompts only when gh is installed ─────────────
     let acceptedTag = existing.ACCEPTED_TAG || '';
+    let autoApprove = false;
     let doneStatus = existing.DONE_STATUS || '';
+    let agentReviewTag = existing.AGENT_REVIEW_TAG || '';
+    let autoReview = false;
 
     if (isGhInstalled()) {
       section('Auto-merge accepted PRs');
@@ -927,6 +940,15 @@ export async function initCommand(): Promise<void> {
         `Accepted tag ${hint('tag marking a reviewed PR as approved')}`,
         existing.ACCEPTED_TAG || 'accepted'
       );
+      const existingAutoApprove = (existing.AUTO_APPROVE || '').trim().toLowerCase();
+      const autoApproveDefault = ['true', '1', 'yes'].includes(existingAutoApprove) ? 'yes' : 'no';
+      const autoApproveAnswer = await choose(
+        rl,
+        `Auto-approve ${hint('apply accepted tag on open pickup')}`,
+        ['yes', 'no'],
+        autoApproveDefault
+      );
+      autoApprove = autoApproveAnswer === 'yes';
       if (acceptedTag) {
         doneStatus = await ask(
           rl,
@@ -936,6 +958,27 @@ export async function initCommand(): Promise<void> {
       } else {
         doneStatus = '';
       }
+
+      section('Agent review');
+      console.log(
+        chalk.dim(
+          `  Tasks in review with the agent-review tag get an automated PR code review via gh CLI.`
+        )
+      );
+      agentReviewTag = await ask(
+        rl,
+        `Agent review tag ${hint('tag marking a task for automated PR review')}`,
+        existing.AGENT_REVIEW_TAG || 'agent review'
+      );
+      const existingAutoReview = (existing.AUTO_REVIEW || '').trim().toLowerCase();
+      const autoReviewDefault = ['true', '1', 'yes'].includes(existingAutoReview) ? 'yes' : 'no';
+      const autoReviewAnswer = await choose(
+        rl,
+        `Auto-review ${hint('apply agent-review tag on open pickup')}`,
+        ['yes', 'no'],
+        autoReviewDefault
+      );
+      autoReview = autoReviewAnswer === 'yes';
     }
 
     // ── MCP servers ──────────────────────────────────────────
@@ -1055,7 +1098,10 @@ export async function initCommand(): Promise<void> {
       planningTag,
       commentPrefix,
       acceptedTag,
+      autoApprove,
       doneStatus,
+      agentReviewTag,
+      autoReview,
       safeMode,
       mcpJsonPath,
       betterMcp,
