@@ -155,6 +155,9 @@ export interface Config {
   acceptedTag: string;
   /** When true, apply {@link acceptedTag} as soon as an open task is picked up */
   autoApprove: boolean;
+  agentReviewTag: string;
+  /** When true, apply {@link agentReviewTag} as soon as an open task is picked up */
+  autoReview: boolean;
   doneStatus: string;
   autoCompress: boolean;
   compressThreshold: number;
