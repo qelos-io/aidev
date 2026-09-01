@@ -1,17 +1,29 @@
 import { spawnSync } from 'node:child_process';
 import { commandExists, spawnCommand } from './platform';
 import { logger } from './logger';
+import type { AgentReviewComment } from './prompts/agentReview';
 
-function gh(args: string[]): { stdout: string; stderr: string; status: number } {
+function gh(
+  args: string[],
+  input?: string
+): { stdout: string; stderr: string; status: number } {
   const result = spawnCommand('gh', args, {
     encoding: 'utf8',
     timeout: 30_000,
+    input,
   });
   return {
     stdout: result.stdout || '',
     stderr: result.stderr || '',
     status: result.status ?? 1,
   };
+}
+
+function formatGhError(result: { stdout: string; stderr: string; status: number }): string {
+  const stderr = result.stderr.trim();
+  const stdout = result.stdout.trim();
+  const combined = [stderr, stdout].filter(Boolean).join('\n').trim();
+  return combined || `gh exited with status ${result.status}`;
 }
 
 function git(args: string[]): { stdout: string; stderr: string; status: number } {
@@ -283,4 +295,109 @@ export function resolveReviewThread(threadId: string): boolean {
     return false;
   }
   return true;
+}
+
+// ─── PR diff and agent review ─────────────────────────────────────────────────
+
+export type { AgentReviewComment } from './prompts/agentReview';
+
+export function fetchPrDiff(branch: string): { diff: string; error: string } {
+  const result = gh(['pr', 'diff', branch]);
+  if (result.status !== 0) {
+    return { diff: '', error: formatGhError(result) };
+  }
+  return { diff: result.stdout, error: '' };
+}
+
+interface GhPrHeadResult {
+  headRefOid: string;
+}
+
+export function getPrHeadSha(branch: string): string | null {
+  const result = gh(['pr', 'view', branch, '--json', 'headRefOid']);
+  if (result.status !== 0) return null;
+  try {
+    const parsed = JSON.parse(result.stdout) as GhPrHeadResult;
+    return parsed.headRefOid ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export interface AgentReviewApiComment {
+  path: string;
+  line: number;
+  body: string;
+  side: 'RIGHT';
+}
+
+export interface AgentReviewPayload {
+  commit_id: string;
+  body: string;
+  event: 'APPROVE' | 'COMMENT';
+  comments?: AgentReviewApiComment[];
+}
+
+export function buildAgentReviewPayload(options: {
+  headSha: string;
+  comments: AgentReviewComment[];
+  summary: string;
+}): AgentReviewPayload {
+  if (options.comments.length === 0) {
+    return {
+      commit_id: options.headSha,
+      body: options.summary,
+      event: 'APPROVE',
+    };
+  }
+
+  return {
+    commit_id: options.headSha,
+    body: options.summary,
+    event: 'COMMENT',
+    comments: options.comments.map((comment) => ({
+      path: comment.path,
+      line: comment.line,
+      body: comment.body,
+      side: 'RIGHT',
+    })),
+  };
+}
+
+export interface PostAgentReviewResult {
+  success: boolean;
+  error: string;
+  commentsPosted: number;
+}
+
+export function postAgentPullRequestReview(options: {
+  owner: string;
+  repo: string;
+  prNumber: number;
+  headSha: string;
+  comments: AgentReviewComment[];
+  summary: string;
+}): PostAgentReviewResult {
+  const payload = buildAgentReviewPayload({
+    headSha: options.headSha,
+    comments: options.comments,
+    summary: options.summary,
+  });
+
+  const endpoint = `repos/${options.owner}/${options.repo}/pulls/${options.prNumber}/reviews`;
+  const result = gh(['api', endpoint, '--input', '-'], JSON.stringify(payload));
+
+  if (result.status !== 0) {
+    return {
+      success: false,
+      error: formatGhError(result),
+      commentsPosted: 0,
+    };
+  }
+
+  return {
+    success: true,
+    error: '',
+    commentsPosted: options.comments.length,
+  };
 }
