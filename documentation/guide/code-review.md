@@ -1,5 +1,7 @@
 # Code review resolution
 
+This feature is **reactive** — it addresses unresolved threads left by human reviewers on an open PR. For a **proactive** AI review of the full diff before human feedback, see [Agent review](/guide/agent-review).
+
 When `aidev run` executes, it also checks tasks in **review** status for unresolved PR code review comments. If any actionable threads are found, an AI agent is run to address them — either by fixing the code or replying to discussion comments.
 
 ## How it works

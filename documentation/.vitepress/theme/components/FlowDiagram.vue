@@ -35,8 +35,24 @@
     <div class="flow__step">
       <span class="flow__num">5</span>
       <div>
-        <strong>Review</strong>
-        <p>Resolve PR comments automatically</p>
+        <strong>Agent review</strong>
+        <p>AI reviews the PR diff on tagged tasks</p>
+      </div>
+    </div>
+    <div class="flow__arrow" aria-hidden="true">→</div>
+    <div class="flow__step">
+      <span class="flow__num">6</span>
+      <div>
+        <strong>Code review</strong>
+        <p>Resolve human PR comments automatically</p>
+      </div>
+    </div>
+    <div class="flow__arrow" aria-hidden="true">→</div>
+    <div class="flow__step">
+      <span class="flow__num">7</span>
+      <div>
+        <strong>Merge</strong>
+        <p>Squash-merge accepted PRs via gh</p>
       </div>
     </div>
   </div>

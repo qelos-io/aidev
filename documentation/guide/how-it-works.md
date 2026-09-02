@@ -10,12 +10,14 @@
 4. **Wait** — pending tasks are re-checked on the next run; if a human replied or the trigger word is found, implementation proceeds with the conversation as context
 5. **Implement** — checks out a fresh branch (or reuses an existing one), runs your configured AI agent(s), falls back to the next agent if one fails
 6. **Ship** — commits all changes, pushes the branch, posts a comment with the branch name and a PR link, moves the task to your "in review" status
-7. **Review** — checks tasks already in review for unresolved PR code review comments; if found, runs an AI agent to fix code or reply to discussion threads
+7. **Agent review** — for in-review tasks tagged with `agent review`, fetches the PR diff via `gh`, runs an AI review, and posts inline comments (or an approving review when no issues are found)
+8. **Code review** — checks tasks already in review for unresolved human PR review comments; if found, runs an AI agent to fix code or reply to discussion threads
+9. **Merge** — tasks tagged `accepted` are squash-merged via `gh` (see [Auto-merge](/guide/auto-merge))
 
 ## At a glance
 
 ```
-Task  →  AI implements  →  git push  →  "in review"  →  AI resolves code review comments
+Task  →  AI implements  →  git push  →  "in review"  →  agent review  →  resolve PR comments  →  accepted  →  merge
 ```
 
 ## Related
@@ -23,4 +25,6 @@ Task  →  AI implements  →  git push  →  "in review"  →  AI resolves code
 - [Concurrency lock](/guide/concurrency) — one run per directory
 - [Dev notes mode](/guide/dev-notes) — when clarification is posted
 - [Blocked tasks](/guide/blocked-tasks) — dependency handling
-- [Code review](/guide/code-review) — automatic PR thread resolution
+- [Agent review](/guide/agent-review) — proactive AI review of the PR diff
+- [Code review](/guide/code-review) — reactive resolution of human PR review threads
+- [Auto-merge](/guide/auto-merge) — merge accepted PRs
