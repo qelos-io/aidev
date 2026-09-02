@@ -22,6 +22,13 @@ export {
   buildNonCodePrompt,
   buildNonCodeSubtaskPrompt,
 } from './nonCode';
+export {
+  buildAgentReviewExportInstructions,
+  buildAgentReviewPrompt,
+  composeAgentReviewPrompt,
+  parseAgentReviewResponse,
+} from './agentReview';
+export type { AgentReviewComment } from './agentReview';
 export { buildReviewPrompt, parseReplyDirectives } from './review';
 export {
   cleanAgentResponseForComment,
