@@ -12,7 +12,7 @@
 | `AIDEV_HOOKS_PATH` | — | Path to a `.ts` or `.js` module that exports hook functions (see [Hooks](/guide/hooks)) |
 | `ACCEPTED_TAG` | `accepted` | Tasks in review with this tag are auto-merged (see [Auto-merge](/guide/auto-merge)) |
 | `AUTO_APPROVE` | `false` | When `true`, apply `ACCEPTED_TAG` as soon as an open task is picked up |
-| `AGENT_REVIEW_TAG` | `agent review` | Tasks in review with this tag get an automated PR code review |
+| `AGENT_REVIEW_TAG` | `agent review` | Tasks in review with this tag get an automated PR code review (see [Agent review](/guide/agent-review)) |
 | `AUTO_REVIEW` | `false` | When `true`, apply `AGENT_REVIEW_TAG` as soon as an open task is picked up |
 | `DONE_STATUS` | auto-detected | Status to set after auto-merging an accepted PR |
 | `PR_SIGNATURE` | `Automated PR by aidev.` | Custom signature line appended to the PR body |

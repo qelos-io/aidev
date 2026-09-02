@@ -46,6 +46,7 @@ export default defineConfig({
           { text: 'Providers', link: '/guide/providers' },
           { text: 'Hooks', link: '/guide/hooks' },
           { text: 'MCP servers', link: '/guide/mcp' },
+          { text: 'Agent review', link: '/guide/agent-review' },
           { text: 'Code review', link: '/guide/code-review' },
           { text: 'Auto-merge', link: '/guide/auto-merge' },
           { text: 'Dev notes mode', link: '/guide/dev-notes' },

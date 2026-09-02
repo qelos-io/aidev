@@ -5,7 +5,7 @@
 | Command | Description |
 |---|---|
 | `aidev init` | Interactive setup — creates `.env.aidev` |
-| `aidev run` | Process open + pending tasks, then check review tasks for unresolved PR comments |
+| `aidev run` | Process open + pending tasks, resolve unresolved PR review comments, run agent review on tagged in-review tasks, then auto-merge accepted PRs |
 | `aidev run open` | Only open (non-pending) tasks |
 | `aidev run pending` | Only pending tasks — check for human replies |
 | `aidev run accepted` | Auto-merge PRs for tasks in review with the accepted tag |
