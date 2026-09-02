@@ -23,6 +23,7 @@ import {
 } from '../hooks';
 import { buildCompressedContext } from '../sessions';
 import { resolveDoneStatus } from './accepted';
+import { agentReviewCommand } from './agentReview';
 import { collectSecrets, sanitizeTaskForSafeMode } from '../safeMode';
 import {
   checkImplementationStillActive,
@@ -662,6 +663,10 @@ export async function runCommand(
         }
       } catch (err) {
         logger.warn(`Failed to fetch review tasks: ${err instanceof Error ? err.message : err}`);
+      }
+
+      if (config.agentReviewTag) {
+        await agentReviewCommand(config, provider, runners, screenAvailable);
       }
 
       // Checkout back to base branch after processing review tasks
