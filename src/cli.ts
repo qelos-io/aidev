@@ -16,7 +16,9 @@ import { processLocalTasks } from './tasks';
 import { logger } from './logger';
 import { loadHooks, createHookVM } from './hooks';
 import { acceptedCommand } from './commands/accepted';
-import { isGhInstalled } from './github';
+import { agentReviewCommand } from './commands/agentReview';
+import { isGhInstalled, isGhAuthenticated } from './github';
+import { isScreenAvailable } from './platform';
 import { hooksGenerateCommand, hooksUpdateCommand } from './commands/hooks';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -92,6 +94,11 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
     const hookVM = createHookVM(provider, runners);
     await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, consultProvider, hooks, hookVM, taskId);
 
+    if (!taskId && config.agentReviewTag && isGhInstalled() && isGhAuthenticated()) {
+      const screenAvailable = isScreenAvailable();
+      await agentReviewCommand(config, provider, runners, screenAvailable);
+    }
+
     // Auto-merge accepted PRs if configured (requires gh CLI)
     if (!taskId && config.acceptedTag && isGhInstalled()) {
       await acceptedCommand(config, provider);
@@ -104,8 +111,8 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
 
 program
   .command('run [filter]', { isDefault: true })
-  .description('Process tasks: all (default), open, pending, review, tasks, or accepted. Also checks review tasks for unresolved PR comments.')
-  .option('--task <id>', 'process only the task with this provider id (skips local-task push, non-code, accepted, and review phases)')
+  .description('Process tasks: all (default), open, pending, review, tasks, or accepted. Also checks review tasks for unresolved PR comments and runs agent review on tagged in-review tasks.')
+  .option('--task <id>', 'process only the task with this provider id (skips local-task push, non-code, agent review, accepted, and review phases)')
   .option('--status <status>', 'alias for the positional filter — used by the aidev ui dashboard (open, pending, review, all)')
   .action(async (filter: string | undefined, opts: { task?: string; status?: string }) => {
     // --status is just a long-form alias for the positional filter so the UI's

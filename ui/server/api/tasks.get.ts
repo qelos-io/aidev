@@ -74,6 +74,7 @@ export default defineEventHandler(async (event): Promise<TasksResponse> => {
     { key: 'thinkingTag',  label: 'thinking' },
     { key: 'planningTag',  label: 'planning' },
     { key: 'acceptedTag',  label: 'accepted' },
+    { key: 'agentReviewTag', label: 'agent review' },
   ];
   const suggestedTags = suggestedTagEntries
     .map(({ key, label }) => ({ tag: (config[key] as string | undefined) || '', label }))

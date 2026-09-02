@@ -53,6 +53,7 @@ ${b('COMMANDS')}
   ${c('run')}                         Process all open + pending-with-replies tasks
   ${c('run open')}                    Only open (non-pending) tasks
   ${c('run pending')}                 Only pending tasks — check for human replies
+  ${d('(also processes in-review tasks tagged for agent review, then auto-merges accepted PRs)')}
   ${c('run tasks')}                   Publish queued ${d('aidev.tasks.json')} entries and exit
   ${c('tasks add')}                   Queue a new task in ${d('aidev.tasks.json')} (interactive)
   ${c('tasks ls')}                    List queued tasks
