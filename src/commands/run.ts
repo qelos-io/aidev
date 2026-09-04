@@ -34,7 +34,7 @@ import {
   getPendingStatus,
   getInReviewStatus,
 } from '../taskStatus';
-import { getExistingAssetDirs, listTaskAssetFiles } from '../aidevAssets';
+import {   getExistingAssetDirs, listTaskAssetFiles } from '../aidevAssets';
 import {
   buildAssetsAccessInstructions,
   buildCompletionComment,
@@ -54,6 +54,7 @@ import {
   buildReviewCompletionComment,
   buildReviewPrompt,
   buildThinkingAnalysisPrompt,
+  buildThinkingEscalationContext,
   buildThinkingSubtaskPrompt,
   formatSubtaskId,
   parseReplyDirectives,
@@ -294,6 +295,56 @@ export function isPlanningTask(task: Task, config: Config): boolean {
   if (!config.planningTag) return false;
   const tag = config.planningTag.toLowerCase();
   return task.tags.some((t) => t.toLowerCase() === tag);
+}
+
+export function canEscalateToThinkingMode(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  opts: { hadExplicitRunnerFailure: boolean },
+): boolean {
+  if (!opts.hadExplicitRunnerFailure) return false;
+  if (isPlanningTask(task, config)) return false;
+  if (isThinkingTask(task, config)) return false;
+  if (!config.thinkingTag) return false;
+  if (!provider.addTag) return false;
+  return true;
+}
+
+export async function escalateTaskToThinkingMode(
+  task: Task,
+  provider: TaskProvider,
+  config: Config,
+  hooks: AidevHooks,
+  vm: HookVM | undefined,
+  failureDiagnostics: string,
+): Promise<string | null> {
+  const tag = config.thinkingTag;
+  if (!tag || !provider.addTag) return null;
+
+  try {
+    await provider.addTag(task.id, tag);
+  } catch (err) {
+    logger.warn(`[${task.id}] Failed to add thinking tag: ${err}`);
+    return null;
+  }
+
+  if (!task.tags.some((t) => t.toLowerCase() === tag.toLowerCase())) {
+    task.tags.push(tag);
+  }
+
+  await postCommentWithHooks(
+    task,
+    `${config.commentPrefix} All runners failed — escalating to thinking mode for automatic breakdown and retry.\n\n${failureDiagnostics}`,
+    config,
+    provider,
+    hooks,
+    vm,
+  );
+
+  logger.info(`[${task.id}] Escalating to thinking mode (tag: "${tag}")`);
+
+  return buildThinkingEscalationContext(failureDiagnostics, git.listWorkingTreeChanges());
 }
 
 function tryParseJson(text: string): unknown | null {
@@ -1222,6 +1273,7 @@ async function implementTask(
 
   // Run AI runners in order with fallback
   let implemented = false;
+  let hadExplicitRunnerFailure = false;
   let previousNotes = '';
   let noChangeResponse: string | undefined;
 
@@ -1262,6 +1314,7 @@ async function implementTask(
     }
 
     if (!result.success) {
+      hadExplicitRunnerFailure = true;
       logger.warn(`${runner.name} failed — trying next runner`);
       previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
     } else {
@@ -1288,6 +1341,18 @@ async function implementTask(
         git.deleteBranch(branchName);
       }
       return;
+    }
+
+    if (canEscalateToThinkingMode(task, config, provider, { hadExplicitRunnerFailure })) {
+      const failureDiagnostics = previousNotes || collectAndLogDiagnostics();
+      const escalationContext = await escalateTaskToThinkingMode(
+        task, provider, config, hooks, vm, failureDiagnostics,
+      );
+      if (escalationContext !== null) {
+        return implementThinkingTask(
+          task, branchName, true, config, provider, runners, hooks, vm, escalationContext,
+        );
+      }
     }
 
     logger.error('All AI runners failed or produced no changes');
@@ -1601,7 +1666,8 @@ async function implementThinkingTask(
   provider: TaskProvider,
   runners: AIRunner[],
   hooks: AidevHooks = {},
-  vm?: HookVM
+  vm?: HookVM,
+  escalationContext?: string,
 ): Promise<void> {
   logger.info(`Implementing thinking task: ${task.name}`);
   cleanupStaleThinkingArtifacts();
@@ -1667,7 +1733,11 @@ async function implementThinkingTask(
   if (plan) {
     logger.info(`Found existing task plan with ${plan.subtasks.length} sub-tasks — resuming`);
   } else {
-    plan = await analyzeAndPlan(safeTask, safeContext, runners, provider, config);
+    let analysisContext = safeContext;
+    if (escalationContext) {
+      analysisContext += `\n\n${escalationContext}`;
+    }
+    plan = await analyzeAndPlan(safeTask, analysisContext, runners, provider, config);
     if (!plan) {
       const statusCheck = await checkImplementationStillActive(provider, task.id, config);
       if (!statusCheck.active) {
@@ -2351,6 +2421,18 @@ async function implementNonCodeTask(
   }
 
   if (!implemented) {
+    if (canEscalateToThinkingMode(task, config, provider, { hadExplicitRunnerFailure: true })) {
+      const failureDiagnostics = previousNotes || collectAndLogDiagnostics();
+      const escalationContext = await escalateTaskToThinkingMode(
+        task, provider, config, hooks, vm, failureDiagnostics,
+      );
+      if (escalationContext !== null) {
+        return implementNonCodeThinkingTask(
+          task, config, provider, runners, hooks, vm, escalationContext,
+        );
+      }
+    }
+
     logger.error('All AI runners failed');
     const diagnostics = collectAndLogDiagnostics();
     await postCommentWithHooks(
@@ -2570,7 +2652,8 @@ async function implementNonCodeThinkingTask(
   provider: TaskProvider,
   runners: AIRunner[],
   hooks: AidevHooks = {},
-  vm?: HookVM
+  vm?: HookVM,
+  escalationContext?: string,
 ): Promise<void> {
   logger.info(`Implementing non-code thinking task: ${task.name}`);
 
@@ -2595,7 +2678,12 @@ async function implementNonCodeThinkingTask(
 
   const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
 
-  const plan = await analyzeAndPlanNonCode(safeTask, safeContext, runners, provider, config);
+  let analysisContext = safeContext;
+  if (escalationContext) {
+    analysisContext += `\n\n${escalationContext}`;
+  }
+
+  const plan = await analyzeAndPlanNonCode(safeTask, analysisContext, runners, provider, config);
   if (!plan) {
     const statusCheck = await checkImplementationStillActive(provider, task.id, config, 'non-code');
     if (!statusCheck.active) {

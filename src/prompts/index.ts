@@ -31,6 +31,7 @@ export {
 export type { AgentReviewComment } from './agentReview';
 export { buildReviewPrompt, parseReplyDirectives } from './review';
 export {
+  buildThinkingEscalationContext,
   cleanAgentResponseForComment,
   formatSubtaskId,
   SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX,

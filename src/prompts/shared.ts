@@ -38,3 +38,37 @@ export function truncateForSubtaskPrompt(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   return `${text.slice(0, maxLen)}\n\n… (truncated)`;
 }
+
+export const THINKING_ESCALATION_FAILURE_HEADER = '## Previous direct-run failure';
+
+export function hasThinkingEscalationContext(context: string): boolean {
+  return context.includes(THINKING_ESCALATION_FAILURE_HEADER);
+}
+
+export function buildThinkingEscalationAnalysisGuidance(): string {
+  return `ESCALATION: This task was automatically escalated to thinking mode after all AI runners failed on a direct implementation attempt. The context above includes failure diagnostics and may list uncommitted working-tree changes from that attempt. Account for the prior failure in your breakdown, build on any partial work reflected in uncommitted files, and avoid repeating the same failed approach.`;
+}
+
+export function buildThinkingEscalationContext(
+  failureDiagnostics: string,
+  uncommittedPaths: string[],
+): string {
+  const sections = [
+    THINKING_ESCALATION_FAILURE_HEADER,
+    '',
+    failureDiagnostics.trim(),
+  ];
+
+  if (uncommittedPaths.length > 0) {
+    sections.push(
+      '',
+      '## Uncommitted working-tree changes',
+      '',
+      'The following files have uncommitted changes from the failed direct run. Account for this partial work in your breakdown:',
+      '',
+      ...uncommittedPaths.map((filePath) => `- ${filePath}`),
+    );
+  }
+
+  return sections.join('\n');
+}
