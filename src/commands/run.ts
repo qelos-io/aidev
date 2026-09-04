@@ -2417,6 +2417,18 @@ async function implementNonCodeTask(
   }
 
   if (!implemented) {
+    if (canEscalateToThinkingMode(task, config, provider, { hadExplicitRunnerFailure: true })) {
+      const failureDiagnostics = previousNotes || collectAndLogDiagnostics();
+      const escalationContext = await escalateTaskToThinkingMode(
+        task, provider, config, hooks, vm, failureDiagnostics,
+      );
+      if (escalationContext !== null) {
+        return implementNonCodeThinkingTask(
+          task, config, provider, runners, hooks, vm, escalationContext,
+        );
+      }
+    }
+
     logger.error('All AI runners failed');
     const diagnostics = collectAndLogDiagnostics();
     await postCommentWithHooks(
@@ -2636,7 +2648,8 @@ async function implementNonCodeThinkingTask(
   provider: TaskProvider,
   runners: AIRunner[],
   hooks: AidevHooks = {},
-  vm?: HookVM
+  vm?: HookVM,
+  escalationContext?: string,
 ): Promise<void> {
   logger.info(`Implementing non-code thinking task: ${task.name}`);
 
@@ -2661,7 +2674,12 @@ async function implementNonCodeThinkingTask(
 
   const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
 
-  const plan = await analyzeAndPlanNonCode(safeTask, safeContext, runners, provider, config);
+  let analysisContext = safeContext;
+  if (escalationContext) {
+    analysisContext += `\n\n${escalationContext}`;
+  }
+
+  const plan = await analyzeAndPlanNonCode(safeTask, analysisContext, runners, provider, config);
   if (!plan) {
     const statusCheck = await checkImplementationStillActive(provider, task.id, config, 'non-code');
     if (!statusCheck.active) {
