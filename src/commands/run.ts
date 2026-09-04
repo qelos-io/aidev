@@ -34,7 +34,7 @@ import {
   getPendingStatus,
   getInReviewStatus,
 } from '../taskStatus';
-import { getExistingAssetDirs, listTaskAssetFiles } from '../aidevAssets';
+import {   getExistingAssetDirs, listTaskAssetFiles } from '../aidevAssets';
 import {
   buildAssetsAccessInstructions,
   buildCompletionComment,
@@ -54,6 +54,7 @@ import {
   buildReviewCompletionComment,
   buildReviewPrompt,
   buildThinkingAnalysisPrompt,
+  buildThinkingEscalationContext,
   buildThinkingSubtaskPrompt,
   formatSubtaskId,
   parseReplyDirectives,
@@ -294,6 +295,56 @@ export function isPlanningTask(task: Task, config: Config): boolean {
   if (!config.planningTag) return false;
   const tag = config.planningTag.toLowerCase();
   return task.tags.some((t) => t.toLowerCase() === tag);
+}
+
+export function canEscalateToThinkingMode(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  opts: { hadExplicitRunnerFailure: boolean },
+): boolean {
+  if (!opts.hadExplicitRunnerFailure) return false;
+  if (isPlanningTask(task, config)) return false;
+  if (isThinkingTask(task, config)) return false;
+  if (!config.thinkingTag) return false;
+  if (!provider.addTag) return false;
+  return true;
+}
+
+export async function escalateTaskToThinkingMode(
+  task: Task,
+  provider: TaskProvider,
+  config: Config,
+  hooks: AidevHooks,
+  vm: HookVM | undefined,
+  failureDiagnostics: string,
+): Promise<string | null> {
+  const tag = config.thinkingTag;
+  if (!tag || !provider.addTag) return null;
+
+  try {
+    await provider.addTag(task.id, tag);
+  } catch (err) {
+    logger.warn(`[${task.id}] Failed to add thinking tag: ${err}`);
+    return null;
+  }
+
+  if (!task.tags.some((t) => t.toLowerCase() === tag.toLowerCase())) {
+    task.tags.push(tag);
+  }
+
+  await postCommentWithHooks(
+    task,
+    `${config.commentPrefix} All runners failed — escalating to thinking mode for automatic breakdown and retry.\n\n${failureDiagnostics}`,
+    config,
+    provider,
+    hooks,
+    vm,
+  );
+
+  logger.info(`[${task.id}] Escalating to thinking mode (tag: "${tag}")`);
+
+  return buildThinkingEscalationContext(failureDiagnostics, git.listWorkingTreeChanges());
 }
 
 function tryParseJson(text: string): unknown | null {
