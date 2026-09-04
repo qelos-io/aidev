@@ -1,9 +1,22 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { buildThinkingAnalysisPrompt } from '../prompts/code';
+import { buildNonCodeAnalysisPrompt } from '../prompts/nonCode';
 import { buildThinkingEscalationContext } from '../prompts/shared';
 import { canEscalateToThinkingMode, escalateTaskToThinkingMode } from '../commands/run';
 import type { Config, Task } from '../types';
 import type { TaskProvider } from '../providers/base';
+
+function stubAnalysisTask(): Task {
+  return {
+    id: 'TASK-1',
+    name: 'Fix bug',
+    description: 'Fix the login bug',
+    status: 'in progress',
+    url: 'https://example.test/t/TASK-1',
+    tags: ['myproject', 'thinking'],
+  };
+}
 
 function stubTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -204,5 +217,40 @@ describe('escalateTaskToThinkingMode', () => {
 
     assert.equal(context, null);
     assert.ok(!task.tags.includes('thinking'));
+  });
+});
+
+describe('thinking analysis escalation context in prompts', () => {
+  it('buildThinkingAnalysisPrompt includes escalation block and guidance when context has escalation', () => {
+    const escalation = buildThinkingEscalationContext('Runner failed: timeout', ['src/foo.ts']);
+    const context = `\n\nConversation context:\n\n${escalation}`;
+    const prompt = buildThinkingAnalysisPrompt(stubAnalysisTask(), context);
+
+    assert.match(prompt, /## Previous direct-run failure/);
+    assert.match(prompt, /Runner failed: timeout/);
+    assert.match(prompt, /src\/foo\.ts/);
+    assert.match(prompt, /escalated to thinking mode/i);
+    assert.match(prompt, /uncommitted working-tree changes/i);
+  });
+
+  it('buildNonCodeAnalysisPrompt includes escalation block and guidance when context has escalation', () => {
+    const escalation = buildThinkingEscalationContext('Runner claude failed: timeout', ['notes/draft.md']);
+    const context = `\n\nConversation context:\n\n${escalation}`;
+    const prompt = buildNonCodeAnalysisPrompt(stubAnalysisTask(), context);
+
+    assert.match(prompt, /## Previous direct-run failure/);
+    assert.match(prompt, /Runner claude failed: timeout/);
+    assert.match(prompt, /notes\/draft\.md/);
+    assert.match(prompt, /escalated to thinking mode/i);
+    assert.match(prompt, /uncommitted working-tree changes/i);
+  });
+
+  it('omits escalation guidance when context has no escalation block', () => {
+    const context = '\n\nConversation context:\nAlice: Please prioritize this';
+    const codePrompt = buildThinkingAnalysisPrompt(stubAnalysisTask(), context);
+    const nonCodePrompt = buildNonCodeAnalysisPrompt(stubAnalysisTask(), context);
+
+    assert.doesNotMatch(codePrompt, /escalated to thinking mode/i);
+    assert.doesNotMatch(nonCodePrompt, /escalated to thinking mode/i);
   });
 });

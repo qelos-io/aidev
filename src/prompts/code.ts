@@ -1,6 +1,8 @@
 import { Task } from '../types';
 import {
+  buildThinkingEscalationAnalysisGuidance,
   formatSubtaskId,
+  hasThinkingEscalationContext,
   SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX,
   SUBTASK_PROMPT_COMPACT_INSTRUCTIONS_MAX,
   taskDescription,
@@ -69,13 +71,17 @@ Please implement the required changes. Focus on correctness and follow the exist
 }
 
 export function buildThinkingAnalysisPrompt(task: Task, context: string): string {
+  const escalationGuidance = hasThinkingEscalationContext(context)
+    ? `\n\n${buildThinkingEscalationAnalysisGuidance()}`
+    : '';
+
   return `You are a senior software architect breaking down a development task into smaller, sequential implementation steps.
 
 Task name: ${task.name}
 
 Description:
 ${taskDescription(task)}
-${context}
+${context}${escalationGuidance}
 
 Analyze this task and break it into smaller, independently implementable sub-tasks that should be executed sequentially. Each sub-task should be a coherent unit of work that can be committed separately.
 

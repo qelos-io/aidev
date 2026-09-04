@@ -1,5 +1,10 @@
 import { Task } from '../types';
-import { formatSubtaskId, taskDescription } from './shared';
+import {
+  buildThinkingEscalationAnalysisGuidance,
+  formatSubtaskId,
+  hasThinkingEscalationContext,
+  taskDescription,
+} from './shared';
 import { NonCodeSubTaskResult, SubTask, ThinkingTaskPlan } from './types';
 
 export function buildNonCodePrompt(task: Task, context: string): string {
@@ -34,6 +39,10 @@ Please provide a clear, detailed response to this task. Your response will be po
 }
 
 export function buildNonCodeAnalysisPrompt(task: Task, context: string): string {
+  const escalationGuidance = hasThinkingEscalationContext(context)
+    ? `\n\n${buildThinkingEscalationAnalysisGuidance()}`
+    : '';
+
   return `You are a senior analyst breaking down a non-code task (research, investigation, documentation, communication, planning, etc.) into smaller, sequential sub-tasks.
 
 Each sub-task will be executed in order. Each later sub-task will receive a short summary of every earlier sub-task's result, so subsequent steps can build on previous findings.
@@ -42,7 +51,7 @@ Task name: ${task.name}
 
 Description:
 ${taskDescription(task)}
-${context}
+${context}${escalationGuidance}
 
 Analyze this task and break it into 2-8 focused, sequential sub-tasks. Each sub-task should be a coherent unit of work that produces a textual outcome (analysis, summary, draft, list of findings, etc.) — no code changes are expected.
 

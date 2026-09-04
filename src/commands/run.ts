@@ -1733,7 +1733,11 @@ async function implementThinkingTask(
   if (plan) {
     logger.info(`Found existing task plan with ${plan.subtasks.length} sub-tasks — resuming`);
   } else {
-    plan = await analyzeAndPlan(safeTask, safeContext, runners, provider, config);
+    let analysisContext = safeContext;
+    if (escalationContext) {
+      analysisContext += `\n\n${escalationContext}`;
+    }
+    plan = await analyzeAndPlan(safeTask, analysisContext, runners, provider, config);
     if (!plan) {
       const statusCheck = await checkImplementationStillActive(provider, task.id, config);
       if (!statusCheck.active) {
