@@ -15,7 +15,7 @@
           </div>
           <div class="flex items-center gap-2">
             <UButton
-              color="gray"
+              color="neutral"
               variant="ghost"
               size="sm"
               :loading="loading"
@@ -26,7 +26,7 @@
             </UButton>
             <UButton
               v-if="data?.fixSupported"
-              color="gray"
+              color="neutral"
               variant="soft"
               size="sm"
               :loading="fixing"
@@ -56,7 +56,7 @@
         class="mb-4"
       />
 
-      <UCard class="mb-4" :ui="{ body: { padding: 'p-4' } }">
+      <UCard class="mb-4" :ui="{ body: 'p-4' }">
         <template #header>
           <h2 class="text-base font-semibold">Schedule this project</h2>
         </template>
@@ -67,15 +67,15 @@
         </p>
 
         <div class="grid gap-4 md:grid-cols-2">
-          <UFormGroup label="Interval">
-            <USelect v-model="selectedCron" :options="presetOptions" />
-          </UFormGroup>
-          <UFormGroup
+          <UFormField label="Interval">
+            <USelect v-model="selectedCron" :items="presetOptions" />
+          </UFormField>
+          <UFormField
             label="Custom env file"
             help="Optional — passed as -e to the scheduled run (same as CLI)."
           >
             <UInput v-model="envFile" placeholder="/path/to/.env.aidev" autocomplete="off" />
-          </UFormGroup>
+          </UFormField>
         </div>
 
         <div class="mt-4 flex items-center gap-2">

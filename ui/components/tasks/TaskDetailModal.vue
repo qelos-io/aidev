@@ -1,29 +1,29 @@
 <template>
-  <UModal :model-value="open" :ui="{ width: 'sm:max-w-6xl' }" @update:model-value="emit('update:open', $event)">
-    <UCard v-if="detail" class="task-drawer-card">
-      <template #header>
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="text-xs text-gray-500"><code>{{ detail.task.id }}</code></p>
-            <h2 class="text-base font-semibold truncate" :title="detail.task.name">
-              {{ detail.task.name }}
-            </h2>
-            <p class="text-xs text-gray-500 mt-0.5">
-              <a
-                v-if="detail.task.url"
-                :href="detail.task.url"
-                target="_blank"
-                rel="noopener"
-                class="link"
-              >
-                Open in {{ providerName }} ↗
-              </a>
-            </p>
-          </div>
-          <UButton size="xs" color="gray" variant="ghost" @click="emit('close')">Close</UButton>
+  <UModal :open="open" :ui="{ content: 'sm:max-w-6xl' }" @update:open="emit('update:open', $event)">
+    <template v-if="detail" #header>
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-xs text-gray-500"><code>{{ detail.task.id }}</code></p>
+          <h2 class="text-base font-semibold truncate" :title="detail.task.name">
+            {{ detail.task.name }}
+          </h2>
+          <p class="text-xs text-gray-500 mt-0.5">
+            <a
+              v-if="detail.task.url"
+              :href="detail.task.url"
+              target="_blank"
+              rel="noopener"
+              class="link"
+            >
+              Open in {{ providerName }} ↗
+            </a>
+          </p>
         </div>
-      </template>
+        <UButton size="xs" color="neutral" variant="ghost" @click="emit('close')">Close</UButton>
+      </div>
+    </template>
 
+    <template v-if="detail" #body>
       <UAlert
         v-if="error"
         color="red"
@@ -49,7 +49,7 @@
               <USelect
                 v-if="statusOptions.length > 0"
                 :model-value="statusDraft"
-                :options="statusOptions"
+                :items="statusOptions"
                 size="sm"
                 @update:model-value="emit('update:statusDraft', $event)"
               />
@@ -134,7 +134,7 @@
               <UCheckbox
                 :model-value="commentAsAidev"
                 label="Send as [aidev] comment"
-                @update:model-value="emit('update:commentAsAidev', $event)"
+                @update:model-value="(value) => emit('update:commentAsAidev', Boolean(value))"
               />
               <UButton
                 size="sm"
@@ -149,7 +149,7 @@
           </div>
         </div>
       </div>
-    </UCard>
+    </template>
   </UModal>
 </template>
 

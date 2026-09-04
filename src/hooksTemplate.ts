@@ -243,12 +243,12 @@ export function updateHooksFile(existing: string): { content: string; added: str
   let content = existing;
 
   if (style === 'named') {
-    const stubs = missing.map((name) => HOOK_STUBS[name].namedExport).join('\n');
+    const stubs = missing.map((name) => HOOK_STUBS[name]!.namedExport).join('\n');
     const separator = content.endsWith('\n') ? '\n' : '\n\n';
     content = content + separator + stubs;
   } else {
     // Object-export style: insert stubs before the last closing brace
-    const stubs = missing.map((name) => HOOK_STUBS[name].objectMethod).join('\n');
+    const stubs = missing.map((name) => HOOK_STUBS[name]!.objectMethod).join('\n');
     const lastBrace = content.lastIndexOf('}');
     if (lastBrace === -1) {
       content = content + '\n' + stubs;

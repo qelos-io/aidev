@@ -18,6 +18,7 @@ export interface TasksResponse {
   };
   /** Task id being implemented by a live aidev run in this cwd, if known. */
   activeTaskId: string | null;
+  suggestedTags: { tag: string; label: string }[];
 }
 
 export default defineEventHandler(async (event): Promise<TasksResponse> => {

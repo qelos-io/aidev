@@ -1,13 +1,13 @@
 <template>
-  <UModal :model-value="open" :ui="{ width: 'sm:max-w-xl' }" @update:model-value="emit('update:open', $event)">
-    <UCard>
-      <template #header>
-        <div class="flex items-center justify-between gap-3">
-          <h2 class="text-base font-semibold">New Task</h2>
-          <UButton size="xs" color="gray" variant="ghost" @click="emit('close')">Close</UButton>
-        </div>
-      </template>
+  <UModal :open="open" :ui="{ content: 'sm:max-w-xl' }" @update:open="emit('update:open', $event)">
+    <template #header>
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-base font-semibold">New Task</h2>
+        <UButton size="xs" color="neutral" variant="ghost" @click="emit('close')">Close</UButton>
+      </div>
+    </template>
 
+    <template #body>
       <UAlert
         v-if="error"
         color="red"
@@ -50,16 +50,14 @@
           <label class="field-label">Priority</label>
           <USelect
             v-model="form.priority"
-            :options="priorityOptions"
-            value-attribute="value"
-            option-attribute="label"
+            :items="priorityOptions"
             :disabled="saving"
           />
         </div>
 
         <div class="actions">
           <UButton
-            color="gray"
+            color="neutral"
             variant="ghost"
             :disabled="saving"
             @click="emit('close')"
@@ -76,7 +74,7 @@
           </UButton>
         </div>
       </form>
-    </UCard>
+    </template>
   </UModal>
 </template>
 
@@ -96,8 +94,10 @@ const emit = defineEmits<{
   (e: 'submit', params: { title: string; description: string; tags: string[]; priority?: number }): void;
 }>();
 
+const NO_PRIORITY = 'none';
+
 const priorityOptions = [
-  { label: '— none —', value: '' },
+  { label: '— none —', value: NO_PRIORITY },
   { label: 'Urgent', value: '1' },
   { label: 'High', value: '2' },
   { label: 'Medium', value: '3' },
@@ -113,7 +113,7 @@ const form = reactive({
   title: '',
   description: '',
   tags: [] as string[],
-  priority: '',
+  priority: NO_PRIORITY,
 });
 
 watch(
@@ -123,14 +123,14 @@ watch(
       form.title = '';
       form.description = '';
       form.tags = defaultCodeTag.value ? [defaultCodeTag.value] : [];
-      form.priority = '';
+      form.priority = NO_PRIORITY;
     }
   },
 );
 
 function submit() {
   if (!form.title.trim()) return;
-  const priority = form.priority ? parseInt(form.priority, 10) : undefined;
+  const priority = form.priority !== NO_PRIORITY ? parseInt(form.priority, 10) : undefined;
   emit('submit', {
     title: form.title.trim(),
     description: form.description.trim(),

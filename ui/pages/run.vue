@@ -13,7 +13,7 @@
           <UButton
             v-if="lines.length > 0 && !running"
             size="xs"
-            color="gray"
+            color="neutral"
             variant="ghost"
             @click="lines = []"
           >
@@ -86,11 +86,11 @@ const route = useRoute();
 const runtime = useRuntimeConfig();
 const cwd = computed(() => runtime.public.aidevCwd as string);
 
-const statuses: { value: RunStatus; label: string; color: 'primary' | 'sky' | 'amber' | 'gray' }[] = [
+const statuses: { value: RunStatus; label: string; color: 'primary' | 'sky' | 'amber' | 'neutral' }[] = [
   { value: 'open', label: 'Open', color: 'primary' },
   { value: 'pending', label: 'Pending', color: 'sky' },
   { value: 'review', label: 'Review', color: 'amber' },
-  { value: 'all', label: 'All', color: 'gray' },
+  { value: 'all', label: 'All', color: 'neutral' },
 ];
 
 const lines = ref<string[]>([]);

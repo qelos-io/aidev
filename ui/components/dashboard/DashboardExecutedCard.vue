@@ -36,20 +36,21 @@
 
 <script setup lang="ts">
 import type { ExecutedStats } from '~/server/api/dashboard/stats.get';
+import type { DashboardPeriod } from '~/composables/useDashboard';
 
 const props = defineProps<{
   data: ExecutedStats | null;
-  period: string;
+  period: DashboardPeriod;
   loading: boolean;
 }>();
 
 const emit = defineEmits<{
-  (e: 'update:period', value: string): void;
+  (e: 'update:period', value: DashboardPeriod): void;
 }>();
 
 const modelPeriod = computed(() => props.period);
 
-const periods = [
+const periods: { value: DashboardPeriod; label: string }[] = [
   { value: 'week', label: 'Week' },
   { value: 'month', label: 'Month' },
   { value: '3months', label: '3 Months' },

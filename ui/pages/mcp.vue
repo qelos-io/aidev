@@ -12,10 +12,10 @@
             </p>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
-            <UButton size="sm" color="gray" variant="soft" @click="rawMode = !rawMode">
+            <UButton size="sm" color="neutral" variant="soft" @click="rawMode = !rawMode">
               {{ rawMode ? 'Form view' : 'Raw JSON' }}
             </UButton>
-            <UButton color="gray" variant="ghost" size="sm" :loading="loading" :disabled="loading" @click="reload">
+            <UButton color="neutral" variant="ghost" size="sm" :loading="loading" :disabled="loading" @click="reload">
               Reload
             </UButton>
             <UButton color="primary" size="sm" :loading="saving" :disabled="saving || !dirty" @click="save">
@@ -48,7 +48,7 @@
       />
       <p v-if="rawError" class="text-sm text-red-500 mt-2">{{ rawError }}</p>
       <div class="mt-3">
-        <UButton size="sm" color="gray" variant="soft" @click="applyRawText">
+        <UButton size="sm" color="neutral" variant="soft" @click="applyRawText">
           Apply to form
         </UButton>
       </div>
@@ -59,7 +59,7 @@
       <template #header>
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold">Servers</h2>
-          <UButton size="sm" color="gray" variant="soft" icon="i-heroicons-plus" @click="addServer">
+          <UButton size="sm" color="neutral" variant="soft" icon="i-heroicons-plus" @click="addServer">
             Add server
           </UButton>
         </div>
@@ -76,9 +76,9 @@
           class="server-block rounded-lg border border-gray-200 dark:border-gray-700 p-4"
         >
           <div class="flex items-center justify-between gap-3 mb-3">
-            <UFormGroup label="Name" class="flex-1 max-w-xs">
+            <UFormField label="Name" class="flex-1 max-w-xs">
               <UInput v-model="server.name" placeholder="fs" />
-            </UFormGroup>
+            </UFormField>
             <UButton
               size="xs"
               color="red"
@@ -90,18 +90,18 @@
           </div>
 
           <div class="grid gap-4 md:grid-cols-2">
-            <UFormGroup label="URL" help="Set for a remote server instead of command/args.">
+            <UFormField label="URL" help="Set for a remote server instead of command/args.">
               <UInput v-model="server.url" placeholder="https://mcp.example.com" />
-            </UFormGroup>
-            <UFormGroup label="Command" help="Local server executable, e.g. npx.">
+            </UFormField>
+            <UFormField label="Command" help="Local server executable, e.g. npx.">
               <UInput v-model="server.command" placeholder="npx" :disabled="!!server.url" />
-            </UFormGroup>
-            <UFormGroup label="Args" help="Space-separated." class="md:col-span-2">
+            </UFormField>
+            <UFormField label="Args" help="Space-separated." class="md:col-span-2">
               <UInput v-model="server.argsText" placeholder="-y @modelcontextprotocol/server-filesystem ." :disabled="!!server.url" />
-            </UFormGroup>
-            <UFormGroup label="Env" help="One KEY=VALUE per line." class="md:col-span-2">
+            </UFormField>
+            <UFormField label="Env" help="One KEY=VALUE per line." class="md:col-span-2">
               <textarea v-model="server.envText" class="env-editor" spellcheck="false" placeholder="TOKEN=..." />
-            </UFormGroup>
+            </UFormField>
           </div>
         </div>
       </div>

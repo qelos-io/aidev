@@ -27,7 +27,9 @@ export interface DashboardStats {
   errors?: string[];
 }
 
-const PERIOD_MS: Record<string, number> = {
+type PeriodKey = 'week' | 'month' | '3months';
+
+const PERIOD_MS: Record<PeriodKey, number> = {
   week: 7 * 24 * 60 * 60 * 1000,
   month: 30 * 24 * 60 * 60 * 1000,
   '3months': 90 * 24 * 60 * 60 * 1000,
@@ -173,7 +175,8 @@ async function fetchLegacyStats(
 export default defineEventHandler(async (event): Promise<DashboardStats> => {
   const { config, provider, nonCodeProvider } = getProvider(event);
   const q = getQuery(event);
-  const periodKey = typeof q.period === 'string' && q.period in PERIOD_MS ? q.period : 'week';
+  const periodKey: PeriodKey =
+    typeof q.period === 'string' && q.period in PERIOD_MS ? (q.period as PeriodKey) : 'week';
 
   const now = Date.now();
   const periodMs = PERIOD_MS[periodKey];

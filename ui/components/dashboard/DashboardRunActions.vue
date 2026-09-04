@@ -23,11 +23,11 @@ const emit = defineEmits<{
   (e: 'run', status: string): void;
 }>();
 
-const statuses: { value: string; label: string; color: 'primary' | 'sky' | 'amber' | 'gray' }[] = [
+const statuses: { value: string; label: string; color: 'primary' | 'sky' | 'amber' | 'neutral' }[] = [
   { value: 'open', label: 'Open', color: 'primary' },
   { value: 'pending', label: 'Pending', color: 'sky' },
   { value: 'review', label: 'Review', color: 'amber' },
-  { value: 'all', label: 'All', color: 'gray' },
+  { value: 'all', label: 'All', color: 'neutral' },
 ];
 </script>
 

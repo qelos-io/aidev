@@ -13,24 +13,24 @@
           <div class="flex items-center gap-2 flex-wrap">
             <USelectMenu
               v-model="selectedSample"
-              :options="sampleOptions"
-              option-attribute="label"
+              :items="sampleOptions"
+              value-key="value"
               placeholder="Insert sample…"
               size="sm"
               class="sample-select-menu"
               @update:model-value="onSampleSelect"
             >
-              <template #option="{ option }">
+              <template #item="{ item }">
                 <div class="flex flex-col">
-                  <span class="text-sm">{{ option.label }}</span>
-                  <span class="text-xs text-gray-400">{{ option.hookName }}</span>
+                  <span class="text-sm">{{ item.label }}</span>
+                  <span class="text-xs text-gray-400">{{ item.hookName }}</span>
                 </div>
               </template>
             </USelectMenu>
-            <UButton color="gray" variant="ghost" size="sm" :loading="loading" :disabled="loading" @click="loadHooks">
+            <UButton color="neutral" variant="ghost" size="sm" :loading="loading" :disabled="loading" @click="loadHooks">
               Refresh
             </UButton>
-            <UButton color="gray" variant="soft" size="sm" :loading="addingMissing" :disabled="addingMissing" @click="addMissingHooks">
+            <UButton color="neutral" variant="soft" size="sm" :loading="addingMissing" :disabled="addingMissing" @click="addMissingHooks">
               Add missing
             </UButton>
             <UButton color="amber" variant="soft" size="sm" :loading="regenerating" :disabled="regenerating" @click="regenerate">
@@ -95,14 +95,14 @@
       </div>
     </UCard>
 
-    <UModal v-model="showModal">
-      <UCard :ui="{ ring: '', divide: 'divide-y divide-gray-100 dark:divide-gray-800' }">
-        <template #header>
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold">{{ modalTitle }}</h3>
-            <UButton color="gray" variant="ghost" size="xs" @click="showModal = false">✕</UButton>
-          </div>
-        </template>
+    <UModal v-model:open="showModal">
+      <template #header>
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold">{{ modalTitle }}</h3>
+          <UButton color="neutral" variant="ghost" size="xs" @click="showModal = false">✕</UButton>
+        </div>
+      </template>
+      <template #body>
         <div v-if="modalLoading" class="modal-loading">
           <div class="modal-spinner" aria-hidden="true" />
           <p class="text-sm text-gray-500">Executing hook…</p>
@@ -121,7 +121,7 @@
           </div>
           <p v-else class="text-sm text-gray-500 italic">No log output.</p>
         </div>
-      </UCard>
+      </template>
     </UModal>
   </div>
 </template>
@@ -584,20 +584,23 @@ interface SampleOption {
   label: string;
   hookName: HookName;
   idx: number;
+  value: string;
 }
 
-const selectedSample = ref<SampleOption | null>(null);
+const selectedSample = ref<string | undefined>(undefined);
 const sampleOptions: SampleOption[] = CODE_SAMPLES.map((s, i) => ({
   label: s.title,
   hookName: s.hookName,
   idx: i,
+  value: String(i),
 }));
 
-function onSampleSelect(option: SampleOption | null) {
-  if (!option) return;
-  nextTick(() => { selectedSample.value = null; });
+function onSampleSelect(value: string | number | undefined) {
+  if (value === undefined) return;
+  nextTick(() => { selectedSample.value = undefined; });
 
-  const sample = CODE_SAMPLES[option.idx];
+  const idx = typeof value === 'string' ? parseInt(value, 10) : value;
+  const sample = CODE_SAMPLES[idx];
   if (!sample) return;
 
   if (_editor && _monaco) {

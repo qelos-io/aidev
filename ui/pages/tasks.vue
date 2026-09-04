@@ -22,7 +22,7 @@
               New Task
             </UButton>
             <UButton
-              color="gray"
+              color="neutral"
               variant="ghost"
               size="sm"
               :loading="refreshing"

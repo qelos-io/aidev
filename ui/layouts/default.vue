@@ -25,7 +25,7 @@
           <span class="cwd-label">cwd</span>
           <code class="cwd-value">{{ cwd || '—' }}</code>
         </div>
-        <UButton size="sm" color="gray" variant="ghost" @click="logout">
+        <UButton size="sm" color="neutral" variant="ghost" @click="logout">
           Logout
         </UButton>
       </header>

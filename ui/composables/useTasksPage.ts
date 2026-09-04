@@ -224,7 +224,7 @@ export function useTasksPage() {
     try {
       await api('/api/tasks', { method: 'POST', body: params });
       createModalOpen.value = false;
-      await fetchTasks(false);
+      await fetchTasks();
     } catch (err) {
       createError.value = err instanceof Error ? err.message : String(err);
     } finally {

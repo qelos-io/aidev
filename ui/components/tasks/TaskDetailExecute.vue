@@ -21,7 +21,7 @@
       <UButton
         v-if="lines.length > 0 && !running"
         size="xs"
-        color="gray"
+        color="neutral"
         variant="ghost"
         @click="emit('clear')"
       >

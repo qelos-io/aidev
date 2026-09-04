@@ -7,6 +7,18 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
   ssr: true,
   modules: ['@nuxt/ui'],
+  css: ['~/assets/css/main.css'],
+  // The dashboard passes raw Tailwind palette names (not just the semantic
+  // primary/secondary/success/etc. slots) as `color` props — e.g. the Run
+  // page's per-status buttons, and UAlert/UBadge status colors. This list
+  // controls the generated `color` prop TYPE union; the actual runtime CSS
+  // custom properties for the non-semantic names (red/green/amber/blue/sky)
+  // are supplied via app.config.ts's `ui.colors` map — both are required.
+  ui: {
+    theme: {
+      colors: ['secondary', 'success', 'info', 'warning', 'error', 'red', 'green', 'amber', 'blue', 'sky'],
+    },
+  },
   // Nuxt 3.21+ enables appManifest by default; the dashboard does not use it,
   // and dev can hit a Vite pre-transform race resolving "#app-manifest".
   experimental: {

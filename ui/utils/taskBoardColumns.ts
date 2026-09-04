@@ -28,7 +28,7 @@ export function buildBoardColumns(
     !matches(s, review) &&
     !matches(s, done);
 
-  const cols: BoardColumn[] = [
+  const cols: [BoardColumn, BoardColumn, BoardColumn, BoardColumn, BoardColumn, BoardColumn] = [
     { key: 'open', title: 'Open', tasks: [] },
     { key: 'pending', title: 'Pending', tasks: [] },
     { key: 'inprogress', title: 'In Progress', tasks: [] },

@@ -13,7 +13,7 @@
           </div>
           <div class="flex items-center gap-2">
             <UButton
-              color="gray"
+              color="neutral"
               variant="ghost"
               size="sm"
               :loading="loading"
@@ -70,7 +70,7 @@
           <h2 class="text-base font-semibold">Task provider</h2>
           <UButton
             size="sm"
-            color="gray"
+            color="neutral"
             variant="soft"
             :loading="testing.provider"
             :disabled="testing.provider"
@@ -82,18 +82,18 @@
       </template>
 
       <div class="grid gap-4 md:grid-cols-2">
-        <UFormGroup label="PROVIDER" help="Which task backend aidev should talk to.">
-          <USelect v-model="kv.PROVIDER" :options="providerOptions" />
-        </UFormGroup>
+        <UFormField label="PROVIDER" help="Which task backend aidev should talk to.">
+          <USelect v-model="kv.PROVIDER" :items="providerOptions" />
+        </UFormField>
         <template v-for="field in providerFields" :key="field.key">
-          <UFormGroup :label="field.key" :help="field.help">
+          <UFormField :label="field.key" :help="field.help">
             <UInput
               v-model="kv[field.key]"
               :type="field.secret ? 'password' : 'text'"
               :placeholder="field.placeholder ?? ''"
               autocomplete="off"
             />
-          </UFormGroup>
+          </UFormField>
         </template>
       </div>
 
@@ -115,13 +115,13 @@
           <div class="flex items-center gap-2">
             <USelect
               v-model="testAgent"
-              :options="agentTestOptions"
+              :items="agentTestOptions"
               size="sm"
               class="w-44"
             />
             <UButton
               size="sm"
-              color="gray"
+              color="neutral"
               variant="soft"
               :loading="testing.ai"
               :disabled="testing.ai || !testAgent"
@@ -148,7 +148,7 @@
               <div class="flex flex-col gap-0.5">
                 <UButton
                   size="xs"
-                  color="gray"
+                  color="neutral"
                   variant="ghost"
                   icon="i-heroicons-chevron-up"
                   :disabled="index === 0"
@@ -157,7 +157,7 @@
                 />
                 <UButton
                   size="xs"
-                  color="gray"
+                  color="neutral"
                   variant="ghost"
                   icon="i-heroicons-chevron-down"
                   :disabled="index === agentBlocks.length - 1"
@@ -167,7 +167,7 @@
               </div>
               <USelect
                 v-model="block.type"
-                :options="agentTypeOptions"
+                :items="agentTypeOptions"
                 class="w-52"
                 @update:model-value="syncAgentsToKv"
               />
@@ -191,7 +191,7 @@
             v-if="fieldsForAgent(block.type).length > 0"
             class="grid gap-4 md:grid-cols-2"
           >
-            <UFormGroup
+            <UFormField
               v-for="field in fieldsForAgent(block.type)"
               :key="field.key"
               :label="field.key"
@@ -203,7 +203,7 @@
                 :placeholder="field.placeholder ?? ''"
                 autocomplete="off"
               />
-            </UFormGroup>
+            </UFormField>
           </div>
           <p v-else-if="agentCliHelp[block.type]" class="text-sm text-gray-500">
             {{ agentCliHelp[block.type] }}
@@ -212,7 +212,7 @@
 
         <UButton
           size="sm"
-          color="gray"
+          color="neutral"
           variant="soft"
           icon="i-heroicons-plus"
           @click="addAgent"
@@ -237,12 +237,12 @@
         <h2 class="text-base font-semibold">Logging</h2>
       </template>
       <div class="grid gap-4 md:grid-cols-2">
-        <UFormGroup
+        <UFormField
           label="AIDEV_LOG_PATH"
           help="Path to the aidev log file. Defaults to ./aidev.log when blank."
         >
           <UInput v-model="kv.AIDEV_LOG_PATH" placeholder="aidev.log" />
-        </UFormGroup>
+        </UFormField>
       </div>
     </UCard>
 
@@ -252,60 +252,60 @@
         <h2 class="text-base font-semibold">Workflow & Git</h2>
       </template>
       <div class="grid gap-4 md:grid-cols-2">
-        <UFormGroup label="DEV_NOTES_MODE" help="smart — ask only when unclear; always — ask before every task.">
-          <USelect v-model="kv.DEV_NOTES_MODE" :options="devNotesModeOptions" />
-        </UFormGroup>
-        <UFormGroup label="ASSIGNEE_TAG" help="Optional tag to scope tasks to a specific assignee.">
+        <UFormField label="DEV_NOTES_MODE" help="smart — ask only when unclear; always — ask before every task.">
+          <USelect v-model="kv.DEV_NOTES_MODE" :items="devNotesModeOptions" />
+        </UFormField>
+        <UFormField label="ASSIGNEE_TAG" help="Optional tag to scope tasks to a specific assignee.">
           <UInput v-model="kv.ASSIGNEE_TAG" />
-        </UFormGroup>
-        <UFormGroup label="AIDEV_TRIGGER_WORD" help="Word that resumes a paused agent run.">
+        </UFormField>
+        <UFormField label="AIDEV_TRIGGER_WORD" help="Word that resumes a paused agent run.">
           <UInput v-model="kv.AIDEV_TRIGGER_WORD" placeholder="aidev-continue" />
-        </UFormGroup>
-        <UFormGroup label="THINKING_TAG" help="Tasks with this tag are broken into sub-tasks first.">
+        </UFormField>
+        <UFormField label="THINKING_TAG" help="Tasks with this tag are broken into sub-tasks first.">
           <UInput v-model="kv.THINKING_TAG" placeholder="thinking" />
-        </UFormGroup>
-        <UFormGroup label="PLANNING_TAG" help="Tasks with this tag are split into sub-tickets.">
+        </UFormField>
+        <UFormField label="PLANNING_TAG" help="Tasks with this tag are split into sub-tickets.">
           <UInput v-model="kv.PLANNING_TAG" placeholder="planning" />
-        </UFormGroup>
-        <UFormGroup label="ACCEPTED_TAG" help="Tag marking a task as accepted for implementation.">
+        </UFormField>
+        <UFormField label="ACCEPTED_TAG" help="Tag marking a task as accepted for implementation.">
           <UInput v-model="kv.ACCEPTED_TAG" placeholder="accepted" />
-        </UFormGroup>
-        <UFormGroup label="AUTO_APPROVE" help="When true, apply ACCEPTED_TAG as soon as an open task is picked up.">
+        </UFormField>
+        <UFormField label="AUTO_APPROVE" help="When true, apply ACCEPTED_TAG as soon as an open task is picked up.">
           <UInput v-model="kv.AUTO_APPROVE" placeholder="false" />
-        </UFormGroup>
-        <UFormGroup label="AGENT_REVIEW_TAG" help="Tag marking a task for automated PR review.">
+        </UFormField>
+        <UFormField label="AGENT_REVIEW_TAG" help="Tag marking a task for automated PR review.">
           <UInput v-model="kv.AGENT_REVIEW_TAG" placeholder="agent review" />
-        </UFormGroup>
-        <UFormGroup label="AUTO_REVIEW" help="When true, apply tag on open pickup.">
+        </UFormField>
+        <UFormField label="AUTO_REVIEW" help="When true, apply tag on open pickup.">
           <UInput v-model="kv.AUTO_REVIEW" placeholder="false" />
-        </UFormGroup>
-        <UFormGroup label="DONE_STATUS" help="Provider status treated as done/closed.">
+        </UFormField>
+        <UFormField label="DONE_STATUS" help="Provider status treated as done/closed.">
           <UInput v-model="kv.DONE_STATUS" />
-        </UFormGroup>
-        <UFormGroup label="AIDEV_COMMENT_PREFIX" help="Prefix for aidev comments on tasks.">
+        </UFormField>
+        <UFormField label="AIDEV_COMMENT_PREFIX" help="Prefix for aidev comments on tasks.">
           <UInput v-model="kv.AIDEV_COMMENT_PREFIX" placeholder="[aidev]" />
-        </UFormGroup>
-        <UFormGroup label="AIDEV_HOOKS_PATH" help="Optional hooks module (.ts or .js).">
+        </UFormField>
+        <UFormField label="AIDEV_HOOKS_PATH" help="Optional hooks module (.ts or .js).">
           <UInput v-model="kv.AIDEV_HOOKS_PATH" placeholder=".aidev/aidev.hooks.ts" />
-        </UFormGroup>
-        <UFormGroup label="AIDEV_SAFE_MODE" help="Redact secret env values from AI prompts (default: true). Set false/0/no to disable.">
+        </UFormField>
+        <UFormField label="AIDEV_SAFE_MODE" help="Redact secret env values from AI prompts (default: true). Set false/0/no to disable.">
           <UInput v-model="kv.AIDEV_SAFE_MODE" placeholder="true" />
-        </UFormGroup>
-        <UFormGroup label="AIDEV_AUTO_COMPRESS" help="Set false/0/no to disable prompt compression.">
+        </UFormField>
+        <UFormField label="AIDEV_AUTO_COMPRESS" help="Set false/0/no to disable prompt compression.">
           <UInput v-model="kv.AIDEV_AUTO_COMPRESS" placeholder="true" />
-        </UFormGroup>
-        <UFormGroup label="AIDEV_COMPRESS_THRESHOLD" help="Char count that triggers compression.">
+        </UFormField>
+        <UFormField label="AIDEV_COMPRESS_THRESHOLD" help="Char count that triggers compression.">
           <UInput v-model="kv.AIDEV_COMPRESS_THRESHOLD" placeholder="12000" />
-        </UFormGroup>
-        <UFormGroup label="GIT_REMOTE">
+        </UFormField>
+        <UFormField label="GIT_REMOTE">
           <UInput v-model="kv.GIT_REMOTE" placeholder="origin" />
-        </UFormGroup>
-        <UFormGroup label="GITHUB_BASE_BRANCH">
+        </UFormField>
+        <UFormField label="GITHUB_BASE_BRANCH">
           <UInput v-model="kv.GITHUB_BASE_BRANCH" placeholder="main" />
-        </UFormGroup>
-        <UFormGroup label="GITHUB_REPO" help="owner/repo — auto-detected when blank.">
+        </UFormField>
+        <UFormField label="GITHUB_REPO" help="owner/repo — auto-detected when blank.">
           <UInput v-model="kv.GITHUB_REPO" placeholder="owner/repo" />
-        </UFormGroup>
+        </UFormField>
       </div>
     </UCard>
 
@@ -314,7 +314,7 @@
       <template #header>
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold">Other keys</h2>
-          <UButton size="xs" color="gray" variant="ghost" @click="addKeyDialog = true">
+          <UButton size="xs" color="neutral" variant="ghost" @click="addKeyDialog = true">
             + Add key
           </UButton>
         </div>
@@ -323,7 +323,7 @@
         No additional keys. Use “Add key” to introduce one.
       </p>
       <div v-else class="grid gap-4 md:grid-cols-2">
-        <UFormGroup
+        <UFormField
           v-for="key in otherKeys"
           :key="key"
           :label="key"
@@ -343,32 +343,32 @@
               @click="removeKey(key)"
             />
           </div>
-        </UFormGroup>
+        </UFormField>
       </div>
     </UCard>
 
     <!-- Add-key dialog -->
-    <UModal v-model="addKeyDialog">
-      <UCard>
-        <template #header>
-          <h3 class="text-base font-semibold">Add config key</h3>
-        </template>
+    <UModal v-model:open="addKeyDialog">
+      <template #header>
+        <h3 class="text-base font-semibold">Add config key</h3>
+      </template>
+      <template #body>
         <div class="space-y-3">
-          <UFormGroup label="Key" help="Letters, numbers, and underscores. Must start with a letter or underscore.">
+          <UFormField label="Key" help="Letters, numbers, and underscores. Must start with a letter or underscore.">
             <UInput v-model="newKey" placeholder="MY_NEW_KEY" autofocus />
-          </UFormGroup>
-          <UFormGroup label="Value">
+          </UFormField>
+          <UFormField label="Value">
             <UInput v-model="newValue" autocomplete="off" />
-          </UFormGroup>
+          </UFormField>
           <p v-if="newKeyError" class="text-sm text-red-500">{{ newKeyError }}</p>
         </div>
-        <template #footer>
-          <div class="flex justify-end gap-2">
-            <UButton variant="ghost" color="gray" @click="closeAddKey">Cancel</UButton>
-            <UButton color="primary" @click="commitAddKey">Add</UButton>
-          </div>
-        </template>
-      </UCard>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <UButton variant="ghost" color="neutral" @click="closeAddKey">Cancel</UButton>
+          <UButton color="primary" @click="commitAddKey">Add</UButton>
+        </div>
+      </template>
     </UModal>
   </div>
 </template>
@@ -447,7 +447,7 @@ const VALID_AGENTS = [
   'opencode',
 ] as const;
 
-const agentTypeOptions = VALID_AGENTS.map((id) => ({ label: id, value: id }));
+const agentTypeOptions: { label: string; value: string }[] = VALID_AGENTS.map((id) => ({ label: id, value: id }));
 
 const AGENT_FIELDS: Record<string, KnownField[]> = {
   claude: [

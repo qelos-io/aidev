@@ -19,7 +19,7 @@
           </div>
           <div class="flex items-center gap-2">
             <UButton
-              color="gray"
+              color="neutral"
               variant="ghost"
               size="sm"
               :loading="refreshing"
@@ -50,17 +50,17 @@
       />
 
       <div class="controls">
-        <UFormGroup label="Search" class="search-group">
+        <UFormField label="Search" class="search-group">
           <UInput
             v-model="searchInput"
             placeholder="Case-insensitive substring filter…"
             icon="i-heroicons-magnifying-glass"
             :loading="searchInput !== query"
           />
-        </UFormGroup>
-        <UFormGroup label="Tail lines" class="tail-group">
-          <USelect v-model.number="limit" :options="limitOptions" />
-        </UFormGroup>
+        </UFormField>
+        <UFormField label="Tail lines" class="tail-group">
+          <USelect v-model.number="limit" :items="limitOptions" />
+        </UFormField>
         <div class="autopoll">
           <UCheckbox v-model="autoPoll" label="Auto-refresh (5s)" />
         </div>
@@ -95,26 +95,26 @@
       <pre v-else-if="data" ref="viewer" class="viewer"><code>{{ data.lines.join('\n') }}</code></pre>
     </UCard>
 
-    <UModal v-model="confirmClear">
-      <UCard>
-        <template #header>
-          <h3 class="text-base font-semibold">Clear log file?</h3>
-        </template>
+    <UModal v-model:open="confirmClear">
+      <template #header>
+        <h3 class="text-base font-semibold">Clear log file?</h3>
+      </template>
+      <template #body>
         <p class="text-sm text-gray-600">
           This truncates <code>{{ data?.path }}</code> to zero bytes. The file
           itself stays in place. This cannot be undone.
         </p>
-        <template #footer>
-          <div class="flex justify-end gap-2">
-            <UButton variant="ghost" color="gray" :disabled="clearing" @click="confirmClear = false">
-              Cancel
-            </UButton>
-            <UButton color="red" :loading="clearing" @click="clearLog">
-              Clear log
-            </UButton>
-          </div>
-        </template>
-      </UCard>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <UButton variant="ghost" color="neutral" :disabled="clearing" @click="confirmClear = false">
+            Cancel
+          </UButton>
+          <UButton color="red" :loading="clearing" @click="clearLog">
+            Clear log
+          </UButton>
+        </div>
+      </template>
     </UModal>
   </div>
 </template>

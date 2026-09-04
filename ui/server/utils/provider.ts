@@ -64,6 +64,7 @@ export interface UiProvider {
   updateStatus(taskId: string, status: string): Promise<void>;
   fetchAvailableStatuses?(): Promise<string[]>;
   removeTag?(taskId: string, tag: string): Promise<void>;
+  addTag?(taskId: string, tag: string): Promise<void>;
 }
 
 // Mirrors src/types.ts:Config — only the fields the UI status routes actually
