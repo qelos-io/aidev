@@ -1273,6 +1273,7 @@ async function implementTask(
 
   // Run AI runners in order with fallback
   let implemented = false;
+  let hadExplicitRunnerFailure = false;
   let previousNotes = '';
   let noChangeResponse: string | undefined;
 
@@ -1313,6 +1314,7 @@ async function implementTask(
     }
 
     if (!result.success) {
+      hadExplicitRunnerFailure = true;
       logger.warn(`${runner.name} failed — trying next runner`);
       previousNotes = `Previous runner (${runner.name}) output:\n${result.output}\nErrors:\n${result.error}`;
     } else {
@@ -1339,6 +1341,18 @@ async function implementTask(
         git.deleteBranch(branchName);
       }
       return;
+    }
+
+    if (canEscalateToThinkingMode(task, config, provider, { hadExplicitRunnerFailure })) {
+      const failureDiagnostics = previousNotes || collectAndLogDiagnostics();
+      const escalationContext = await escalateTaskToThinkingMode(
+        task, provider, config, hooks, vm, failureDiagnostics,
+      );
+      if (escalationContext !== null) {
+        return implementThinkingTask(
+          task, branchName, true, config, provider, runners, hooks, vm, escalationContext,
+        );
+      }
     }
 
     logger.error('All AI runners failed or produced no changes');
@@ -1652,7 +1666,8 @@ async function implementThinkingTask(
   provider: TaskProvider,
   runners: AIRunner[],
   hooks: AidevHooks = {},
-  vm?: HookVM
+  vm?: HookVM,
+  escalationContext?: string,
 ): Promise<void> {
   logger.info(`Implementing thinking task: ${task.name}`);
   cleanupStaleThinkingArtifacts();
