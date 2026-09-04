@@ -38,3 +38,27 @@ export function truncateForSubtaskPrompt(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   return `${text.slice(0, maxLen)}\n\n… (truncated)`;
 }
+
+export function buildThinkingEscalationContext(
+  failureDiagnostics: string,
+  uncommittedPaths: string[],
+): string {
+  const sections = [
+    '## Previous direct-run failure',
+    '',
+    failureDiagnostics.trim(),
+  ];
+
+  if (uncommittedPaths.length > 0) {
+    sections.push(
+      '',
+      '## Uncommitted working-tree changes',
+      '',
+      'The following files have uncommitted changes from the failed direct run. Account for this partial work in your breakdown:',
+      '',
+      ...uncommittedPaths.map((filePath) => `- ${filePath}`),
+    );
+  }
+
+  return sections.join('\n');
+}

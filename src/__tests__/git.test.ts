@@ -14,6 +14,7 @@ import {
   push,
   addAll,
   hasChanges,
+  listWorkingTreeChanges,
   stashChanges,
   fetchAndCheckout,
   checkConflictsWithBase,
@@ -406,6 +407,43 @@ describe('push validation (integration)', () => {
       encoding: 'utf8',
     });
     assert.ok(log.stdout.includes('v2'));
+  });
+});
+
+describe('listWorkingTreeChanges (integration)', () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
+    initRepo(tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns an empty array when the working tree is clean', () => {
+    assert.deepEqual(listWorkingTreeChanges(), []);
+  });
+
+  it('returns paths for modified tracked files', () => {
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# modified\n');
+    assert.deepEqual(listWorkingTreeChanges(), ['README.md']);
+  });
+
+  it('returns paths for untracked files', () => {
+    fs.writeFileSync(path.join(tmpDir, 'new-file.txt'), 'new content');
+    assert.deepEqual(listWorkingTreeChanges(), ['new-file.txt']);
+  });
+
+  it('returns multiple paths when several files are dirty', () => {
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# modified\n');
+    fs.writeFileSync(path.join(tmpDir, 'another.txt'), 'another');
+    assert.deepEqual(listWorkingTreeChanges().sort(), ['README.md', 'another.txt']);
   });
 });
 

@@ -159,6 +159,24 @@ export function hasChanges(): boolean {
   return result.status === 0 && result.stdout.trim().length > 0;
 }
 
+/** Returns relative paths of files with uncommitted working-tree changes. */
+export function listWorkingTreeChanges(): string[] {
+  const result = git(['status', '--porcelain']);
+  if (result.status !== 0) return [];
+
+  const paths: string[] = [];
+  for (const line of result.stdout.split('\n').filter((entry) => entry.length > 0)) {
+    const pathPart = line.slice(3);
+    if (pathPart.includes(' -> ')) {
+      const destination = pathPart.split(' -> ').pop();
+      if (destination) paths.push(destination.trim());
+    } else {
+      paths.push(pathPart.trim());
+    }
+  }
+  return paths;
+}
+
 /** Discards uncommitted working tree and untracked files on the current branch. */
 export function discardWorkingChanges(): boolean {
   const reset = git(['reset', '--hard', 'HEAD']);
