@@ -6,6 +6,9 @@ import { spawnSync } from 'node:child_process';
 import { Config, AgentName } from './types';
 import { detectRemote } from './git';
 import { logger } from './logger';
+import { readLock, isProcessAlive } from './lockfile';
+import { isAncestorPid } from './processTree';
+import { requestConfig } from './ipc';
 
 export function mergeNullDelimited(stdout: string): void {
   for (const entry of stdout.split('\0')) {
@@ -328,4 +331,42 @@ export function loadConfig(customEnvPath?: string): Config {
     betterMcpConfigPath,
     _envPath: envPath,
   };
+}
+
+/**
+ * Async config loader that tries to inherit a parent aidev process's resolved
+ * Config before falling back to disk-based loading.
+ *
+ * Approach note: We keep the synchronous `loadConfig` as the disk loader (many
+ * tests and a few sync call sites use it directly) and expose this async
+ * wrapper for command entry points. This is the smaller diff compared to
+ * making `loadConfig` itself async, which would require updating ~40 sync
+ * test call sites. All production command entry points use this async loader
+ * so child aidev invocations inherit the parent's config.
+ *
+ * Inheritance is attempted only when a lock file in the current working
+ * directory points to a live ancestor process. The lock being in CWD
+ * guarantees the parent is running in the same directory; `isAncestorPid`
+ * guarantees it is a true ancestor (parent, grandparent, …). When either
+ * check fails — or there is simply no lock — we skip straight to disk loading
+ * with no IPC attempt, keeping the common case cheap.
+ */
+export async function loadConfigWithInheritance(customEnvPath?: string): Promise<Config> {
+  const cwd = process.cwd();
+  const parentPid = readLock(cwd);
+  if (
+    parentPid !== null &&
+    parentPid !== process.pid &&
+    isProcessAlive(parentPid) &&
+    isAncestorPid(parentPid)
+  ) {
+    const payload = await requestConfig(parentPid, 3000);
+    if (payload && payload.config) {
+      // Apply the parent's env vars, overwriting the child's (the parent is authoritative).
+      for (const [k, v] of Object.entries(payload.env)) process.env[k] = v;
+      return payload.config;
+    }
+  }
+  // fall back to disk
+  return loadConfig(customEnvPath);
 }
