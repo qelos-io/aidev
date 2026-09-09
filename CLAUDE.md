@@ -25,6 +25,9 @@ node dist/cli.js --help
 - **chalk v4**: project uses chalk v4 (not v5, which is ESM-only)
 - **`node:` prefix**: all built-in imports use `node:fs`, `node:path`, `node:child_process`, etc.
 
+## Process model
+- `loadConfig` (sync) reads config from disk only. `loadConfigWithInheritance` (async) is the command entry-point loader: it first tries to inherit a parent `aidev run`'s resolved `Config` over a per-PID IPC socket (discovered via `.aidev.lock` in CWD + ancestry check), then falls back to `loadConfig`. New code that needs config in a command path must call `loadConfigWithInheritance` and `await` it.
+
 ## Adding a Provider
 1. Create `src/providers/<name>.ts` implementing `TaskProvider`
 2. Register in `src/providers/index.ts` `createProvider()` switch
