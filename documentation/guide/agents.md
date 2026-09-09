@@ -192,7 +192,7 @@ The `devin` agent uses the [Devin CLI](https://docs.devin.ai/cli) in single-turn
 aidev writes the prompt to a temp file (to avoid command-line length limits) and runs:
 
 ```bash
-devin -p --permission-mode bypass --prompt-file <tmpfile>
+devin -p --permission-mode bypass --respect-workspace-trust false --prompt-file <tmpfile>
 ```
 
 When [MCP servers](/guide/mcp) are configured, aidev merges an `mcpServers` block into `.devin/config.json`, preserving the `permissions` block.

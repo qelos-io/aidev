@@ -944,6 +944,35 @@ describe('DevinRunner', () => {
   });
 });
 
+describe('DevinRunner – successful tasks', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('passes --respect-workspace-trust false for non-interactive print mode', async () => {
+    const argvSnapshots: string[][] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argvSnapshots.push([...(args as string[])]);
+      }
+      return { pid: 1, output: [], stdout: 'done', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+
+    const runner = new DevinRunner();
+    const result = await runner.run('Hello world');
+
+    assert.equal(result.success, true);
+    const args = argvSnapshots[0] ?? [];
+    assert.ok(args.includes('-p'));
+    assert.ok(args.includes('--permission-mode'));
+    assert.ok(args.includes('bypass'));
+    assert.ok(args.includes('--respect-workspace-trust'));
+    assert.ok(args.includes('false'));
+    assert.ok(args.includes('--prompt-file'));
+  });
+});
+
 describe('DevinRunner – failed tasks', () => {
   beforeEach(() => mock.restoreAll());
   afterEach(() => mock.restoreAll());
