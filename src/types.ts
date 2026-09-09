@@ -167,4 +167,6 @@ export interface Config {
   mcpJsonPath: string;
   betterMcp: boolean;
   betterMcpConfigPath: string;
+  /** Internal: path to the env file used by loadConfig. Not part of the public config surface. */
+  _envPath?: string;
 }
