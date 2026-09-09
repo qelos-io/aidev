@@ -34,6 +34,7 @@ import {
   getPendingStatus,
   getInReviewStatus,
 } from '../taskStatus';
+import { prepareForTaskCommit } from '../assetsGitignore';
 import {   getExistingAssetDirs, listTaskAssetFiles } from '../aidevAssets';
 import {
   buildAssetsAccessInstructions,
@@ -1370,6 +1371,10 @@ async function implementTask(
 
   // Commit and push (only if there are new changes to commit)
   if (git.hasChanges()) {
+    if (!prepareForTaskCommit(branchName, config.commentPrefix)) {
+      logger.error('Failed to validate .aidev/assets gitignore before commit');
+      return;
+    }
     if (!git.addAll() || !git.commit(`${config.commentPrefix} Implement: ${task.name}\n\nTask: ${task.url}`, branchName)) {
       logger.error('Failed to commit changes');
       return;
@@ -1930,6 +1935,14 @@ async function implementThinkingTask(
       break;
     }
 
+    if (!prepareForTaskCommit(branchName, config.commentPrefix)) {
+      subtask.status = 'failed';
+      subtask.lastError = '__git__';
+      writeTaskPlan(plan);
+      allSucceeded = false;
+      logger.error(`  Failed to validate .aidev/assets gitignore before step ${subtask.id} commit`);
+      break;
+    }
     if (!git.addAll() || !git.commit(`${config.commentPrefix} Step ${subtask.id}: ${subtask.title}\n\nTask: ${task.url}`, branchName)) {
       subtask.status = 'failed';
       subtask.lastError = '__git__';
@@ -3024,6 +3037,10 @@ async function implementReviewTask(
 
   // Handle code fixes: commit and push if agent made changes
   if (git.hasChanges()) {
+    if (!prepareForTaskCommit(branchName, config.commentPrefix)) {
+      logger.error(`[${task.id}] Failed to validate .aidev/assets gitignore before review commit`);
+      return;
+    }
     if (git.addAll() && git.commit(`${config.commentPrefix} Address code review comments\n\nTask: ${task.url}`, branchName)) {
       if (git.push(config.gitRemote, branchName)) {
         // Resolve threads that were addressed via code changes

@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as dotenv from 'dotenv';
-import { envVal, renderEnv, ensureGitignore, ensureCursorignore, ensureHooksBoilerplate, getWindowsCursorInitMessage, Answers } from '../commands/init';
+import { envVal, renderEnv, ensureGitignore, ensureCursorignore, ensureHooksBoilerplate, getWindowsCursorInitMessage, isAidevAssetsGitignored, Answers } from '../commands/init';
 import { MCP_GITIGNORE_RULES } from '../mcp';
 
 // ─── envVal ──────────────────────────────────────────────────────────────────
@@ -941,6 +941,15 @@ function withTmpDir(fn: (dir: string) => void): void {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
+
+describe('isAidevAssetsGitignored', () => {
+  it('returns true after ensureGitignore writes the assets rule', () => {
+    withTmpDir((dir) => {
+      ensureGitignore(dir);
+      assert.equal(isAidevAssetsGitignored(dir), true);
+    });
+  });
+});
 
 describe('ensureGitignore', () => {
   it('creates .gitignore with required entries when file does not exist', () => {
