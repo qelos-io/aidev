@@ -29,7 +29,12 @@ async function runViaCli(fullPrompt: string, options?: AIRunOptions): Promise<AI
   try {
     fs.writeFileSync(promptFile, fullPrompt, 'utf8');
 
-    const args = ['-p', '--permission-mode', 'bypass', '--prompt-file', promptFile];
+    const args = [
+      '-p',
+      '--permission-mode', 'bypass',
+      '--respect-workspace-trust', 'false',
+      '--prompt-file', promptFile,
+    ];
 
     const result = await runSpawnAttempts('devin', [args], {
       encoding: 'utf8',
