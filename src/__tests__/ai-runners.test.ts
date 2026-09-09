@@ -294,6 +294,127 @@ describe('ClaudeRunner – failed tasks', () => {
   });
 });
 
+// ─── ClaudeRunner – failure diagnostics ──────────────────────────────────────
+
+describe('ClaudeRunner – failure diagnostics', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  it('logs stdout on failure (claude prints errors to stdout, not stderr)', async () => {
+    mockSpawnSync({
+      status: 1,
+      stdout: 'Model error: maximum context length exceeded',
+      stderr: '',
+    });
+    const spies = spyLogger();
+
+    const runner = new ClaudeRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(
+      warnCalls.some((msg) => typeof msg === 'string' && msg.includes('claude stdout')),
+      'expected a warn logging claude stdout',
+    );
+    assert.ok(
+      warnCalls.some((msg) => typeof msg === 'string' && msg.includes('maximum context length exceeded')),
+      'expected the stdout error reason to appear in the log',
+    );
+  });
+
+  it('runs `claude auth status` when the failure looks auth-related', async () => {
+    const calls: { cmd: string; args: string[] }[] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const command = cmd as string;
+      const argv = args as string[];
+      calls.push({ cmd: command, args: [...argv] });
+      // Main claude run fails with an auth error on stdout; auth status succeeds.
+      const isAuthStatus = argv.includes('auth') && argv.includes('status');
+      return {
+        pid: 1,
+        output: [],
+        stdout: isAuthStatus
+          ? 'Logged in as user@example.com'
+          : 'Failed to authenticate. API Error: 401 OAuth access token has expired.',
+        stderr: '',
+        status: isAuthStatus ? 0 : 1,
+        signal: null,
+        error: undefined,
+      };
+    });
+    const spies = spyLogger();
+
+    const runner = new ClaudeRunner();
+    await runner.run('test prompt');
+
+    const authCall = calls.find((c) => c.args.includes('auth') && c.args.includes('status'));
+    assert.ok(authCall, 'expected `claude auth status` to be invoked');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(
+      warnCalls.some((msg) => typeof msg === 'string' && msg.includes('claude auth status stdout')),
+      'expected auth status output to be logged',
+    );
+    assert.ok(
+      warnCalls.some((msg) => typeof msg === 'string' && msg.includes('user@example.com')),
+      'expected auth status content to appear in the log',
+    );
+  });
+
+  it('does not run `claude auth status` for non-auth failures', async () => {
+    const calls: { cmd: string; args: string[] }[] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      calls.push({ cmd: cmd as string, args: [...(args as string[])] });
+      return {
+        pid: 1,
+        output: [],
+        stdout: 'heap out of memory',
+        stderr: '',
+        status: 1,
+        signal: null,
+        error: undefined,
+      };
+    });
+    spyLogger();
+
+    const runner = new ClaudeRunner();
+    await runner.run('test prompt');
+
+    const authCall = calls.find((c) => c.args.includes('auth') && c.args.includes('status'));
+    assert.equal(authCall, undefined, 'did not expect `claude auth status` to be invoked');
+  });
+
+  it('logs auth status exit code when auth status itself fails', async () => {
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      const argv = args as string[];
+      const isAuthStatus = argv.includes('auth') && argv.includes('status');
+      return {
+        pid: 1,
+        output: [],
+        stdout: isAuthStatus ? '' : 'Failed to authenticate. Re-authenticate to continue.',
+        stderr: isAuthStatus ? 'not logged in' : '',
+        status: 1,
+        signal: null,
+        error: undefined,
+      };
+    });
+    const spies = spyLogger();
+
+    const runner = new ClaudeRunner();
+    await runner.run('test prompt');
+
+    const warnCalls = spies.warn.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(
+      warnCalls.some((msg) => typeof msg === 'string' && msg.includes('claude auth status exited with status 1')),
+      'expected auth status exit code to be logged',
+    );
+    assert.ok(
+      warnCalls.some((msg) => typeof msg === 'string' && msg.includes('not logged in')),
+      'expected auth status stderr to be logged',
+    );
+  });
+});
+
 // ─── ClaudeRunner – argv order ────────────────────────────────────────────────
 
 describe('ClaudeRunner – argv order', () => {
