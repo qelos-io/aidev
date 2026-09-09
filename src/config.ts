@@ -326,5 +326,6 @@ export function loadConfig(customEnvPath?: string): Config {
     mcpJsonPath,
     betterMcp,
     betterMcpConfigPath,
+    _envPath: envPath,
   };
 }

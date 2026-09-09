@@ -16,6 +16,8 @@ import {
 import { collectAndLogDiagnostics } from '../diagnostics';
 import { acquireLock, releaseLock, readLock } from '../lockfile';
 import { writeActiveTask, clearActiveTask } from '../activeTask';
+import { startConfigServer, type ConfigServer, type ConfigInheritPayload } from '../ipc';
+import { envFileKeys } from '../config';
 import {
   AidevHooks, HookVM, executeHook, postCommentWithHooks,
   RunContext, TaskContext, ResolveConflictsContext, NonCodeTaskContext, ThinkingTaskContext,
@@ -661,6 +663,29 @@ export async function runCommand(
     process.exit(1);
   }
 
+  // Publish the resolved config + env vars over a local IPC socket so descendant
+  // `aidev` processes (spawned by AI agents) can adopt the same config. Failure
+  // to start the server is non-fatal — `run` must still proceed.
+  const envPath = config._envPath ?? path.join(cwd, '.env.aidev');
+  const envKeys = envFileKeys(envPath);
+  const env: Record<string, string> = {};
+  for (const k of envKeys) {
+    const v = process.env[k];
+    if (v !== undefined) env[k] = v;
+  }
+  const payload: ConfigInheritPayload = { config, env, pid: process.pid };
+
+  let configServer: ConfigServer;
+  try {
+    configServer = startConfigServer(payload, process.pid);
+  } catch (err) {
+    configServer = { close: () => {}, path: '' };
+    logger.warn(
+      `Failed to start config-sharing IPC server: ${err instanceof Error ? err.message : err}. ` +
+      'Descendant aidev processes will not inherit this config.'
+    );
+  }
+
   logRunStart();
 
   try {
@@ -764,6 +789,13 @@ export async function runCommand(
 
     logger.success(`Done. Processed: ${processed}, Skipped: ${skipped}`);
   } finally {
+    // Close the IPC server before releasing the lock so children can no longer
+    // connect once the parent is releasing its directory ownership.
+    try {
+      configServer.close();
+    } catch {
+      // ignore — best-effort cleanup
+    }
     clearActiveTask(cwd);
     releaseLock(cwd);
   }
