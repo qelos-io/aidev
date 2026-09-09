@@ -7,7 +7,7 @@ import { tasksAddCommand, tasksRemoveCommand, tasksLsCommand, tasksPushCommand, 
 import { helpCommand } from './commands/help';
 import { stopCommand } from './commands/stop';
 import { uiCommand } from './commands/ui';
-import { loadConfig } from './config';
+import { loadConfigWithInheritance } from './config';
 import { buildConsultProviderConfig, buildNonCodeProviderConfig } from './providerViews';
 import { createProvider, TaskProvider } from './providers';
 import { createRunners } from './ai';
@@ -56,7 +56,7 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
 
   try {
     const { env } = program.opts<{ env?: string }>();
-    const config = loadConfig(env);
+    const config = await loadConfigWithInheritance(env);
     const provider = createProvider(config);
 
     // Handle "accepted" filter separately — no AI, just merge accepted PRs
@@ -232,10 +232,10 @@ hooksCmd
   .command('generate')
   .description('Write a fresh hooks boilerplate to AIDEV_HOOKS_PATH (aborts if file exists without --force)')
   .option('--force', 'overwrite an existing hooks file')
-  .action((opts: { force?: boolean }) => {
+  .action(async (opts: { force?: boolean }) => {
     const { env } = program.opts<{ env?: string }>();
     try {
-      hooksGenerateCommand(opts, env);
+      await hooksGenerateCommand(opts, env);
     } catch (err) {
       logger.error(String(err));
       process.exit(1);
@@ -245,10 +245,10 @@ hooksCmd
 hooksCmd
   .command('update')
   .description('Append stubs for any missing hooks to the existing hooks file')
-  .action(() => {
+  .action(async () => {
     const { env } = program.opts<{ env?: string }>();
     try {
-      hooksUpdateCommand(env);
+      await hooksUpdateCommand(env);
     } catch (err) {
       logger.error(String(err));
       process.exit(1);

@@ -1,12 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { loadConfig } from '../config';
+import { loadConfigWithInheritance } from '../config';
 import { generateFullHooksFile, updateHooksFile } from '../hooksTemplate';
 import { logger } from '../logger';
 import chalk from 'chalk';
 
-function resolveHooksPath(envPath?: string): string {
-  const config = loadConfig(envPath);
+async function resolveHooksPath(envPath?: string): Promise<string> {
+  const config = await loadConfigWithInheritance(envPath);
   if (!config.hooksPath) {
     throw new Error('AIDEV_HOOKS_PATH is not set. Run "aidev init" or set AIDEV_HOOKS_PATH in .env.aidev');
   }
@@ -15,8 +15,8 @@ function resolveHooksPath(envPath?: string): string {
     : path.resolve(process.cwd(), config.hooksPath);
 }
 
-export function hooksGenerateCommand(opts: { force?: boolean }, envPath?: string): void {
-  const hooksPath = resolveHooksPath(envPath);
+export async function hooksGenerateCommand(opts: { force?: boolean }, envPath?: string): Promise<void> {
+  const hooksPath = await resolveHooksPath(envPath);
 
   if (fs.existsSync(hooksPath) && !opts.force) {
     logger.error(
@@ -35,8 +35,8 @@ export function hooksGenerateCommand(opts: { force?: boolean }, envPath?: string
   logger.success(`Hooks file written to ${hooksPath}`);
 }
 
-export function hooksUpdateCommand(envPath?: string): void {
-  const hooksPath = resolveHooksPath(envPath);
+export async function hooksUpdateCommand(envPath?: string): Promise<void> {
+  const hooksPath = await resolveHooksPath(envPath);
 
   if (!fs.existsSync(hooksPath)) {
     logger.error(

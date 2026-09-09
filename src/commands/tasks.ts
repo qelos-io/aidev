@@ -6,7 +6,7 @@ import { Config, LocalTask } from '../types';
 import { processLocalTasks, readTasksFile, writeTasksFile } from '../tasks';
 import { parseCron } from '../cron';
 import { logger } from '../logger';
-import { loadConfig } from '../config';
+import { loadConfigWithInheritance } from '../config';
 import { buildNonCodeProviderConfig } from '../providerViews';
 import { createProvider, TaskProvider } from '../providers';
 
@@ -257,7 +257,7 @@ export async function tasksPushCommand(envPath?: string): Promise<void> {
     return;
   }
 
-  const config = loadConfig(envPath);
+  const config = await loadConfigWithInheritance(envPath);
   const provider = createProvider(config);
 
   let nonCodeProvider: TaskProvider | undefined;
