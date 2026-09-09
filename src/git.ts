@@ -209,6 +209,29 @@ export function addAll(): boolean {
   return result.status === 0;
 }
 
+/** Returns paths under `prefix` that are present in the git index (tracked or staged). */
+export function listIndexedPaths(prefix: string, cwd?: string): string[] {
+  const result = git(['ls-files', '--', prefix], cwd);
+  if (result.status !== 0) return [];
+  return result.stdout.trim().split('\n').filter((entry) => entry.length > 0);
+}
+
+export function addPath(relativePath: string, cwd?: string): boolean {
+  const result = git(['add', '--', relativePath], cwd);
+  return result.status === 0;
+}
+
+/** Removes a path from the index and working tree. */
+export function removePathFromIndexAndTree(relativePath: string, cwd?: string): boolean {
+  logger.debug(`git rm -r -f -- ${relativePath}`);
+  const result = git(['rm', '-r', '-f', '--', relativePath], cwd);
+  if (result.status !== 0) {
+    logger.error(`git rm failed: ${result.stderr}`);
+    return false;
+  }
+  return true;
+}
+
 export function commit(message: string, expectedBranch?: string): boolean {
   if (expectedBranch) {
     const current = getCurrentBranch();

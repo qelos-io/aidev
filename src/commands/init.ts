@@ -64,6 +64,15 @@ export function getWindowsCursorInitMessage(
   );
 }
 
+export function isAidevAssetsGitignored(dir = process.cwd()): boolean {
+  const gitignorePath = path.join(dir, '.gitignore');
+  if (!fs.existsSync(gitignorePath)) return false;
+  const content = fs.readFileSync(gitignorePath, 'utf8');
+  const assetsRule = GITIGNORE_RULES.find(([pattern]) => pattern === '.aidev/assets/');
+  if (!assetsRule) return false;
+  return assetsRule[1].test(content);
+}
+
 export function ensureGitignore(dir = process.cwd()): void {
   const gitignorePath = path.join(dir, '.gitignore');
   const existing = fs.existsSync(gitignorePath)
