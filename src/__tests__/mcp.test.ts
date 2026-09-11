@@ -236,7 +236,7 @@ describe('betterMcpProxyServers', () => {
     assert.deepEqual(Object.keys(servers), ['better-mcp']);
     assert.equal(servers['better-mcp'].command, 'docker');
     assert.deepEqual(servers['better-mcp'].args, [
-      'run', '--rm', '-i', '-v', '/abs/path/better-mcp.json:/app/mcp.json:ro', 'ghcr.io/qelos/better-mcp:latest',
+      'run', '--rm', '-i', '-v', '/abs/path/better-mcp.json:/app/mcp.json:ro', 'ghcr.io/qelos-io/better-mcp:main',
     ]);
   });
 });

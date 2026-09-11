@@ -64,7 +64,7 @@ Set `BETTER_MCP=true` to route every agent through [better-mcp](https://github.c
 Requires `docker` on PATH. Pull the image once:
 
 ```bash
-docker pull ghcr.io/qelos/better-mcp:latest
+docker pull ghcr.io/qelos-io/better-mcp:main
 ```
 
 When enabled, aidev:
@@ -78,7 +78,7 @@ When enabled, aidev:
   "mcpServers": {
     "better-mcp": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "-v", "/abs/path/.aidev/better-mcp.json:/app/mcp.json:ro", "ghcr.io/qelos/better-mcp:latest"]
+      "args": ["run", "--rm", "-i", "-v", "/abs/path/.aidev/better-mcp.json:/app/mcp.json:ro", "ghcr.io/qelos-io/better-mcp:main"]
     }
   }
 }

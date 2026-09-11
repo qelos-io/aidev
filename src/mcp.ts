@@ -31,7 +31,7 @@ export interface McpState {
   written: string[];
 }
 
-const BETTER_MCP_IMAGE = 'ghcr.io/qelos/better-mcp:latest';
+const BETTER_MCP_IMAGE = 'ghcr.io/qelos-io/better-mcp:main';
 
 // Patterns aidev-managed MCP files must be covered by. Mirrors the
 // GITIGNORE_RULES shape in src/commands/init.ts: [pattern, existing-match regex].
