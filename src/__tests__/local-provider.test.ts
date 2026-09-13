@@ -765,6 +765,83 @@ Body.`);
   });
 });
 
+// ─── LocalProvider.deleteTask ────────────────────────────────────────────────
+
+describe('LocalProvider.deleteTask', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-local-delete-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('removes the task file and its session file', async () => {
+    writeTask(tmpDir, 'open', 'a1b2c3d4-task.md', sampleTask);
+    writeSession(tmpDir, 'open', 'a1b2c3d4-task.session.md', sampleSession);
+    const provider = new LocalProvider(tmpDir);
+
+    await provider.deleteTask('a1b2c3d4');
+
+    assert.ok(!fs.existsSync(path.join(tasksRoot(tmpDir), 'open', 'a1b2c3d4-task.md')));
+    assert.ok(!fs.existsSync(path.join(tasksRoot(tmpDir), 'open', 'a1b2c3d4-task.session.md')));
+  });
+
+  it('removes the task file when no session file exists', async () => {
+    writeTask(tmpDir, 'open', 'a1b2c3d4-task.md', sampleTask);
+    const provider = new LocalProvider(tmpDir);
+
+    await assert.doesNotReject(() => provider.deleteTask('a1b2c3d4'));
+    assert.ok(!fs.existsSync(path.join(tasksRoot(tmpDir), 'open', 'a1b2c3d4-task.md')));
+  });
+
+  it('throws when task ID is not found', async () => {
+    const provider = new LocalProvider(tmpDir);
+    await assert.rejects(
+      () => provider.deleteTask('nonexistent'),
+      /Local task not found/
+    );
+  });
+});
+
+// ─── LocalProvider.fetchTaskById ─────────────────────────────────────────────
+
+describe('LocalProvider.fetchTaskById', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-local-fetchbyid-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns a fully-populated task when found', async () => {
+    writeTask(tmpDir, 'progress', 'a1b2c3d4-fix-login-bug.md', sampleTask);
+    const provider = new LocalProvider(tmpDir);
+
+    const task = await provider.fetchTaskById('a1b2c3d4');
+
+    assert.ok(task);
+    assert.equal(task!.id, 'a1b2c3d4');
+    assert.equal(task!.name, 'Fix login bug');
+    assert.equal(task!.status, 'in progress');
+    assert.deepEqual(task!.tags, ['frontend', 'auth']);
+    assert.equal(task!.priority, 2);
+    assert.ok(task!.description.includes('login form'));
+    assert.ok(task!.url.includes('a1b2c3d4-fix-login-bug.md'));
+  });
+
+  it('returns null when task ID is not found', async () => {
+    const provider = new LocalProvider(tmpDir);
+    const task = await provider.fetchTaskById('nonexistent');
+    assert.equal(task, null);
+  });
+});
+
 // ─── Full lifecycle ──────────────────────────────────────────────────────────
 
 describe('LocalProvider full lifecycle', () => {
