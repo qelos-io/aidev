@@ -3,7 +3,20 @@ import { Command } from 'commander';
 import { initCommand } from './commands/init';
 import { runCommand, RunFilter } from './commands/run';
 import { scheduleSetCommand, scheduleGetCommand, scheduleRemoveCommand, scheduleFixCommand } from './commands/schedule';
-import { tasksAddCommand, tasksRemoveCommand, tasksLsCommand, tasksPushCommand, tasksUpdateCommand } from './commands/tasks';
+import {
+  tasksAddCommand,
+  tasksRemoveCommand,
+  tasksLsCommand,
+  tasksPushCommand,
+  tasksUpdateCommand,
+  tasksListCommand,
+  tasksGetCommand,
+  tasksDeleteCommand,
+  tasksCommentCommand,
+  tasksModifyCommand,
+  tasksTagCommand,
+  tasksUntagCommand,
+} from './commands/tasks';
 import { helpCommand } from './commands/help';
 import { stopCommand } from './commands/stop';
 import { uiCommand } from './commands/ui';
@@ -218,6 +231,111 @@ tasksCmd
     const { env } = program.opts<{ env?: string }>();
     try {
       await tasksPushCommand(env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+tasksCmd
+  .command('list [filter]')
+  .description('List tasks (local .aidev/tasks by default, or the configured provider with --remote). Filter is a comma-separated list of statuses.')
+  .option('--remote', 'operate against the configured provider instead of local .aidev/tasks')
+  .option('-o, --output <format>', 'output format: table, json, or csv', 'table')
+  .action(async (filter: string | undefined, opts: { remote?: boolean; output?: string }) => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      await tasksListCommand(filter, opts, env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+tasksCmd
+  .command('get <id>')
+  .description('Get a single task by id (local .aidev/tasks by default, or the configured provider with --remote)')
+  .option('--remote', 'operate against the configured provider instead of local .aidev/tasks')
+  .option('--attachments', 'download attachments if the provider supports it')
+  .option('-o, --output <format>', 'output format: table, json, or csv', 'table')
+  .action(async (id: string, opts: { remote?: boolean; output?: string; attachments?: boolean }) => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      await tasksGetCommand(id, opts, env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+tasksCmd
+  .command('delete <id>')
+  .description('Delete a task by id (local .aidev/tasks by default, or the configured provider with --remote)')
+  .option('--remote', 'operate against the configured provider instead of local .aidev/tasks')
+  .action(async (id: string, opts: { remote?: boolean }) => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      await tasksDeleteCommand(id, opts, env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+tasksCmd
+  .command('comment <id> <content>')
+  .description('Post a comment on a task (local .aidev/tasks by default, or the configured provider with --remote)')
+  .option('--remote', 'operate against the configured provider instead of local .aidev/tasks')
+  .option('--as-aidev', 'prepend the configured commentPrefix to the comment text')
+  .action(async (id: string, content: string, opts: { remote?: boolean; asAidev?: boolean }) => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      await tasksCommentCommand(id, content, opts, env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+tasksCmd
+  .command('modify <id>')
+  .description('Update a task\'s status (local .aidev/tasks by default, or the configured provider with --remote). Only --status is supported; --title/--description are not yet supported by TaskProvider.')
+  .option('--remote', 'operate against the configured provider instead of local .aidev/tasks')
+  .option('--status <status>', 'new status to set')
+  .option('--title <title>', 'not yet supported — TaskProvider has no updateTask(id, {title, description}) method')
+  .option('--description <description>', 'not yet supported — TaskProvider has no updateTask(id, {title, description}) method')
+  .action(async (id: string, opts: { remote?: boolean; status?: string; title?: string; description?: string }) => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      await tasksModifyCommand(id, opts, env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+tasksCmd
+  .command('tag <id> <tags>')
+  .description('Add one or more comma-separated tags to a task (local .aidev/tasks by default, or the configured provider with --remote)')
+  .option('--remote', 'operate against the configured provider instead of local .aidev/tasks')
+  .action(async (id: string, tags: string, opts: { remote?: boolean }) => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      await tasksTagCommand(id, tags, opts, env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+tasksCmd
+  .command('untag <id> <tags>')
+  .description('Remove one or more comma-separated tags from a task (local .aidev/tasks by default, or the configured provider with --remote)')
+  .option('--remote', 'operate against the configured provider instead of local .aidev/tasks')
+  .action(async (id: string, tags: string, opts: { remote?: boolean }) => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      await tasksUntagCommand(id, tags, opts, env);
     } catch (err) {
       logger.error(String(err));
       process.exit(1);

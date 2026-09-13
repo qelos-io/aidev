@@ -10,14 +10,25 @@ import {
   tasksFilePath,
   processLocalTasks,
 } from '../tasks';
-import { tasksPushCommand } from '../commands/tasks';
+import {
+  tasksPushCommand,
+  tasksListCommand,
+  tasksGetCommand,
+  tasksDeleteCommand,
+  tasksCommentCommand,
+  tasksModifyCommand,
+  tasksTagCommand,
+  tasksUntagCommand,
+} from '../commands/tasks';
 import type {
   Config,
   LocalTask,
   CreateTaskParams,
   CreateTaskResult,
+  Task,
 } from '../types';
 import type { TaskProvider } from '../providers';
+import { LocalProvider } from '../providers/local';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -584,5 +595,332 @@ describe('tasksPushCommand', () => {
     const created = fs.readdirSync(openDir).filter((f) => f.endsWith('.md'));
     assert.equal(created.length, 1);
     assert.deepEqual(readTasksFile(), []);
+  });
+});
+
+// ─── tasksListCommand / tasksGetCommand / tasksDeleteCommand / tasksCommentCommand
+// ─── tasksModifyCommand / tasksTagCommand / tasksUntagCommand ────────────────────
+//
+// The --remote path is exercised end-to-end: loadConfigWithInheritance reads a
+// PROVIDER=local .env.aidev, createProvider builds a real LocalProvider, and the
+// individual TaskProvider methods on LocalProvider.prototype are stubbed per test
+// (class methods are plain configurable/writable properties, unlike the getter-based
+// named exports of ../providers, which mock.method cannot redefine under this
+// project's tsx/cjs test loader).
+
+function fakeTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 't1',
+    name: 'Fake task',
+    description: 'desc',
+    status: 'open',
+    url: 'https://example.test/t1',
+    tags: ['a', 'b'],
+    priority: 2,
+    ...overrides,
+  };
+}
+
+describe('unified tasks commands (list/get/delete/comment/modify/tag/untag)', () => {
+  let tmpDir: string;
+  let origCwd: string;
+  // loadConfig reads process.env first and applyEnvFiles won't override keys
+  // already present, so we must clear provider-related env vars for the temp
+  // dir's .env.aidev (PROVIDER=local) to take effect. AIDEV_COMMENT_PREFIX is
+  // set to '' rather than deleted so sourceShellProfile (which runs inside
+  // loadConfig) doesn't re-inject a user-level registry value — loadConfig
+  // falls back to the default '[aidev-$PROJECT_NAME]' template when the env
+  // var is falsy.
+  const envKeys = [
+    'PROVIDER', 'CLICKUP_API_KEY', 'CLICKUP_TEAM_ID', 'CLICKUP_TAG',
+    'NON_CODE_TAG', 'AIDEV_ENV_EXTEND', 'AGENTS',
+  ];
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const k of envKeys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    saved.AIDEV_COMMENT_PREFIX = process.env.AIDEV_COMMENT_PREFIX;
+    process.env.AIDEV_COMMENT_PREFIX = '';
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-unified-tasks-'));
+    origCwd = process.cwd();
+    process.chdir(tmpDir);
+    fs.writeFileSync(path.join(tmpDir, '.env.aidev'), 'PROVIDER=local\n', 'utf8');
+    mock.method(logger, 'info', () => {});
+    mock.method(logger, 'success', () => {});
+    mock.method(logger, 'warn', () => {});
+    mock.method(logger, 'error', () => {});
+    mock.method(logger, 'debug', () => {});
+  });
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    for (const k of envKeys) {
+      if (saved[k] !== undefined) process.env[k] = saved[k];
+      else delete process.env[k];
+    }
+    if (saved.AIDEV_COMMENT_PREFIX !== undefined) process.env.AIDEV_COMMENT_PREFIX = saved.AIDEV_COMMENT_PREFIX;
+    else delete process.env.AIDEV_COMMENT_PREFIX;
+    mock.restoreAll();
+  });
+
+  // ─── --remote path (real LocalProvider instance, stubbed methods) ────────
+
+  describe('--remote (stubbed TaskProvider methods)', () => {
+    it('list prints tasks from fetchTasks when no filter is given', async () => {
+      mock.method(LocalProvider.prototype, 'fetchTasks', async () => [fakeTask()]);
+      const logs: string[] = [];
+      mock.method(console, 'log', (m: string) => logs.push(m));
+
+      await tasksListCommand(undefined, { remote: true, output: 'json' });
+
+      const parsed = JSON.parse(logs.join(''));
+      assert.equal(parsed[0].id, 't1');
+    });
+
+    it('list uses fetchTasksByStatus when a filter is given', async () => {
+      mock.method(LocalProvider.prototype, 'fetchTasksByStatus', async (statuses: string[]) => [
+        fakeTask({ status: statuses[0] }),
+      ]);
+      const logs: string[] = [];
+      mock.method(console, 'log', (m: string) => logs.push(m));
+
+      await tasksListCommand('review,pending', { remote: true, output: 'json' });
+
+      const parsed = JSON.parse(logs.join(''));
+      assert.equal(parsed[0].status, 'review');
+    });
+
+    it('get returns the task by id', async () => {
+      mock.method(LocalProvider.prototype, 'fetchTaskById', async (id: string) => fakeTask({ id }));
+      const logs: string[] = [];
+      mock.method(console, 'log', (m: string) => logs.push(m));
+
+      await tasksGetCommand('abc', { remote: true, output: 'json' });
+
+      const parsed = JSON.parse(logs.join(''));
+      assert.equal(parsed[0].id, 'abc');
+    });
+
+    it('get errors when the provider does not implement fetchTaskById', async () => {
+      const orig = LocalProvider.prototype.fetchTaskById;
+      (LocalProvider.prototype as unknown as Record<string, unknown>).fetchTaskById = undefined;
+      const errors: string[] = [];
+      mock.method(logger, 'error', (m: string) => errors.push(m));
+      let exitCode: number | undefined;
+      mock.method(process, 'exit', ((code?: number) => {
+        exitCode = code;
+        throw new Error('exit');
+      }) as never);
+
+      try {
+        await assert.rejects(() => tasksGetCommand('abc', { remote: true }));
+        assert.equal(exitCode, 1);
+        assert.ok(errors.some((m) => m.includes('not support')));
+      } finally {
+        LocalProvider.prototype.fetchTaskById = orig;
+      }
+    });
+
+    it('delete calls provider.deleteTask', async () => {
+      const calls: unknown[][] = [];
+      mock.method(LocalProvider.prototype, 'deleteTask', async (...args: unknown[]) => {
+        calls.push(args);
+      });
+
+      await tasksDeleteCommand('abc', { remote: true });
+
+      assert.deepEqual(calls, [['abc']]);
+    });
+
+    it('delete errors when the provider does not implement deleteTask', async () => {
+      const orig = LocalProvider.prototype.deleteTask;
+      (LocalProvider.prototype as unknown as Record<string, unknown>).deleteTask = undefined;
+      let exitCode: number | undefined;
+      mock.method(process, 'exit', ((code?: number) => {
+        exitCode = code;
+        throw new Error('exit');
+      }) as never);
+
+      try {
+        await assert.rejects(() => tasksDeleteCommand('abc', { remote: true }));
+        assert.equal(exitCode, 1);
+      } finally {
+        LocalProvider.prototype.deleteTask = orig;
+      }
+    });
+
+    it('comment posts the raw content without --as-aidev', async () => {
+      const calls: unknown[][] = [];
+      mock.method(LocalProvider.prototype, 'postComment', async (...args: unknown[]) => {
+        calls.push(args);
+      });
+
+      await tasksCommentCommand('abc', 'hello world', { remote: true });
+
+      assert.deepEqual(calls, [['abc', 'hello world']]);
+    });
+
+    it('comment prepends config.commentPrefix exactly once with --as-aidev', async () => {
+      const calls: unknown[][] = [];
+      mock.method(LocalProvider.prototype, 'postComment', async (...args: unknown[]) => {
+        calls.push(args);
+      });
+
+      await tasksCommentCommand('abc', 'hello world', { remote: true, asAidev: true });
+
+      assert.equal(calls.length, 1);
+      const [, text] = calls[0] as [string, string];
+      const folderName = path.basename(tmpDir);
+      assert.equal(text, `[aidev-${folderName}] hello world`);
+      // Exactly one prefix occurrence
+      assert.equal(text.split('[aidev-').length - 1, 1);
+    });
+
+    it('modify calls updateStatus when --status is given', async () => {
+      const calls: unknown[][] = [];
+      mock.method(LocalProvider.prototype, 'updateStatus', async (...args: unknown[]) => {
+        calls.push(args);
+      });
+
+      await tasksModifyCommand('abc', { remote: true, status: 'done' });
+
+      assert.deepEqual(calls, [['abc', 'done']]);
+    });
+
+    it('modify errors when --title or --description is given', async () => {
+      let exitCode: number | undefined;
+      mock.method(process, 'exit', ((code?: number) => {
+        exitCode = code;
+        throw new Error('exit');
+      }) as never);
+
+      await assert.rejects(() => tasksModifyCommand('abc', { remote: true, title: 'New title' }));
+      assert.equal(exitCode, 1);
+    });
+
+    it('tag adds each comma-separated tag', async () => {
+      const calls: unknown[][] = [];
+      mock.method(LocalProvider.prototype, 'addTag', async (...args: unknown[]) => {
+        calls.push(args);
+      });
+
+      await tasksTagCommand('abc', ' foo , bar ,, ', { remote: true });
+
+      assert.deepEqual(calls, [['abc', 'foo'], ['abc', 'bar']]);
+    });
+
+    it('tag errors when the provider does not implement addTag', async () => {
+      const orig = LocalProvider.prototype.addTag;
+      (LocalProvider.prototype as unknown as Record<string, unknown>).addTag = undefined;
+      let exitCode: number | undefined;
+      mock.method(process, 'exit', ((code?: number) => {
+        exitCode = code;
+        throw new Error('exit');
+      }) as never);
+
+      try {
+        await assert.rejects(() => tasksTagCommand('abc', 'foo', { remote: true }));
+        assert.equal(exitCode, 1);
+      } finally {
+        LocalProvider.prototype.addTag = orig;
+      }
+    });
+
+    it('untag removes each comma-separated tag', async () => {
+      const calls: unknown[][] = [];
+      mock.method(LocalProvider.prototype, 'removeTag', async (...args: unknown[]) => {
+        calls.push(args);
+      });
+
+      await tasksUntagCommand('abc', 'foo,bar', { remote: true });
+
+      assert.deepEqual(calls, [['abc', 'foo'], ['abc', 'bar']]);
+    });
+
+    it('untag errors when the provider does not implement removeTag', async () => {
+      const orig = LocalProvider.prototype.removeTag;
+      (LocalProvider.prototype as unknown as Record<string, unknown>).removeTag = undefined;
+      let exitCode: number | undefined;
+      mock.method(process, 'exit', ((code?: number) => {
+        exitCode = code;
+        throw new Error('exit');
+      }) as never);
+
+      try {
+        await assert.rejects(() => tasksUntagCommand('abc', 'foo', { remote: true }));
+        assert.equal(exitCode, 1);
+      } finally {
+        LocalProvider.prototype.removeTag = orig;
+      }
+    });
+  });
+
+  // ─── non-remote path against a real LocalProvider ────────────────────────
+
+  describe('without --remote (real LocalProvider)', () => {
+    it('list/get/tag/untag/comment/delete work end-to-end against .aidev/tasks', async () => {
+      const openDir = path.join(tmpDir, '.aidev', 'tasks', 'open');
+      fs.mkdirSync(openDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(openDir, 'abc123-my-task.md'),
+        '---\ntitle: My task\n---\n\nSome description\n',
+        'utf8',
+      );
+
+      const logs: string[] = [];
+      mock.method(console, 'log', (m: string) => logs.push(m));
+
+      await tasksListCommand(undefined, { output: 'json' });
+      let parsed = JSON.parse(logs.join(''));
+      assert.equal(parsed.length, 1);
+      assert.equal(parsed[0].name, 'My task');
+
+      logs.length = 0;
+      await tasksGetCommand('abc123', { output: 'json' });
+      parsed = JSON.parse(logs.join(''));
+      assert.equal(parsed[0].id, 'abc123');
+
+      await tasksTagCommand('abc123', 'urgent,frontend');
+      logs.length = 0;
+      await tasksGetCommand('abc123', { output: 'json' });
+      parsed = JSON.parse(logs.join(''));
+      assert.deepEqual(parsed[0].tags.split(','), ['urgent', 'frontend']);
+
+      await tasksUntagCommand('abc123', 'urgent');
+      logs.length = 0;
+      await tasksGetCommand('abc123', { output: 'json' });
+      parsed = JSON.parse(logs.join(''));
+      assert.deepEqual(parsed[0].tags.split(','), ['frontend']);
+
+      await tasksCommentCommand('abc123', 'a local comment');
+      const sessionPath = path.join(openDir, 'abc123-my-task.session.md');
+      assert.ok(fs.existsSync(sessionPath));
+      assert.ok(fs.readFileSync(sessionPath, 'utf8').includes('a local comment'));
+
+      await tasksDeleteCommand('abc123');
+      assert.equal(fs.existsSync(path.join(openDir, 'abc123-my-task.md')), false);
+    });
+
+    it('comment prepends commentPrefix with --as-aidev even without --remote', async () => {
+      const openDir = path.join(tmpDir, '.aidev', 'tasks', 'open');
+      fs.mkdirSync(openDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(openDir, 'abc123-my-task.md'),
+        '---\ntitle: My task\n---\n\nSome description\n',
+        'utf8',
+      );
+
+      await tasksCommentCommand('abc123', 'hello', { asAidev: true });
+
+      const sessionPath = path.join(openDir, 'abc123-my-task.session.md');
+      const content = fs.readFileSync(sessionPath, 'utf8');
+      const folderName = path.basename(tmpDir);
+      assert.ok(content.includes(`[aidev-${folderName}] hello`));
+      assert.equal(content.split('[aidev-').length - 1, 1);
+    });
   });
 });
