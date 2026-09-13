@@ -16,6 +16,7 @@ import {
   tasksModifyCommand,
   tasksTagCommand,
   tasksUntagCommand,
+  tasksStatusCommand,
 } from './commands/tasks';
 import { helpCommand } from './commands/help';
 import { stopCommand } from './commands/stop';
@@ -336,6 +337,21 @@ tasksCmd
     const { env } = program.opts<{ env?: string }>();
     try {
       await tasksUntagCommand(id, tags, opts, env);
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
+  });
+
+tasksCmd
+  .command('status <id> [newStatus]')
+  .description('Get or set a task\'s status (local .aidev/tasks by default, or the configured provider with --remote). When newStatus is omitted, prints the current status. Logical names (open, pending, review, done) are resolved through the configured status mapping.')
+  .option('--remote', 'operate against the configured provider instead of local .aidev/tasks')
+  .option('-o, --output <format>', 'output format for get mode: table, json, or csv', 'table')
+  .action(async (id: string, newStatus: string | undefined, opts: { remote?: boolean; output?: string }) => {
+    const { env } = program.opts<{ env?: string }>();
+    try {
+      await tasksStatusCommand(id, newStatus, opts, env);
     } catch (err) {
       logger.error(String(err));
       process.exit(1);
