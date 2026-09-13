@@ -368,6 +368,13 @@ export class TrelloProvider implements TaskProvider {
     );
   }
 
+  async deleteTask(taskId: string): Promise<void> {
+    logger.debug(`Deleting Trello card ${taskId}`);
+    await this.request(`/cards/${encodeURIComponent(taskId)}`, {
+      method: 'DELETE',
+    });
+  }
+
   async fetchBoardTasks(options?: FetchTasksOptions): Promise<Task[]> {
     const boardOpts: FetchTasksOptions = { skipAttachments: true, omitDescription: true, ...options };
     const [lists, myId] = await Promise.all([this.fetchLists(), this.fetchMyMemberId()]);

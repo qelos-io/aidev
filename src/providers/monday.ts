@@ -446,6 +446,16 @@ export class MondayProvider implements TaskProvider {
     await this.setTagColumnValue(taskId, [...current, tag.trim()]);
   }
 
+  async deleteTask(taskId: string): Promise<void> {
+    logger.debug(`Deleting Monday item ${taskId}`);
+    const mutation = `
+      mutation ($itemId: ID!) {
+        delete_item(item_id: $itemId) { id }
+      }
+    `;
+    await this.graphql<{ delete_item: { id: string } }>(mutation, { itemId: taskId });
+  }
+
   private async setTagColumnValue(taskId: string, tags: string[]): Promise<void> {
     const mutation = `
       mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: String!) {

@@ -357,6 +357,15 @@ export class NotionProvider implements TaskProvider {
     return { id, url };
   }
 
+  async deleteTask(taskId: string): Promise<void> {
+    logger.debug(`Archiving Notion page ${taskId}`);
+    const pageId = taskId.length === 32 ? `${taskId.slice(0, 8)}-${taskId.slice(8, 12)}-${taskId.slice(12, 16)}-${taskId.slice(16, 20)}-${taskId.slice(20, 32)}` : taskId;
+    await this.request(`/pages/${pageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ archived: true }),
+    });
+  }
+
   async fetchTaskById(taskId: string): Promise<Task | null> {
     await this.ensureSchema();
     const pageId = taskId.length === 32
