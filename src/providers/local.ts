@@ -355,6 +355,51 @@ export class LocalProvider implements TaskProvider {
     fs.writeFileSync(filePath, renderFrontmatter(meta, body), 'utf8');
   }
 
+  async deleteTask(taskId: string): Promise<void> {
+    logger.debug(`Deleting local task ${taskId}`);
+
+    const found = findTaskFile(this.baseDir, taskId);
+    if (!found) {
+      throw new Error(`Local task not found: ${taskId}`);
+    }
+
+    fs.unlinkSync(path.join(found.dir, found.filename));
+
+    const sessionPath = path.join(found.dir, sessionFilename(found.filename));
+    if (fs.existsSync(sessionPath)) {
+      fs.unlinkSync(sessionPath);
+    }
+  }
+
+  async fetchTaskById(taskId: string, options?: import('../types').FetchTasksOptions): Promise<Task | null> {
+    logger.debug(`Fetching local task ${taskId}`);
+
+    const found = findTaskFile(this.baseDir, taskId);
+    if (!found) return null;
+
+    const filePath = path.join(found.dir, found.filename);
+
+    if (options?.updatedAfter !== undefined) {
+      const mtime = fs.statSync(filePath).mtimeMs;
+      if (mtime < options.updatedAfter) return null;
+    }
+
+    const content = fs.readFileSync(filePath, 'utf8');
+    const { meta, body } = parseFrontmatter(content);
+    const fileTags = meta.tags ? meta.tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
+
+    return {
+      id: taskId,
+      name: meta.title || found.filename.replace(/\.md$/, ''),
+      description: body,
+      status: FOLDER_TO_STATUS[found.folder],
+      url: filePath,
+      tags: fileTags,
+      priority: meta.priority ? parseInt(meta.priority, 10) : undefined,
+      sourceListId: meta.listId || meta.list_id || undefined,
+    };
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const id = shortId();
     const slug = slugify(params.title);
