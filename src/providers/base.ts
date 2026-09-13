@@ -48,4 +48,10 @@ export interface TaskProvider {
    * support dependency tracking can omit it; callers must use optional chaining.
    */
   setBlockedBy?(taskId: string, blockedByIds: string[]): Promise<void>;
+  /**
+   * Permanently deletes a task from the remote backend. Optional — providers
+   * that can't support hard deletion can omit it; callers must guard with a
+   * typeof check, matching removeTag/addTag.
+   */
+  deleteTask?(taskId: string): Promise<void>;
 }

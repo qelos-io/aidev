@@ -503,6 +503,13 @@ export class JiraProvider implements TaskProvider {
     });
   }
 
+  async deleteTask(taskId: string): Promise<void> {
+    logger.debug(`Deleting Jira issue ${taskId}`);
+    await this.request(`/issue/${taskId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async createTask(params: CreateTaskParams): Promise<CreateTaskResult> {
     const project = params.listId || this.project;
 

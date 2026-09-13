@@ -594,6 +594,13 @@ export class ClickUpProvider implements TaskProvider {
     return { id: result.id, url: result.url };
   }
 
+  async deleteTask(taskId: string): Promise<void> {
+    logger.debug(`Deleting ClickUp task ${taskId}`);
+    await this.request(`/task/${taskId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async setBlockedBy(taskId: string, blockedByIds: string[]): Promise<void> {
     if (blockedByIds.length === 0) return;
     for (const blockerId of blockedByIds) {

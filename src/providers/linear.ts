@@ -492,6 +492,19 @@ export class LinearProvider implements TaskProvider {
     });
   }
 
+  async deleteTask(taskId: string): Promise<void> {
+    logger.debug(`Deleting Linear issue ${taskId}`);
+    const issueId = await this.resolveIssueId(taskId);
+    const mutation = `
+      mutation IssueDelete($id: String!) {
+        issueDelete(id: $id) {
+          success
+        }
+      }
+    `;
+    await this.graphql<{ issueDelete: { success: boolean } }>(mutation, { id: issueId });
+  }
+
   async fetchBoardTasks(_options?: import('../types').FetchTasksOptions): Promise<Task[]> {
     const teamId = await this.resolveTeamId();
     // Labeled tasks (open/pending/in-progress) — same query as fetchTasks

@@ -1578,6 +1578,67 @@ describe('LinearProvider.createTask — assignee resolution', () => {
   });
 });
 
+describe('ClickUpProvider.deleteTask', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('sends a DELETE request to /task/{taskId}', async () => {
+    let requestedUrl: string | undefined;
+    let requestedMethod: string | undefined;
+
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      requestedUrl = String(input);
+      requestedMethod = init?.method;
+      return jsonResponse({});
+    });
+
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    await provider.deleteTask!('task123');
+
+    assert.equal(requestedMethod, 'DELETE');
+    assert.match(requestedUrl!, /\/task\/task123$/);
+  });
+
+  it('throws a ClickUp API error on failure', async () => {
+    mock.method(globalThis, 'fetch', async () => ({
+      ok: false,
+      status: 404,
+      text: async () => 'Not Found',
+    }));
+
+    const provider = new ClickUpProvider(baseClickUpConfig);
+    await assert.rejects(
+      () => provider.deleteTask!('missing-task'),
+      /ClickUp API error 404: Not Found/,
+    );
+  });
+});
+
+describe('LinearProvider.deleteTask', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('resolves the issue id and sends the issueDelete mutation', async () => {
+    let deleteMutationVars: Record<string, unknown> | undefined;
+
+    mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      const query = body.query as string;
+      if (query.includes('issues') && body.variables?.filter?.team?.key) {
+        return jsonResponse({ data: { issues: { nodes: [{ id: 'issue-uuid-99' }] } } });
+      }
+      if (query.includes('issueDelete')) {
+        deleteMutationVars = body.variables as Record<string, unknown>;
+        return jsonResponse({ data: { issueDelete: { success: true } } });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    const provider = new LinearProvider(baseLinearConfig);
+    await provider.deleteTask!('ENG-99');
+
+    assert.deepEqual(deleteMutationVars, { id: 'issue-uuid-99' });
+  });
+});
+
 // ─── MondayProvider ───────────────────────────────────────────────────────────
 
 describe('MondayProvider.fetchTasks', () => {
