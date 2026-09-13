@@ -11,6 +11,7 @@ import { buildNonCodeProviderConfig } from '../providerViews';
 import { createProvider, TaskProvider } from '../providers';
 import { LocalProvider } from '../providers/local';
 import { parseOutputFormat, printRows } from '../output';
+import { resolveStatus } from '../statusMap';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -428,6 +429,46 @@ export async function tasksModifyCommand(
 
   await provider.updateStatus(id, opts.status);
   logger.success(`Task ${id} status updated to "${opts.status}"`);
+}
+
+const STATUS_COLUMNS = [
+  { key: 'id', value: (t: Task) => t.id },
+  { key: 'status', value: (t: Task) => t.status },
+];
+
+export async function tasksStatusCommand(
+  id: string,
+  newStatus: string | undefined,
+  opts: { remote?: boolean; output?: string } = {},
+  envPath?: string,
+): Promise<void> {
+  const format = parseOutputFormat(opts.output);
+  const provider = await resolveProvider(opts.remote, envPath);
+
+  if (newStatus === undefined) {
+    if (typeof provider.fetchTaskById !== 'function') {
+      logger.error('The active provider does not support fetching a single task by id.');
+      process.exit(1);
+    }
+
+    const task = await provider.fetchTaskById(id);
+    if (!task) {
+      logger.error(`Task not found: ${id}`);
+      process.exit(1);
+    }
+
+    printRows([task], STATUS_COLUMNS, format);
+    return;
+  }
+
+  let resolvedStatus = newStatus;
+  if (opts.remote) {
+    const config = await loadConfigWithInheritance(envPath);
+    resolvedStatus = resolveStatus(config, newStatus);
+  }
+
+  await provider.updateStatus(id, resolvedStatus);
+  logger.success(`Task ${id} status set to "${resolvedStatus}"`);
 }
 
 function parseTagList(tags: string): string[] {
