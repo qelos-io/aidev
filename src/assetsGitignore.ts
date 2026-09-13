@@ -24,9 +24,15 @@ export function hasAidevAssetsGitignoreIssues(state: AidevAssetsGitignoreState):
 }
 
 /**
- * Before task commits, ensure `.aidev/assets/` stays git-ignored and is not indexed.
- * Remediates violations by removing the folder, committing removal when needed,
- * and committing a `.gitignore` update.
+ * Before task commits, ensure `.aidev/assets/` stays git-ignored and is not indexed,
+ * and that every aidev-managed pattern (including MCP files) is present in
+ * `.gitignore` and committed. Remediates violations by removing the folder,
+ * committing removal when needed, and committing a `.gitignore` update.
+ *
+ * The `.gitignore` update runs unconditionally: `materializeMcp()` adds MCP
+ * patterns to the working tree on the base branch, but `createBranchFromRemote`
+ * stashes them away before the task branch is created. Without committing the
+ * update here those patterns would reappear as uncommitted changes on every run.
  */
 export function prepareForTaskCommit(
   branchName: string,
@@ -34,28 +40,30 @@ export function prepareForTaskCommit(
   cwd = process.cwd(),
 ): boolean {
   const state = detectAidevAssetsGitignoreIssues(cwd);
-  if (!hasAidevAssetsGitignoreIssues(state)) return true;
+  const hasAssetsIssues = hasAidevAssetsGitignoreIssues(state);
 
-  logger.warn(
-    '.aidev/assets must remain git-ignored — removing assets and updating .gitignore'
-  );
+  if (hasAssetsIssues) {
+    logger.warn(
+      '.aidev/assets must remain git-ignored — removing assets and updating .gitignore'
+    );
 
-  const assetsDir = path.join(cwd, assetsRootRelPath());
-  const hadIndexedFiles = state.indexedFiles.length > 0;
+    const assetsDir = path.join(cwd, assetsRootRelPath());
+    const hadIndexedFiles = state.indexedFiles.length > 0;
 
-  if (hadIndexedFiles) {
-    if (!git.removePathFromIndexAndTree(ASSETS_GIT_PREFIX.replace(/\/$/, ''), cwd)) {
-      return false;
+    if (hadIndexedFiles) {
+      if (!git.removePathFromIndexAndTree(ASSETS_GIT_PREFIX.replace(/\/$/, ''), cwd)) {
+        return false;
+      }
+      if (!git.commit(
+        `${commitPrefix} Remove .aidev/assets from repository\n\nTask asset downloads must remain git-ignored.`,
+        branchName,
+      )) {
+        logger.error('Failed to commit .aidev/assets removal');
+        return false;
+      }
+    } else if (fs.existsSync(assetsDir)) {
+      fs.rmSync(assetsDir, { recursive: true, force: true });
     }
-    if (!git.commit(
-      `${commitPrefix} Remove .aidev/assets from repository\n\nTask asset downloads must remain git-ignored.`,
-      branchName,
-    )) {
-      logger.error('Failed to commit .aidev/assets removal');
-      return false;
-    }
-  } else if (fs.existsSync(assetsDir)) {
-    fs.rmSync(assetsDir, { recursive: true, force: true });
   }
 
   const gitignorePath = path.join(cwd, '.gitignore');
@@ -68,14 +76,14 @@ export function prepareForTaskCommit(
   const gitignoreAfter = fs.readFileSync(gitignorePath, 'utf8');
   if (gitignoreBefore !== gitignoreAfter) {
     if (!git.addPath('.gitignore', cwd)) {
-      logger.error('Failed to stage .gitignore update for .aidev/assets/');
+      logger.error('Failed to stage .gitignore update');
       return false;
     }
-    if (!git.commit(
-      `${commitPrefix} Ignore .aidev/assets/\n\nEnsure task asset downloads are never committed.`,
-      branchName,
-    )) {
-      logger.error('Failed to commit .gitignore update for .aidev/assets/');
+    const message = hasAssetsIssues
+      ? `${commitPrefix} Ignore .aidev/assets/\n\nEnsure task asset downloads are never committed.`
+      : `${commitPrefix} Update .gitignore\n\nEnsure aidev-managed files are git-ignored.`;
+    if (!git.commit(message, branchName)) {
+      logger.error('Failed to commit .gitignore update');
       return false;
     }
   }

@@ -10,7 +10,20 @@ import {
   prepareForTaskCommit,
 } from '../assetsGitignore';
 import { isAidevAssetsGitignored } from '../commands/init';
+import { MCP_GITIGNORE_RULES } from '../mcp';
 import { listIndexedPaths } from '../git';
+
+// Every pattern ensureGitignore() guarantees — GITIGNORE_RULES in init.ts
+// (non-MCP entries hardcoded here) plus MCP_GITIGNORE_RULES.
+const COMPLETE_GITIGNORE = [
+  '.env.*',
+  '*.log',
+  '*.aidev.instructions.md',
+  '*.aidev.task.json',
+  'aidev.tasks.json',
+  '.aidev/assets/',
+  ...MCP_GITIGNORE_RULES.map(([p]) => p),
+].join('\n') + '\n';
 
 function gitCmd(args: string[], cwd: string): void {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -156,7 +169,7 @@ describe('prepareForTaskCommit (integration)', () => {
   });
 
   it('is a no-op when assets are already gitignored and not indexed', () => {
-    fs.writeFileSync(path.join(tmpDir, '.gitignore'), '.aidev/assets/\n');
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), COMPLETE_GITIGNORE);
     const assetsDir = path.join(tmpDir, '.aidev', 'assets', 'task-3');
     fs.mkdirSync(assetsDir, { recursive: true });
     fs.writeFileSync(path.join(assetsDir, 'local.txt'), 'local');
@@ -166,5 +179,26 @@ describe('prepareForTaskCommit (integration)', () => {
     const after = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: tmpDir, encoding: 'utf8' }).stdout.trim();
     assert.equal(before, after);
     assert.equal(fs.existsSync(path.join(assetsDir, 'local.txt')), true);
+  });
+
+  it('commits missing MCP gitignore rules even when assets are already gitignored', () => {
+    // Reproduces the bug where materializeMcp() adds MCP patterns to .gitignore
+    // on the base branch, createBranchFromRemote stashes them away, and the
+    // patterns reappear as uncommitted changes on every run because they were
+    // never committed on the task branch.
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), '.aidev/assets/\n');
+
+    const before = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: tmpDir, encoding: 'utf8' }).stdout.trim();
+    assert.equal(prepareForTaskCommit(branchName, commitPrefix, tmpDir), true);
+    const after = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: tmpDir, encoding: 'utf8' }).stdout.trim();
+    assert.notEqual(before, after, 'expected a new commit adding the missing gitignore rules');
+
+    const gitignore = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+    for (const [pattern] of MCP_GITIGNORE_RULES) {
+      assert.ok(gitignore.includes(pattern), `expected .gitignore to include "${pattern}"`);
+    }
+
+    const log = spawnSync('git', ['log', '--oneline', '-1'], { cwd: tmpDir, encoding: 'utf8' });
+    assert.match(log.stdout, /Update \.gitignore/);
   });
 });
