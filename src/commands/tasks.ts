@@ -2,13 +2,15 @@ import * as crypto from 'node:crypto';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import chalk from 'chalk';
-import { Config, LocalTask } from '../types';
+import { Config, LocalTask, Task } from '../types';
 import { processLocalTasks, readTasksFile, writeTasksFile } from '../tasks';
 import { parseCron } from '../cron';
 import { logger } from '../logger';
 import { loadConfigWithInheritance } from '../config';
 import { buildNonCodeProviderConfig } from '../providerViews';
 import { createProvider, TaskProvider } from '../providers';
+import { LocalProvider } from '../providers/local';
+import { parseOutputFormat, printRows } from '../output';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -310,4 +312,162 @@ export async function tasksUpdateCommand(id?: string): Promise<void> {
   } finally {
     rl.close();
   }
+}
+
+// ─── Unified list/get/delete/comment/modify/tag/untag (local + remote) ────────
+
+async function resolveProvider(remote: boolean | undefined, envPath?: string): Promise<TaskProvider> {
+  if (remote) {
+    const config = await loadConfigWithInheritance(envPath);
+    return createProvider(config, 'code');
+  }
+  return new LocalProvider(process.cwd(), 'code', '');
+}
+
+const TASK_COLUMNS = [
+  { key: 'id', value: (t: Task) => t.id },
+  { key: 'name', value: (t: Task) => t.name },
+  { key: 'status', value: (t: Task) => t.status },
+  { key: 'tags', value: (t: Task) => t.tags.join(',') },
+  { key: 'priority', value: (t: Task) => (t.priority !== undefined ? String(t.priority) : '') },
+];
+
+export async function tasksListCommand(
+  filter: string | undefined,
+  opts: { remote?: boolean; output?: string } = {},
+  envPath?: string,
+): Promise<void> {
+  const format = parseOutputFormat(opts.output);
+  const provider = await resolveProvider(opts.remote, envPath);
+
+  const tasks = filter
+    ? await provider.fetchTasksByStatus(filter.split(',').map((s) => s.trim()).filter(Boolean))
+    : await provider.fetchTasks();
+
+  printRows(tasks, TASK_COLUMNS, format);
+}
+
+export async function tasksGetCommand(
+  id: string,
+  opts: { remote?: boolean; output?: string; attachments?: boolean } = {},
+  envPath?: string,
+): Promise<void> {
+  const format = parseOutputFormat(opts.output);
+  const provider = await resolveProvider(opts.remote, envPath);
+
+  if (typeof provider.fetchTaskById !== 'function') {
+    logger.error('The active provider does not support fetching a single task by id.');
+    process.exit(1);
+  }
+
+  const task = await provider.fetchTaskById(
+    id,
+    opts.attachments ? { skipAttachments: false } : undefined,
+  );
+
+  if (!task) {
+    logger.error(`Task not found: ${id}`);
+    process.exit(1);
+  }
+
+  printRows([task], TASK_COLUMNS, format);
+}
+
+export async function tasksDeleteCommand(
+  id: string,
+  opts: { remote?: boolean } = {},
+  envPath?: string,
+): Promise<void> {
+  const provider = await resolveProvider(opts.remote, envPath);
+
+  if (typeof provider.deleteTask !== 'function') {
+    logger.error('The active provider does not support deleting tasks.');
+    process.exit(1);
+  }
+
+  await provider.deleteTask(id);
+  logger.success(`Deleted task: ${id}`);
+}
+
+export async function tasksCommentCommand(
+  id: string,
+  content: string,
+  opts: { remote?: boolean; asAidev?: boolean } = {},
+  envPath?: string,
+): Promise<void> {
+  const provider = await resolveProvider(opts.remote, envPath);
+
+  let text = content;
+  if (opts.asAidev) {
+    const config = await loadConfigWithInheritance(envPath);
+    text = `${config.commentPrefix} ${content}`;
+  }
+
+  await provider.postComment(id, text);
+  logger.success(`Comment added to task ${id}`);
+}
+
+export async function tasksModifyCommand(
+  id: string,
+  opts: { remote?: boolean; status?: string; title?: string; description?: string } = {},
+  envPath?: string,
+): Promise<void> {
+  const provider = await resolveProvider(opts.remote, envPath);
+
+  if (opts.title !== undefined || opts.description !== undefined) {
+    logger.error(
+      'Editing title/description is not yet supported: TaskProvider has no updateTask(id, {title, description}) method.',
+    );
+    process.exit(1);
+  }
+
+  if (opts.status === undefined) {
+    logger.warn('Nothing to modify — pass --status <status>.');
+    return;
+  }
+
+  await provider.updateStatus(id, opts.status);
+  logger.success(`Task ${id} status updated to "${opts.status}"`);
+}
+
+function parseTagList(tags: string): string[] {
+  return tags.split(',').map((t) => t.trim()).filter(Boolean);
+}
+
+export async function tasksTagCommand(
+  id: string,
+  tags: string,
+  opts: { remote?: boolean } = {},
+  envPath?: string,
+): Promise<void> {
+  const provider = await resolveProvider(opts.remote, envPath);
+
+  if (typeof provider.addTag !== 'function') {
+    logger.error('The active provider does not support adding tags.');
+    process.exit(1);
+  }
+
+  for (const tag of parseTagList(tags)) {
+    await provider.addTag(id, tag);
+  }
+  logger.success(`Tagged task ${id}`);
+}
+
+export async function tasksUntagCommand(
+  id: string,
+  tags: string,
+  opts: { remote?: boolean } = {},
+  envPath?: string,
+): Promise<void> {
+  const provider = await resolveProvider(opts.remote, envPath);
+
+  if (typeof provider.removeTag !== 'function') {
+    logger.error('The active provider does not support removing tags.');
+    process.exit(1);
+  }
+
+  for (const tag of parseTagList(tags)) {
+    await provider.removeTag(id, tag);
+  }
+  logger.success(`Untagged task ${id}`);
 }
