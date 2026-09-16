@@ -1,5 +1,6 @@
 import { Task } from '../types';
 import {
+  buildAidevToolsHint,
   buildThinkingEscalationAnalysisGuidance,
   formatSubtaskId,
   hasThinkingEscalationContext,
@@ -67,7 +68,7 @@ Description:
 ${taskDescription(task)}
 ${context}
 
-Please implement the required changes. Focus on correctness and follow the existing code style in the project.`;
+Please implement the required changes. Focus on correctness and follow the existing code style in the project.${buildAidevToolsHint()}`;
 }
 
 export function buildThinkingAnalysisPrompt(task: Task, context: string): string {
@@ -160,7 +161,7 @@ ${completedSteps || '(no steps completed yet)'}
 ## Current step: ${subtask.id}. ${subtask.title}
 ${subtask.description}
 
-Implement ONLY this step. Focus on correctness and follow the existing code style.`;
+Implement ONLY this step. Focus on correctness and follow the existing code style.${buildAidevToolsHint()}`;
 }
 
 export function buildConflictResolutionPrompt(task: Task, conflictFiles: string[], context: string): string {
@@ -188,5 +189,5 @@ ${conflictFiles.map((f) => `- ${f}`).join('\n')}
 3. If the base branch changed something the task also changed, prefer the task's intent but make sure it works with the new base branch code
 4. Remove all conflict markers (<<<<<<< HEAD, =======, >>>>>>> ...)
 5. Make sure the code compiles and is consistent after resolution
-6. Do NOT make any changes beyond what is needed to resolve the conflicts`;
+6. Do NOT make any changes beyond what is needed to resolve the conflicts${buildAidevToolsHint()}`;
 }

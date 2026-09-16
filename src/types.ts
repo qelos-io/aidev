@@ -8,6 +8,8 @@ export interface Task {
   priority?: number;
   sourceListId?: string;
   blockedBy?: string[];
+  /** Provider-native id of the parent task, when this task is a subtask. */
+  parentTaskId?: string;
 }
 
 /** Controls how much task payload providers fetch (UI board vs CLI run). */

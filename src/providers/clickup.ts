@@ -46,6 +46,7 @@ interface ClickUpRawTask {
   tags: Array<{ name: string }>;
   list?: { id?: string };
   dependencies?: ClickUpDependency[];
+  parent?: string;
 }
 
 /** ClickUp "waiting on" dependencies expose the blocker id in `depends_on`.
@@ -315,6 +316,7 @@ export class ClickUpProvider implements TaskProvider {
       priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
       sourceListId: t.list?.id,
       ...(blockedBy.length > 0 ? { blockedBy } : {}),
+      ...(t.parent ? { parentTaskId: t.parent } : {}),
     };
   }
 

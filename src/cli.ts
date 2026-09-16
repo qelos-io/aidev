@@ -17,6 +17,7 @@ import {
   tasksTagCommand,
   tasksUntagCommand,
   tasksStatusCommand,
+  tasksHelpCommand,
 } from './commands/tasks';
 import { helpCommand } from './commands/help';
 import { stopCommand } from './commands/stop';
@@ -196,6 +197,13 @@ scheduleCmd
 const tasksCmd = program
   .command('tasks')
   .description('Manage local tasks (aidev.tasks.json)');
+
+tasksCmd
+  .command('help')
+  .description('Print an agent-oriented guide to the `aidev tasks` CLI (safe to use inside a running task)')
+  .action(() => {
+    tasksHelpCommand();
+  });
 
 tasksCmd
   .command('add')

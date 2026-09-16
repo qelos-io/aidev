@@ -167,6 +167,7 @@ export class LinearProvider implements TaskProvider {
     labels { nodes { name } }
     relations { nodes { type relatedIssue { identifier } } }
     inverseRelations { nodes { type issue { identifier } } }
+    parent { identifier }
   `;
 
   private mapIssueNode(
@@ -181,6 +182,7 @@ export class LinearProvider implements TaskProvider {
       labels: { nodes: Array<{ name: string }> };
       relations: { nodes: Array<LinearRelationNode> };
       inverseRelations: { nodes: Array<LinearRelationNode> };
+      parent?: { identifier: string } | null;
     },
     sourceListId: string,
   ): Task {
@@ -195,6 +197,7 @@ export class LinearProvider implements TaskProvider {
       priority: n.priority ?? undefined,
       sourceListId,
       ...(blockedBy.length > 0 ? { blockedBy } : {}),
+      ...(n.parent?.identifier ? { parentTaskId: n.parent.identifier } : {}),
     };
   }
 

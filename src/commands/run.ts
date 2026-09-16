@@ -59,6 +59,7 @@ import {
   buildThinkingAnalysisPrompt,
   buildThinkingEscalationContext,
   buildThinkingSubtaskPrompt,
+  augmentTaskReferences,
   formatSubtaskId,
   parseReplyDirectives,
   SUBTASK_PROMPT_COMPACT_DESCRIPTION_FALLBACK_MAX,
@@ -1268,7 +1269,7 @@ async function implementTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    context = await buildConversationContext(task.id, comments, config, runners);
+    context = await buildConversationContext(task, comments, config, runners);
   } catch {
     // ignore
   }
@@ -1739,7 +1740,7 @@ async function implementThinkingTask(
   let ticketConversationContext = '';
   try {
     const comments = await provider.getComments(task.id);
-    ticketConversationContext = await buildConversationContext(task.id, comments, config, runners);
+    ticketConversationContext = await buildConversationContext(task, comments, config, runners);
   } catch { /* ignore */ }
   let context = ticketConversationContext;
 
@@ -2076,7 +2077,7 @@ export async function implementPlanningTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    context = await buildConversationContext(task.id, comments, config, runners);
+    context = await buildConversationContext(task, comments, config, runners);
   } catch {
     // ignore
   }
@@ -2274,7 +2275,7 @@ export function hasHumanComment(comments: Comment[], commentPrefix: string = '[a
 }
 
 async function buildConversationContext(
-  taskId: string,
+  task: Task,
   comments: Comment[],
   config: Config,
   runners: AIRunner[]
@@ -2286,8 +2287,9 @@ async function buildConversationContext(
     '\n\nConversation context:\n'.length +
     humanComments.reduce((n, c, i) => n + c.author.length + 2 + c.text.length + (i > 0 ? 1 : 0), 0);
 
-  const context = await buildCompressedContext(humanComments, taskId, runners, config);
+  const context = await buildCompressedContext(humanComments, task.id, runners, config);
 
+  let finalContext = context;
   if (
     config.autoCompress &&
     humanComments.length > 1 &&
@@ -2295,11 +2297,13 @@ async function buildConversationContext(
     context.startsWith('\n\nSummary of earlier conversation')
   ) {
     logger.info(
-      `[${taskId}] Auto-compressed conversation context: ${rawLength} → ${context.length} chars`
+      `[${task.id}] Auto-compressed conversation context: ${rawLength} → ${context.length} chars`
     );
+  } else {
+    finalContext = augmentTaskReferences(context, task);
   }
 
-  return context;
+  return finalContext;
 }
 
 async function processNonCodeTask(
@@ -2409,7 +2413,7 @@ async function implementNonCodeTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    context = await buildConversationContext(task.id, comments, config, runners);
+    context = await buildConversationContext(task, comments, config, runners);
   } catch {
     // ignore
   }
@@ -2562,7 +2566,7 @@ async function implementConsultTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    context = await buildConversationContext(task.id, comments, config, runners);
+    context = await buildConversationContext(task, comments, config, runners);
   } catch {
     // ignore
   }
@@ -2716,7 +2720,7 @@ async function implementNonCodeThinkingTask(
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    context = await buildConversationContext(task.id, comments, config, runners);
+    context = await buildConversationContext(task, comments, config, runners);
   } catch {
     // ignore
   }

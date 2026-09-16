@@ -1,7 +1,19 @@
 import { Task } from '../types';
+import { augmentTaskReferences } from './taskRefs';
+
+/** Builds the inline parent-task hint appended after the task description. */
+function buildParentTaskHint(task: Task): string {
+  if (!task.parentTaskId) return '';
+  const useRemote = /^https?:\/\//i.test(task.url || '');
+  const cmd = useRemote
+    ? `aidev tasks get ${task.parentTaskId} --remote`
+    : `aidev tasks get ${task.parentTaskId}`;
+  return `\n\n(This task is a subtask. To get the parent task run \`${cmd}\`)`;
+}
 
 export function taskDescription(task: Task): string {
-  return task.description || '(no description provided)';
+  const raw = task.description || '(no description provided)';
+  return augmentTaskReferences(raw, task) + buildParentTaskHint(task);
 }
 
 /** Strips agent meta-instructions and extracts content after `---` when present. */
@@ -47,6 +59,16 @@ export function hasThinkingEscalationContext(context: string): boolean {
 
 export function buildThinkingEscalationAnalysisGuidance(): string {
   return `ESCALATION: This task was automatically escalated to thinking mode after all AI runners failed on a direct implementation attempt. The context above includes failure diagnostics and may list uncommitted working-tree changes from that attempt. Account for the prior failure in your breakdown, build on any partial work reflected in uncommitted files, and avoid repeating the same failed approach.`;
+}
+
+/**
+ * Short, always-on hint appended to agent prompts telling the agent it can use
+ * the `aidev tasks` CLI to inspect and operate on the task manager. Detailed
+ * instructions are available via `aidev tasks help` (printed by
+ * {@link tasksHelpCommand}) so the prompt stays small.
+ */
+export function buildAidevToolsHint(): string {
+  return '\n\n---\nYou can use the `aidev tasks` CLI to inspect and operate on the task manager (e.g. look up other tasks, read comments, post comments, update status). Run `aidev tasks help` for detailed usage. These commands inherit the current run\'s config automatically.';
 }
 
 export function buildThinkingEscalationContext(

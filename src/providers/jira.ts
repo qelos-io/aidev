@@ -245,6 +245,7 @@ export class JiraProvider implements TaskProvider {
         attachment?: JiraRawAttachment[];
         project?: { key?: string };
         issuelinks?: unknown[];
+        parent?: { key?: string };
       };
     }
 
@@ -258,7 +259,7 @@ export class JiraProvider implements TaskProvider {
       ? ` AND updated >= "${new Date(updatedAfter).toISOString().split('T')[0]}"`
       : '';
     const jql = `project = "${this.project}"${labelClause}${updatedClause} AND statusCategory != Done ORDER BY created DESC`;
-    const fields = 'summary,description,status,priority,labels,attachment,project,issuelinks';
+    const fields = 'summary,description,status,priority,labels,attachment,project,issuelinks,parent';
     const data = await this.request<SearchResponse>(
       `/search/jql?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=50`
     );
@@ -291,6 +292,7 @@ export class JiraProvider implements TaskProvider {
         priority: issue.fields.priority ? parseInt(issue.fields.priority.id, 10) : undefined,
         sourceListId: issue.fields.project?.key,
         ...(blockedBy.length > 0 ? { blockedBy } : {}),
+        ...(issue.fields.parent?.key ? { parentTaskId: issue.fields.parent.key } : {}),
       };
     }));
   }
@@ -308,13 +310,14 @@ export class JiraProvider implements TaskProvider {
         labels: string[];
         project?: { key?: string };
         issuelinks?: unknown[];
+        parent?: { key?: string };
       };
     }
 
     let issue: RawIssue;
     try {
       issue = await this.request<RawIssue>(
-        `/issue/${encodeURIComponent(taskId)}?fields=summary,description,status,priority,labels,project,issuelinks`
+        `/issue/${encodeURIComponent(taskId)}?fields=summary,description,status,priority,labels,project,issuelinks,parent`
       );
     } catch {
       return null;
@@ -332,6 +335,7 @@ export class JiraProvider implements TaskProvider {
       priority: issue.fields.priority ? parseInt(issue.fields.priority.id, 10) : undefined,
       sourceListId: issue.fields.project?.key,
       ...(blockedBy.length > 0 ? { blockedBy } : {}),
+      ...(issue.fields.parent?.key ? { parentTaskId: issue.fields.parent.key } : {}),
     };
   }
 

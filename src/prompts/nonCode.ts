@@ -1,5 +1,6 @@
 import { Task } from '../types';
 import {
+  buildAidevToolsHint,
   buildThinkingEscalationAnalysisGuidance,
   formatSubtaskId,
   hasThinkingEscalationContext,
@@ -27,7 +28,7 @@ The latest comment may:
 DO NOT repeat what was already done. DO NOT re-execute the original task unless explicitly asked.
 Focus ENTIRELY on addressing the latest comment as your main instruction.
 
-Please provide a clear, detailed response to the LATEST comment. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who wrote the latest comment.`;
+Please provide a clear, detailed response to the LATEST comment. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who wrote the latest comment.${buildAidevToolsHint()}`;
   }
 
   return `Task: ${task.name}
@@ -35,7 +36,7 @@ Please provide a clear, detailed response to the LATEST comment. Your response w
 Description:
 ${taskDescription(task)}
 
-Please provide a clear, detailed response to this task. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who created the task.`;
+Please provide a clear, detailed response to this task. Your response will be posted as a comment on the task ticket, so write it as a direct answer or explanation addressed to the person who created the task.${buildAidevToolsHint()}`;
 }
 
 export function buildNonCodeAnalysisPrompt(task: Task, context: string): string {
@@ -103,5 +104,5 @@ ${completedSteps || '(no steps completed yet)'}
 ## Current step: ${formatSubtaskId(subtask.id)} ${subtask.title}
 ${subtask.description}
 
-Focus ONLY on this step. Write the response so it can be posted directly as a ticket comment — clear, self-contained, and addressed to the task's stakeholders. Do not include preambles like "Here's text you can paste"; output only the content itself.`;
+Focus ONLY on this step. Write the response so it can be posted directly as a ticket comment — clear, self-contained, and addressed to the task's stakeholders. Do not include preambles like "Here's text you can paste"; output only the content itself.${buildAidevToolsHint()}`;
 }

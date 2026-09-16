@@ -1,6 +1,6 @@
 import { Task } from '../types';
 import { ReviewThread } from '../github';
-import { taskDescription } from './shared';
+import { buildAidevToolsHint, taskDescription } from './shared';
 
 const REPLY_REGEX = /<!-- AIDEV-REPLY ([\w=+/]+) -->([\s\S]*?)<!-- \/AIDEV-REPLY -->/g;
 
@@ -49,7 +49,7 @@ Replace "thread_id" with the actual thread ID shown below.
 2. For code change requests: make the fix directly in the relevant file(s)
 3. For questions or discussions: output a REPLY block with a clear, helpful response
 4. You may handle multiple threads — some with code fixes, others with replies
-5. Focus on correctness and follow the existing code style`;
+5. Focus on correctness and follow the existing code style${buildAidevToolsHint()}`;
 
   return prompt;
 }

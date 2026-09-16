@@ -512,3 +512,65 @@ export async function tasksUntagCommand(
   }
   logger.success(`Untagged task ${id}`);
 }
+
+// ─── Agent-oriented help guide ───────────────────────────────────────────────
+
+/**
+ * Prints a detailed, agent-oriented guide for the `aidev tasks` CLI.
+ * Designed to be invoked by AI agents (e.g. via `aidev tasks help`) while they
+ * are working inside a running `aidev run` session. Only documents commands
+ * that are safe to use from within a running task — `aidev run` itself is
+ * blocked by the per-directory lock and is intentionally omitted.
+ */
+export function tasksHelpCommand(): void {
+  const lines = [
+    'aidev tasks — agent guide',
+    '',
+    'You are running inside an active `aidev run` session. The commands below let',
+    'you inspect and operate on the task manager (the configured provider such as',
+    'ClickUp, Jira, Linear, etc.). They inherit the current run\'s config',
+    'automatically — no extra flags or env files are needed.',
+    '',
+    'IMPORTANT: `aidev run` is blocked by a per-directory lock while a session is',
+    'active, so do NOT attempt to start another run. Use only the `aidev tasks`',
+    'subcommands listed here.',
+    '',
+    'All remote commands take `--remote` to operate against the configured provider',
+    '(omit it to work on local `.aidev/tasks` instead).',
+    '',
+    '## Reading tasks',
+    '',
+    '  aidev tasks list --remote                     List all tasks (or filter by status)',
+    '  aidev tasks list open,pending --remote        Filter by comma-separated statuses',
+    '  aidev tasks list --remote -o json              Output as JSON (also: table, csv)',
+    '  aidev tasks get <id> --remote                 Show a single task by id',
+    '  aidev tasks get <id> --remote --attachments    Include attachment downloads',
+    '  aidev tasks status <id> --remote              Show a task\'s current status',
+    '',
+    '## Updating tasks',
+    '',
+    '  aidev tasks status <id> <newStatus> --remote  Set a task\'s status',
+    '                                                (logical names open/pending/review/done',
+    '                                                 are resolved through the status mapping)',
+    '  aidev tasks modify <id> --status <status> --remote   Update a task\'s status',
+    '  aidev tasks tag <id> <tags> --remote          Add comma-separated tags',
+    '  aidev tasks untag <id> <tags> --remote        Remove comma-separated tags',
+    '  aidev tasks delete <id> --remote              Delete a task (if supported)',
+    '',
+    '## Comments',
+    '',
+    '  aidev tasks comment <id> "text" --remote              Post a comment',
+    '  aidev tasks comment <id> "text" --remote --as-aidev   Post with the [aidev] prefix',
+    '',
+    '## Tips',
+    '',
+    '- Use `-o json` for machine-readable output you can parse reliably.',
+    '- Task ids are provider-specific (e.g. ClickUp task ids). Use `aidev tasks',
+    '  list --remote -o json` to discover them.',
+    '- Comments you post are visible to humans reviewing the ticket. Use',
+    '  `--as-aidev` to mark them as coming from the aidev agent.',
+    '- These commands do NOT acquire the directory lock, so they are safe to run',
+    '  concurrently with the active `aidev run` session.',
+  ];
+  console.log(lines.join('\n'));
+}

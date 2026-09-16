@@ -30,7 +30,9 @@ export {
 } from './agentReview';
 export type { AgentReviewComment } from './agentReview';
 export { buildReviewPrompt, parseReplyDirectives } from './review';
+export { augmentTaskReferences } from './taskRefs';
 export {
+  buildAidevToolsHint,
   buildThinkingEscalationContext,
   cleanAgentResponseForComment,
   formatSubtaskId,
