@@ -21,6 +21,10 @@ import {
   mergeBaseBranch,
   abortMerge,
   commitMerge,
+  listLocalBranches,
+  forceDeleteBranch,
+  stashCount,
+  clearStashes,
 } from '../git';
 
 // ─── slugify ──────────────────────────────────────────────────────────────────
@@ -810,5 +814,75 @@ describe('mergeBaseBranch and commitMerge (integration)', () => {
     fs.writeFileSync(path.join(tmpDir, 'README.md'), '# merged\n');
     assert.equal(commitMerge('Merge main into feature'), true);
     assert.equal(hasChanges(), false);
+  });
+});
+
+describe('listLocalBranches / forceDeleteBranch (integration)', () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
+    initRepo(tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('lists all local branches by short name', () => {
+    gitCmd(['branch', 'task1/fix-a'], tmpDir);
+    gitCmd(['branch', 'task2/fix-b'], tmpDir);
+    const branches = listLocalBranches().sort();
+    assert.deepEqual(branches, ['main', 'task1/fix-a', 'task2/fix-b']);
+  });
+
+  it('force-deletes a branch without switching the current checkout', () => {
+    gitCmd(['branch', 'task1/stale'], tmpDir);
+    assert.equal(getCurrentBranch(), 'main');
+    assert.equal(forceDeleteBranch('task1/stale'), true);
+    assert.equal(getCurrentBranch(), 'main');
+    assert.ok(!listLocalBranches().includes('task1/stale'));
+  });
+
+  it('returns false when deleting the currently checked out branch', () => {
+    gitCmd(['checkout', '-b', 'task1/current'], tmpDir);
+    assert.equal(forceDeleteBranch('task1/current'), false);
+    assert.ok(listLocalBranches().includes('task1/current'));
+  });
+});
+
+describe('stashCount / clearStashes (integration)', () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-test-'));
+    initRepo(tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('reports zero when there are no stashes', () => {
+    assert.equal(stashCount(), 0);
+  });
+
+  it('counts and clears stash entries', () => {
+    fs.writeFileSync(path.join(tmpDir, 'a.txt'), '1');
+    gitCmd(['stash', 'push', '-u', '-m', 'first'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'b.txt'), '2');
+    gitCmd(['stash', 'push', '-u', '-m', 'second'], tmpDir);
+
+    assert.equal(stashCount(), 2);
+    assert.equal(clearStashes(), true);
+    assert.equal(stashCount(), 0);
   });
 });

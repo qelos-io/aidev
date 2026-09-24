@@ -286,6 +286,40 @@ export function deleteBranch(branch: string): void {
   git(['branch', '-D', branch]);
 }
 
+/** Returns the short names of all local branches. */
+export function listLocalBranches(): string[] {
+  const result = git(['branch', '--format=%(refname:short)']);
+  if (result.status !== 0) return [];
+  return result.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+/** Force-deletes a local branch without touching the current checkout. Returns false on failure (e.g. branch is checked out). */
+export function forceDeleteBranch(branch: string): boolean {
+  const result = git(['branch', '-D', branch]);
+  if (result.status !== 0) {
+    logger.warn(`git branch -D ${branch} failed: ${result.stderr}`);
+    return false;
+  }
+  return true;
+}
+
+/** Returns the number of stash entries. */
+export function stashCount(): number {
+  const result = git(['stash', 'list']);
+  if (result.status !== 0) return 0;
+  return result.stdout.split('\n').filter((line) => line.trim().length > 0).length;
+}
+
+/** Deletes all stash entries. */
+export function clearStashes(): boolean {
+  const result = git(['stash', 'clear']);
+  if (result.status !== 0) {
+    logger.error(`git stash clear failed: ${result.stderr}`);
+    return false;
+  }
+  return true;
+}
+
 /** Returns the name of the first usable remote (prefers origin). */
 export function detectRemote(): string | null {
   // Verify origin exists first
