@@ -36,6 +36,7 @@ import { agentReviewCommand } from './commands/agentReview';
 import { isGhInstalled, isGhAuthenticated } from './github';
 import { isScreenAvailable } from './platform';
 import { hooksGenerateCommand, hooksUpdateCommand } from './commands/hooks';
+import { maybeRunWeeklyCleanup } from './commands/cleanup';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { version } = require('../package.json') as { version: string };
@@ -74,6 +75,12 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
     const { env } = program.opts<{ env?: string }>();
     const config = await loadConfigWithInheritance(env);
     const provider = createProvider(config);
+
+    // No-AI weekly housekeeping (stale branches, stashes, base branch sync). Runs at
+    // most once a week, piggybacking on however often `aidev run` is already scheduled.
+    if (!taskId) {
+      await maybeRunWeeklyCleanup(config, provider);
+    }
 
     // Handle "accepted" filter separately — no AI, just merge accepted PRs
     if (filter === 'accepted') {
