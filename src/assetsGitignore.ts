@@ -29,10 +29,12 @@ export function hasAidevAssetsGitignoreIssues(state: AidevAssetsGitignoreState):
  * `.gitignore` and committed. Remediates violations by removing the folder,
  * committing removal when needed, and committing a `.gitignore` update.
  *
- * The `.gitignore` update runs unconditionally: `materializeMcp()` adds MCP
- * patterns to the working tree on the base branch, but `createBranchFromRemote`
- * stashes them away before the task branch is created. Without committing the
- * update here those patterns would reappear as uncommitted changes on every run.
+ * The `.gitignore` update runs unconditionally as a safety net: `cli.ts`
+ * already commits any `.gitignore` changes left by `materializeMcp()` on the
+ * base branch immediately (aidev never stashes, so `createBranchFromRemote`
+ * requires a clean tree), but other cases — e.g. a locally-edited
+ * `.gitignore` or indexed asset files — can still leave `.gitignore` out of
+ * sync on the task branch, so it's re-verified and committed here too.
  */
 export function prepareForTaskCommit(
   branchName: string,

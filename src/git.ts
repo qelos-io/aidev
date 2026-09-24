@@ -30,19 +30,27 @@ export function remoteBranchExists(remote: string, branch: string): boolean {
   return result.status === 0 && result.stdout.trim().length > 0;
 }
 
-export function stashChanges(): boolean {
+/**
+ * Verifies the working tree is clean before a branch-switching operation.
+ * aidev never stashes local changes (stashed entries are never popped and
+ * silently accumulate). If the tree is dirty, logs the offending files and
+ * instructs the user to clean up manually before rerunning aidev.
+ */
+export function requireCleanWorkingTree(actionDescription: string): boolean {
   if (!hasChanges()) return true;
-  logger.debug('git stash push -u -m aidev-autostash');
-  const result = git(['stash', 'push', '-u', '-m', 'aidev-autostash']);
-  if (result.status !== 0) {
-    logger.warn(`git stash failed: ${result.stderr}`);
-    return false;
-  }
-  return true;
+
+  const dirtyFiles = listWorkingTreeChanges();
+  logger.error(
+    `Cannot ${actionDescription}: working tree has uncommitted changes:\n` +
+    dirtyFiles.map((file) => `  ${file}`).join('\n') +
+    '\nPlease commit your changes, stash them yourself (git stash), or discard them ' +
+    '(git reset --hard && git clean -fd) before rerunning aidev.'
+  );
+  return false;
 }
 
 export function fetchAndCheckout(remote: string, baseBranch: string): boolean {
-  stashChanges();
+  if (!requireCleanWorkingTree('fetch and checkout base branch')) return false;
 
   logger.debug(`git fetch ${remote}`);
   const fetch = git(['fetch', remote]);
@@ -80,7 +88,7 @@ export function fetchAndCheckout(remote: string, baseBranch: string): boolean {
 }
 
 export function fetchAndCheckoutBranch(remote: string, branch: string): boolean {
-  stashChanges();
+  if (!requireCleanWorkingTree(`fetch and checkout branch "${branch}"`)) return false;
 
   logger.debug(`git fetch ${remote}`);
   const fetchResult = git(['fetch', remote]);
@@ -130,12 +138,13 @@ export function createBranch(branch: string, expectedBase?: string): boolean {
 
 /**
  * Creates a new branch based on the latest remote base branch.
- * Stashes any local changes, fetches the remote, then branches directly
- * from the remote tracking ref (e.g. origin/main) — avoiding the need
- * to checkout or sync the local base branch.
+ * Requires a clean working tree (fails fast otherwise — aidev never
+ * stashes), fetches the remote, then branches directly from the remote
+ * tracking ref (e.g. origin/main) — avoiding the need to checkout or
+ * sync the local base branch.
  */
 export function createBranchFromRemote(remote: string, baseBranch: string, branch: string): boolean {
-  stashChanges();
+  if (!requireCleanWorkingTree(`create branch "${branch}" from remote`)) return false;
 
   logger.debug(`git fetch ${remote}`);
   const fetchResult = git(['fetch', remote]);

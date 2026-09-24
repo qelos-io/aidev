@@ -743,7 +743,10 @@ export async function runCommand(
       }
 
       // Checkout back to base branch after processing review tasks
-      git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch);
+      if (!git.fetchAndCheckout(config.gitRemote, config.githubBaseBranch)) {
+        logger.error('Failed to checkout base branch after processing review tasks — stopping.');
+        return;
+      }
     } else if (!taskId) {
       if (!isGhInstalled() || !isGhAuthenticated()) {
         logger.debug('gh CLI not available — skipping review task checks');

@@ -15,3 +15,11 @@ ui/node_modules
 ui/.nuxt
 ui/.output
 .DS_Store
+.aidev/mcp/
+.aidev/better-mcp.json
+.cursor/mcp.json
+.agents/mcp_config.json
+.devin/config.json
+.codex/config.toml
+opencode.json
+*.aidev-backup

@@ -29,6 +29,7 @@ import { createRunners } from './ai';
 import { materializeMcp } from './mcp';
 import { processLocalTasks } from './tasks';
 import { logger } from './logger';
+import * as git from './git';
 import { loadHooks, createHookVM } from './hooks';
 import { acceptedCommand } from './commands/accepted';
 import { agentReviewCommand } from './commands/agentReview';
@@ -104,6 +105,15 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
 
     const resolvedFilter: RunFilter = (filter as RunFilter) || 'all';
     materializeMcp(config);
+    // materializeMcp() may leave an uncommitted .gitignore update on the base
+    // branch. Commit it now — aidev never stashes, so any branch-switching
+    // that follows requires a clean working tree.
+    if (git.hasChanges()) {
+      if (!git.addPath('.gitignore') || !git.commit('aidev: update .gitignore for MCP configuration')) {
+        logger.error('Failed to commit .gitignore changes left by materializeMcp()');
+        process.exit(1);
+      }
+    }
     const runners = createRunners(config);
     const hooks = loadHooks(config.hooksPath);
     const hookVM = createHookVM(provider, runners);
