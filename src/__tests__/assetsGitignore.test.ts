@@ -22,6 +22,7 @@ const COMPLETE_GITIGNORE = [
   '*.aidev.task.json',
   'aidev.tasks.json',
   '.aidev/assets/',
+  '.aidev/last-cleanup.json',
   ...MCP_GITIGNORE_RULES.map(([p]) => p),
 ].join('\n') + '\n';
 

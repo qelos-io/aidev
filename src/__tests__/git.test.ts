@@ -15,7 +15,7 @@ import {
   addAll,
   hasChanges,
   listWorkingTreeChanges,
-  stashChanges,
+  requireCleanWorkingTree,
   fetchAndCheckout,
   checkConflictsWithBase,
   mergeBaseBranch,
@@ -109,6 +109,9 @@ function initRepo(dir: string): void {
   gitCmd(['config', 'user.email', 'test@test.com'], dir);
   gitCmd(['config', 'user.name', 'Test'], dir);
   fs.writeFileSync(path.join(dir, 'README.md'), '# test\n');
+  // aidev writes its own aidev.log into cwd; real repos gitignore it via
+  // `aidev init` (see GITIGNORE_RULES) so it never dirties the working tree.
+  fs.writeFileSync(path.join(dir, '.gitignore'), '*.log\n');
   gitCmd(['add', '.'], dir);
   gitCmd(['commit', '-m', 'initial commit'], dir);
 }
@@ -222,11 +225,11 @@ describe('createBranchFromRemote (integration)', () => {
     assert.equal(getCurrentBranch(), 'task456/new-feature');
   });
 
-  it('stashes dirty changes before creating the branch', () => {
+  it('fails fast when the working tree is dirty (aidev never stashes)', () => {
     fs.writeFileSync(path.join(tmpDir, 'dirty.txt'), 'uncommitted');
     assert.equal(hasChanges(), true);
-    assert.equal(createBranchFromRemote('origin', 'main', 'task789/clean-start'), true);
-    assert.equal(getCurrentBranch(), 'task789/clean-start');
+    assert.equal(createBranchFromRemote('origin', 'main', 'task789/clean-start'), false);
+    assert.equal(getCurrentBranch(), 'main');
   });
 
   it('branches from the remote ref, not the local base branch', () => {
@@ -451,7 +454,7 @@ describe('listWorkingTreeChanges (integration)', () => {
   });
 });
 
-describe('stashChanges (integration)', () => {
+describe('requireCleanWorkingTree (integration)', () => {
   let tmpDir: string;
   let originalCwd: string;
 
@@ -469,22 +472,22 @@ describe('stashChanges (integration)', () => {
 
   it('returns true and does nothing when working tree is clean', () => {
     assert.equal(hasChanges(), false);
-    assert.equal(stashChanges(), true);
+    assert.equal(requireCleanWorkingTree('do something'), true);
     assert.equal(hasChanges(), false);
   });
 
-  it('stashes uncommitted changes so working tree is clean afterward', () => {
+  it('returns false and leaves uncommitted changes in place', () => {
     fs.writeFileSync(path.join(tmpDir, 'dirty.txt'), 'uncommitted');
     assert.equal(hasChanges(), true);
-    assert.equal(stashChanges(), true);
-    assert.equal(hasChanges(), false);
+    assert.equal(requireCleanWorkingTree('do something'), false);
+    assert.equal(hasChanges(), true);
   });
 
-  it('stashes untracked files (using -u flag)', () => {
+  it('returns false and leaves untracked files in place', () => {
     fs.writeFileSync(path.join(tmpDir, 'untracked.txt'), 'new file');
     assert.equal(hasChanges(), true);
-    assert.equal(stashChanges(), true);
-    assert.equal(hasChanges(), false);
+    assert.equal(requireCleanWorkingTree('do something'), false);
+    assert.equal(hasChanges(), true);
   });
 });
 
@@ -510,18 +513,18 @@ describe('fetchAndCheckout with dirty working tree (integration)', () => {
     fs.rmSync(bareDir, { recursive: true, force: true });
   });
 
-  it('succeeds even when there are uncommitted changes (stashes them)', () => {
+  it('fails fast when there are uncommitted changes (aidev never stashes)', () => {
     gitCmd(['checkout', '-b', 'feature/dirty'], tmpDir);
     fs.writeFileSync(path.join(tmpDir, 'leftover.txt'), 'from previous run');
     assert.equal(hasChanges(), true);
-    assert.equal(fetchAndCheckout('origin', 'main'), true);
-    assert.equal(getCurrentBranch(), 'main');
+    assert.equal(fetchAndCheckout('origin', 'main'), false);
+    assert.equal(getCurrentBranch(), 'feature/dirty');
   });
 
-  it('succeeds even when there are untracked files (stashes them)', () => {
+  it('fails fast when there are untracked files (aidev never stashes)', () => {
     fs.writeFileSync(path.join(tmpDir, 'untracked.txt'), 'untracked');
     assert.equal(hasChanges(), true);
-    assert.equal(fetchAndCheckout('origin', 'main'), true);
+    assert.equal(fetchAndCheckout('origin', 'main'), false);
     assert.equal(getCurrentBranch(), 'main');
   });
 });
