@@ -225,6 +225,23 @@ export function listIndexedPaths(prefix: string, cwd?: string): string[] {
   return result.stdout.trim().split('\n').filter((entry) => entry.length > 0);
 }
 
+/**
+ * Discards working-tree changes to a single tracked file, restoring it to the
+ * HEAD version (`git checkout -- <path>`). Used to clean aidev's own bookkeeping
+ * files (e.g. `.aidev/last-cleanup.json`) that are tracked in legacy repos but
+ * should be gitignored — restoring to HEAD keeps the working tree clean without
+ * committing a `.gitignore`/`git rm --cached` fix on the base branch.
+ */
+export function restoreFile(relativePath: string, cwd?: string): boolean {
+  logger.debug(`git checkout -- ${relativePath}`);
+  const result = git(['checkout', '--', relativePath], cwd);
+  if (result.status !== 0) {
+    logger.warn(`git checkout -- ${relativePath} failed: ${result.stderr}`);
+    return false;
+  }
+  return true;
+}
+
 export function addPath(relativePath: string, cwd?: string): boolean {
   const result = git(['add', '--', relativePath], cwd);
   return result.status === 0;
