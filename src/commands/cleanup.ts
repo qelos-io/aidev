@@ -36,14 +36,16 @@ export async function weeklyCleanupCommand(config: Config, provider: TaskProvide
     return null;
   }
 
-  // `.aidev/last-cleanup.json` is written to the working tree after a successful run (see
-  // maybeRunWeeklyCleanup below) but is never committed. If it's not yet covered by .gitignore —
-  // e.g. this repo was `aidev init`'d before that rule existed — it lingers as an untracked file
-  // that trips the clean-working-tree check below on every subsequent cleanup, permanently
-  // blocking cleanup from ever running again. It's aidev's own bookkeeping (never user data, and
-  // safely regenerated on the next successful run), so drop it before the check if it's untracked
-  // rather than commit a .gitignore fix here, which would leave the base branch with an unpushed
-  // local commit and trip fetchAndCheckout's local/remote divergence check below.
+  // `.aidev/last-cleanup.log` is written to the working tree after a successful run (see
+  // maybeRunWeeklyCleanup below) but is never committed. It's named `.log` rather than `.json`
+  // so it's covered by the near-universal `*.log` .gitignore rule even in repos `aidev init`'d
+  // before this file existed, but a repo could still lack any `*.log` rule, in which case it
+  // lingers as an untracked file that trips the clean-working-tree check below on every
+  // subsequent cleanup, permanently blocking cleanup from ever running again. It's aidev's own
+  // bookkeeping (never user data, and safely regenerated on the next successful run), so drop it
+  // before the check if it's untracked rather than commit a .gitignore fix here, which would
+  // leave the base branch with an unpushed local commit and trip fetchAndCheckout's local/remote
+  // divergence check below.
   //
   // The same self-heal applies when the file is *tracked* (committed before the .gitignore rule)
   // but *modified* — a previous writeLastCleanupAt updated the timestamp, dirtying the working
@@ -90,7 +92,7 @@ export async function weeklyCleanupCommand(config: Config, provider: TaskProvide
 
 /**
  * Runs the weekly cleanup at most once per week, on the first `aidev run`
- * that lands on a Monday. State lives in the gitignored `.aidev/last-cleanup.json`
+ * that lands on a Monday. State lives in the gitignored `.aidev/last-cleanup.log`
  * so no separate OS-level cron entry is needed — this piggybacks on however
  * often the user already has `aidev run` scheduled.
  */

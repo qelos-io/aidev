@@ -1,9 +1,16 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-/** Gitignored file recording when the weekly cleanup last ran, so cron ticks (which fire every few minutes with no OS-level weekly schedule) know whether one is due. */
+/**
+ * Gitignored file recording when the weekly cleanup last ran, so cron ticks
+ * (which fire every few minutes with no OS-level weekly schedule) know whether
+ * one is due. Uses a `.log` extension (rather than `.json`) because `*.log` is
+ * already covered by virtually every project's .gitignore, so a repo `aidev
+ * init`'d before this rule existed still has the file ignored — avoiding it
+ * lingering as an untracked file that dirties the working tree.
+ */
 export function cleanupStateRelPath(): string {
-  return path.join('.aidev', 'last-cleanup.json');
+  return path.join('.aidev', 'last-cleanup.log');
 }
 
 export function cleanupStatePath(cwd = process.cwd()): string {
