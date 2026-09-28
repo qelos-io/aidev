@@ -228,7 +228,7 @@ export function listIndexedPaths(prefix: string, cwd?: string): string[] {
 /**
  * Discards working-tree changes to a single tracked file, restoring it to the
  * HEAD version (`git checkout -- <path>`). Used to clean aidev's own bookkeeping
- * files (e.g. `.aidev/last-cleanup.json`) that are tracked in legacy repos but
+ * files (e.g. `.aidev/last-cleanup.log`) that are tracked in legacy repos but
  * should be gitignored — restoring to HEAD keeps the working tree clean without
  * committing a `.gitignore`/`git rm --cached` fix on the base branch.
  */

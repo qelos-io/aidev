@@ -135,14 +135,14 @@ describe('weeklyCleanupCommand (integration)', () => {
     assert.equal(current.stdout.trim(), 'main');
   });
 
-  it('self-heals a stale untracked last-cleanup.json left by a repo without the .gitignore rule', async () => {
-    // Simulates a repo `aidev init`'d before `.aidev/last-cleanup.json` was added to
-    // GITIGNORE_RULES: a previous successful cleanup wrote the state file, but it was
-    // never git-ignored, so it sits untracked and would otherwise permanently block
-    // every future cleanup via requireCleanWorkingTree.
+  it('self-heals a stale untracked last-cleanup.log left by a repo without a *.log gitignore rule', async () => {
+    // Simulates a repo whose .gitignore has no `*.log` rule at all: a previous
+    // successful cleanup wrote the state file, but it was never git-ignored, so it
+    // sits untracked and would otherwise permanently block every future cleanup via
+    // requireCleanWorkingTree.
     fs.mkdirSync(path.join(tmpDir, '.aidev'), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, '.aidev', 'last-cleanup.json'),
+      path.join(tmpDir, '.aidev', 'last-cleanup.log'),
       JSON.stringify({ lastCleanupAt: Date.now() - 7 * 24 * 60 * 60 * 1000 })
     );
 
@@ -153,16 +153,16 @@ describe('weeklyCleanupCommand (integration)', () => {
     assert.equal(current.stdout.trim(), 'main');
   });
 
-  it('self-heals a tracked-but-modified last-cleanup.json (committed before .gitignore rule)', async () => {
-    // Simulates a repo that committed `.aidev/last-cleanup.json` before the .gitignore
-    // rule existed: the file is tracked, and a previous writeLastCleanupAt modified it,
+  it('self-heals a tracked-but-modified last-cleanup.log (committed before .gitignore rule)', async () => {
+    // Simulates a repo that committed `.aidev/last-cleanup.log` before it was covered by
+    // .gitignore: the file is tracked, and a previous writeLastCleanupAt modified it,
     // dirtying the working tree. Without the fix, requireCleanWorkingTree would block
     // cleanup forever. The fix restores the file to HEAD so cleanup can proceed, and
     // restores again after writeLastCleanupAt so subsequent task processing isn't blocked.
     fs.mkdirSync(path.join(tmpDir, '.aidev'), { recursive: true });
-    const stateFile = path.join(tmpDir, '.aidev', 'last-cleanup.json');
+    const stateFile = path.join(tmpDir, '.aidev', 'last-cleanup.log');
     fs.writeFileSync(stateFile, JSON.stringify({ lastCleanupAt: 0 }));
-    gitCmd(['add', '.aidev/last-cleanup.json'], tmpDir);
+    gitCmd(['add', '.aidev/last-cleanup.log'], tmpDir);
     gitCmd(['commit', '-m', 'add cleanup state'], tmpDir);
     // Push so local main doesn't diverge from origin/main (fetchAndCheckout checks this).
     gitCmd(['push', 'origin', 'main'], tmpDir);
@@ -170,7 +170,7 @@ describe('weeklyCleanupCommand (integration)', () => {
     fs.writeFileSync(stateFile, JSON.stringify({ lastCleanupAt: Date.now() }));
     // Sanity: working tree is dirty because of the tracked modified file.
     const dirtyBefore = spawnSync('git', ['status', '--porcelain'], { cwd: tmpDir, encoding: 'utf8' });
-    assert.ok(dirtyBefore.stdout.includes('last-cleanup.json'));
+    assert.ok(dirtyBefore.stdout.includes('last-cleanup.log'));
 
     const result = await weeklyCleanupCommand(baseConfig, providerWithTasks([]));
 
