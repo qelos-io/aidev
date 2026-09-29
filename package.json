@@ -14,7 +14,7 @@
     ".env.aidev.example"
   ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "build": "tsc && node -e \"if(process.platform!=='win32')require('node:fs').chmodSync('dist/cli.js',0o755)\"",
