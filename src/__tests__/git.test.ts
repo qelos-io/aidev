@@ -452,6 +452,20 @@ describe('listWorkingTreeChanges (integration)', () => {
     fs.writeFileSync(path.join(tmpDir, 'another.txt'), 'another');
     assert.deepEqual(listWorkingTreeChanges().sort(), ['README.md', 'another.txt']);
   });
+
+  it('ignores aidev own bookkeeping files (.aidev.lock, .aidev.active)', () => {
+    fs.writeFileSync(path.join(tmpDir, '.aidev.lock'), String(process.pid));
+    fs.writeFileSync(path.join(tmpDir, '.aidev.active'), 'CU-123');
+    assert.deepEqual(listWorkingTreeChanges(), []);
+    assert.equal(hasChanges(), false);
+  });
+
+  it('still reports real changes alongside ignored aidev bookkeeping files', () => {
+    fs.writeFileSync(path.join(tmpDir, '.aidev.lock'), String(process.pid));
+    fs.writeFileSync(path.join(tmpDir, 'real-change.txt'), 'content');
+    assert.deepEqual(listWorkingTreeChanges(), ['real-change.txt']);
+    assert.equal(hasChanges(), true);
+  });
 });
 
 describe('requireCleanWorkingTree (integration)', () => {

@@ -1,5 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import { logger } from './logger';
+import { LOCK_FILENAME } from './lockfile';
+import { ACTIVE_TASK_FILENAME } from './activeTask';
+
+// aidev writes these bookkeeping files into the repo's working directory
+// (process.cwd()) while `aidev run` is active. They are not user changes and
+// must not trip the dirty-working-tree check — otherwise every branch
+// operation fails while a run is in progress (they're untracked for the
+// duration of the run, since repos aren't required to .gitignore them).
+const AIDEV_OWN_FILES = new Set([LOCK_FILENAME, ACTIVE_TASK_FILENAME]);
 
 function git(args: string[], cwd?: string): { stdout: string; stderr: string; status: number } {
   const result = spawnSync('git', args, {
@@ -164,8 +173,7 @@ export function createBranchFromRemote(remote: string, baseBranch: string, branc
 }
 
 export function hasChanges(): boolean {
-  const result = git(['status', '--porcelain']);
-  return result.status === 0 && result.stdout.trim().length > 0;
+  return listWorkingTreeChanges().length > 0;
 }
 
 /** Returns relative paths of files with uncommitted working-tree changes. */
@@ -176,12 +184,14 @@ export function listWorkingTreeChanges(): string[] {
   const paths: string[] = [];
   for (const line of result.stdout.split('\n').filter((entry) => entry.length > 0)) {
     const pathPart = line.slice(3);
+    let path: string;
     if (pathPart.includes(' -> ')) {
       const destination = pathPart.split(' -> ').pop();
-      if (destination) paths.push(destination.trim());
+      path = destination ? destination.trim() : '';
     } else {
-      paths.push(pathPart.trim());
+      path = pathPart.trim();
     }
+    if (path && !AIDEV_OWN_FILES.has(path)) paths.push(path);
   }
   return paths;
 }
