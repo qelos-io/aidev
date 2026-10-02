@@ -10,6 +10,12 @@ import { ACTIVE_TASK_FILENAME } from './activeTask';
 // duration of the run, since repos aren't required to .gitignore them).
 const AIDEV_OWN_FILES = new Set([LOCK_FILENAME, ACTIVE_TASK_FILENAME]);
 
+// Untracked files under this directory are aidev's own state (cleanup
+// timestamps, sessions, caches, ...). Repos aren't required to gitignore them,
+// and untracked files never block a branch checkout, so they must not make the
+// working tree look dirty. Tracked-but-modified files there still count.
+const AIDEV_STATE_DIR_PREFIX = '.aidev/';
+
 function git(args: string[], cwd?: string): { stdout: string; stderr: string; status: number } {
   const result = spawnSync('git', args, {
     cwd: cwd || process.cwd(),
@@ -178,11 +184,14 @@ export function hasChanges(): boolean {
 
 /** Returns relative paths of files with uncommitted working-tree changes. */
 export function listWorkingTreeChanges(): string[] {
-  const result = git(['status', '--porcelain']);
+  // -uall lists untracked files individually instead of collapsing a whole
+  // untracked directory (e.g. `.aidev/`) into one entry.
+  const result = git(['status', '--porcelain', '-uall']);
   if (result.status !== 0) return [];
 
   const paths: string[] = [];
   for (const line of result.stdout.split('\n').filter((entry) => entry.length > 0)) {
+    const untracked = line.startsWith('??');
     const pathPart = line.slice(3);
     let path: string;
     if (pathPart.includes(' -> ')) {
@@ -191,7 +200,9 @@ export function listWorkingTreeChanges(): string[] {
     } else {
       path = pathPart.trim();
     }
-    if (path && !AIDEV_OWN_FILES.has(path)) paths.push(path);
+    if (!path || AIDEV_OWN_FILES.has(path)) continue;
+    if (untracked && path.startsWith(AIDEV_STATE_DIR_PREFIX)) continue;
+    paths.push(path);
   }
   return paths;
 }

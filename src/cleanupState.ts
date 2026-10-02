@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as git from './git';
 
 /**
  * Gitignored file recording when the weekly cleanup last ran, so cron ticks
@@ -47,4 +48,24 @@ export function shouldRunWeeklyCleanup(lastCleanupAt: number | null, now: Date =
   if (lastCleanupAt === null) return true;
   const sixDaysMs = 6 * 24 * 60 * 60 * 1000;
   return now.getTime() - lastCleanupAt >= sixDaysMs;
+}
+
+/**
+ * Older aidev versions kept the cleanup timestamp in `.aidev/last-cleanup.json`,
+ * which many repos never gitignored. Left untracked it gets swept into task
+ * commits by `git add -A`; left tracked-but-modified it dirties the tree and
+ * blocks branch creation. Heal it at the start of a run: delete it when
+ * untracked, restore it to HEAD when tracked. The current state lives in
+ * `.aidev/last-cleanup.log`, so nothing of value is lost.
+ */
+export const LEGACY_CLEANUP_STATE_RELPATH = path.join('.aidev', 'last-cleanup.json');
+
+export function healLegacyCleanupState(cwd = process.cwd()): void {
+  const file = path.join(cwd, LEGACY_CLEANUP_STATE_RELPATH);
+  if (!fs.existsSync(file)) return;
+  if (git.listIndexedPaths(LEGACY_CLEANUP_STATE_RELPATH, cwd).length === 0) {
+    fs.rmSync(file, { force: true });
+  } else {
+    git.restoreFile(LEGACY_CLEANUP_STATE_RELPATH, cwd);
+  }
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { gitignoreGetCommand, gitignoreModifyCommand } from './commands/gitignore';
 import { initCommand } from './commands/init';
 import { runCommand, RunFilter } from './commands/run';
 import { scheduleSetCommand, scheduleGetCommand, scheduleRemoveCommand, scheduleFixCommand } from './commands/schedule';
@@ -36,6 +37,7 @@ import { agentReviewCommand } from './commands/agentReview';
 import { isGhInstalled, isGhAuthenticated } from './github';
 import { isScreenAvailable } from './platform';
 import { hooksGenerateCommand, hooksUpdateCommand } from './commands/hooks';
+import { healLegacyCleanupState } from './cleanupState';
 import { maybeRunWeeklyCleanup } from './commands/cleanup';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -111,11 +113,15 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
     if (filter === 'tasks') return;
 
     const resolvedFilter: RunFilter = (filter as RunFilter) || 'all';
+    healLegacyCleanupState();
     materializeMcp(config);
     // materializeMcp() may leave an uncommitted .gitignore update on the base
     // branch. Commit it now — aidev never stashes, so any branch-switching
     // that follows requires a clean working tree.
-    if (git.hasChanges()) {
+    // Only act on .gitignore itself: unrelated dirty files (e.g. a stray
+    // .aidev/last-cleanup.json) would otherwise make `git commit` fail with
+    // nothing staged.
+    if (git.listWorkingTreeChanges().includes('.gitignore')) {
       if (!git.addPath('.gitignore') || !git.commit('aidev: update .gitignore for MCP configuration')) {
         logger.error('Failed to commit .gitignore changes left by materializeMcp()');
         process.exit(1);
@@ -173,6 +179,24 @@ program
       logger.error(String(err));
       process.exit(1);
     }
+  });
+
+const gitignoreCmd = program
+  .command('gitignore')
+  .description('Manage the .gitignore patterns aidev needs');
+
+gitignoreCmd
+  .command('get')
+  .description('Print all patterns that should be git-ignored when using aidev')
+  .action(() => {
+    gitignoreGetCommand();
+  });
+
+gitignoreCmd
+  .command('modify')
+  .description('Insert any missing aidev patterns into the existing .gitignore')
+  .action(() => {
+    gitignoreModifyCommand();
   });
 
 const scheduleCmd = program

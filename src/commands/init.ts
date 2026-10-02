@@ -65,6 +65,19 @@ export function getWindowsCursorInitMessage(
   );
 }
 
+/** Patterns aidev expects to find in .gitignore. */
+export function getAidevGitignorePatterns(): string[] {
+  return GITIGNORE_RULES.map(([pattern]) => pattern);
+}
+
+/** Patterns from {@link getAidevGitignorePatterns} not yet covered by the .gitignore in `dir`. */
+export function getMissingGitignorePatterns(dir = process.cwd()): string[] {
+  const gitignorePath = path.join(dir, '.gitignore');
+  const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+  const normalized = normalizeGitignore(existing);
+  return GITIGNORE_RULES.filter(([, regex]) => !regex.test(normalized)).map(([pattern]) => pattern);
+}
+
 export function isAidevAssetsGitignored(dir = process.cwd()): boolean {
   const gitignorePath = path.join(dir, '.gitignore');
   if (!fs.existsSync(gitignorePath)) return false;
