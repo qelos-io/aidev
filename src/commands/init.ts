@@ -27,6 +27,8 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
   ['aidev.tasks.json',        /^aidev\.tasks\.json/m],
   ['.aidev/assets/',          /^\/?\.aidev\/assets\/?$/m],
+  // Patch backups of leftovers discarded between tasks (see ensureCleanWorkingTree).
+  ['.aidev/discarded/',       /^\/?\.aidev\/discarded\/?$/m],
   // No explicit rule for .aidev/last-cleanup.log: the `*.log` rule above already covers it.
   // Legacy cleanup state (pre-*.log rename) — must stay untracked or it dirties the tree.
   ['.aidev/last-cleanup.json', /^\/?\.aidev\/last-cleanup\.json$/m],

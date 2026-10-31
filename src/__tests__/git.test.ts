@@ -225,11 +225,16 @@ describe('createBranchFromRemote (integration)', () => {
     assert.equal(getCurrentBranch(), 'task456/new-feature');
   });
 
-  it('fails fast when the working tree is dirty (aidev never stashes)', () => {
+  it('backs up and discards a dirty working tree instead of failing (no stash)', () => {
     fs.writeFileSync(path.join(tmpDir, 'dirty.txt'), 'uncommitted');
     assert.equal(hasChanges(), true);
-    assert.equal(createBranchFromRemote('origin', 'main', 'task789/clean-start'), false);
-    assert.equal(getCurrentBranch(), 'main');
+    assert.equal(createBranchFromRemote('origin', 'main', 'task789/clean-start'), true);
+    assert.equal(getCurrentBranch(), 'task789/clean-start');
+    assert.equal(fs.existsSync(path.join(tmpDir, 'dirty.txt')), false);
+    assert.equal(stashCount(), 0);
+    const backups = fs.readdirSync(path.join(tmpDir, '.aidev', 'discarded'));
+    assert.equal(backups.length, 1);
+    assert.match(fs.readFileSync(path.join(tmpDir, '.aidev', 'discarded', backups[0]), 'utf8'), /dirty\.txt/);
   });
 
   it('branches from the remote ref, not the local base branch', () => {
@@ -527,19 +532,22 @@ describe('fetchAndCheckout with dirty working tree (integration)', () => {
     fs.rmSync(bareDir, { recursive: true, force: true });
   });
 
-  it('fails fast when there are uncommitted changes (aidev never stashes)', () => {
+  it('discards uncommitted changes and proceeds (no stash)', () => {
     gitCmd(['checkout', '-b', 'feature/dirty'], tmpDir);
     fs.writeFileSync(path.join(tmpDir, 'leftover.txt'), 'from previous run');
     assert.equal(hasChanges(), true);
-    assert.equal(fetchAndCheckout('origin', 'main'), false);
-    assert.equal(getCurrentBranch(), 'feature/dirty');
+    assert.equal(fetchAndCheckout('origin', 'main'), true);
+    assert.equal(getCurrentBranch(), 'main');
+    assert.equal(hasChanges(), false);
+    assert.equal(stashCount(), 0);
   });
 
-  it('fails fast when there are untracked files (aidev never stashes)', () => {
+  it('discards untracked files and proceeds (no stash)', () => {
     fs.writeFileSync(path.join(tmpDir, 'untracked.txt'), 'untracked');
     assert.equal(hasChanges(), true);
-    assert.equal(fetchAndCheckout('origin', 'main'), false);
-    assert.equal(getCurrentBranch(), 'main');
+    assert.equal(fetchAndCheckout('origin', 'main'), true);
+    assert.equal(hasChanges(), false);
+    assert.equal(fs.existsSync(path.join(tmpDir, 'untracked.txt')), false);
   });
 });
 

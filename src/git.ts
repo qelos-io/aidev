@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { logger } from './logger';
 import { LOCK_FILENAME } from './lockfile';
 import { ACTIVE_TASK_FILENAME } from './activeTask';
@@ -64,8 +66,64 @@ export function requireCleanWorkingTree(actionDescription: string): boolean {
   return false;
 }
 
+// Leftover changes discarded between tasks are saved as patch files here (instead of
+// git stash entries, which accumulate inside .git and slow the repo down). Only the
+// newest few are kept, so disk usage stays bounded.
+const DISCARD_BACKUP_DIR = path.join('.aidev', 'discarded');
+const DISCARD_BACKUP_KEEP = 5;
+
+// Pathspecs / clean excludes protecting aidev's own bookkeeping files.
+const AIDEV_OWN_PATHS = [LOCK_FILENAME, ACTIVE_TASK_FILENAME, '.aidev'];
+
+function backupWorkingChanges(): string | null {
+  const add = git(['add', '-A', '--', '.', ...AIDEV_OWN_PATHS.map((p) => `:(exclude)${p}`)]);
+  if (add.status !== 0) {
+    logger.warn(`Could not stage leftovers for backup: ${add.stderr}`);
+    return null;
+  }
+  const diff = git(['diff', '--cached', '--binary', 'HEAD']);
+  if (diff.status !== 0 || !diff.stdout) return null;
+
+  try {
+    const dir = path.join(process.cwd(), DISCARD_BACKUP_DIR);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}.patch`);
+    fs.writeFileSync(file, diff.stdout);
+    const old = fs.readdirSync(dir).filter((f) => f.endsWith('.patch')).sort().slice(0, -DISCARD_BACKUP_KEEP);
+    for (const f of old) fs.rmSync(path.join(dir, f), { force: true });
+    return file;
+  } catch (err) {
+    logger.warn(`Could not write backup patch: ${err}`);
+    return null;
+  }
+}
+
+/**
+ * Makes the working tree clean before a branch-switching operation. Leftovers from
+ * a previous task (uncommitted or untracked files) would otherwise make the
+ * checkout fail, so they are saved to a bounded patch backup under
+ * `.aidev/discarded/` and then discarded. Never uses git stash.
+ */
+export function ensureCleanWorkingTree(actionDescription: string): boolean {
+  if (!hasChanges()) return true;
+
+  const dirtyFiles = listWorkingTreeChanges();
+  logger.warn(
+    `Working tree has uncommitted changes before ${actionDescription}; discarding:\n` +
+    dirtyFiles.map((file) => `  ${file}`).join('\n')
+  );
+  const backup = backupWorkingChanges();
+  if (backup) logger.info(`Saved discarded changes to ${backup} (restore with: git apply <patch>)`);
+
+  if (!discardWorkingChanges() || hasChanges()) {
+    logger.error(`Cannot ${actionDescription}: failed to discard leftover changes. Clean the working tree manually and rerun aidev.`);
+    return false;
+  }
+  return true;
+}
+
 export function fetchAndCheckout(remote: string, baseBranch: string): boolean {
-  if (!requireCleanWorkingTree('fetch and checkout base branch')) return false;
+  if (!ensureCleanWorkingTree('fetch and checkout base branch')) return false;
 
   logger.debug(`git fetch ${remote}`);
   const fetch = git(['fetch', remote]);
@@ -103,7 +161,7 @@ export function fetchAndCheckout(remote: string, baseBranch: string): boolean {
 }
 
 export function fetchAndCheckoutBranch(remote: string, branch: string): boolean {
-  if (!requireCleanWorkingTree(`fetch and checkout branch "${branch}"`)) return false;
+  if (!ensureCleanWorkingTree(`fetch and checkout branch "${branch}"`)) return false;
 
   logger.debug(`git fetch ${remote}`);
   const fetchResult = git(['fetch', remote]);
@@ -153,13 +211,12 @@ export function createBranch(branch: string, expectedBase?: string): boolean {
 
 /**
  * Creates a new branch based on the latest remote base branch.
- * Requires a clean working tree (fails fast otherwise — aidev never
- * stashes), fetches the remote, then branches directly from the remote
+ * Discards leftover changes first (backed up as a patch, never stashed), fetches the remote, then branches directly from the remote
  * tracking ref (e.g. origin/main) — avoiding the need to checkout or
  * sync the local base branch.
  */
 export function createBranchFromRemote(remote: string, baseBranch: string, branch: string): boolean {
-  if (!requireCleanWorkingTree(`create branch "${branch}" from remote`)) return false;
+  if (!ensureCleanWorkingTree(`create branch "${branch}" from remote`)) return false;
 
   logger.debug(`git fetch ${remote}`);
   const fetchResult = git(['fetch', remote]);
@@ -215,7 +272,7 @@ export function discardWorkingChanges(): boolean {
     return false;
   }
 
-  const clean = git(['clean', '-fd']);
+  const clean = git(['clean', '-fd', ...AIDEV_OWN_PATHS.flatMap((p) => ['-e', p])]);
   if (clean.status !== 0) {
     logger.warn(`git clean -fd failed: ${clean.stderr}`);
     return false;
