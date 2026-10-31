@@ -239,25 +239,46 @@ export function addAll(): boolean {
   return result.status === 0;
 }
 
+/**
+ * Normalize a repo-relative path for git pathspecs. `path.join` on Windows
+ * yields backslashes; git accepts them for many commands, but HEAD restores and
+ * `ls-files` pathspecs are more reliable with forward slashes.
+ */
+export function toGitPath(relativePath: string): string {
+  return relativePath.replace(/\\/g, '/');
+}
+
 /** Returns paths under `prefix` that are present in the git index (tracked or staged). */
 export function listIndexedPaths(prefix: string, cwd?: string): string[] {
-  const result = git(['ls-files', '--', prefix], cwd);
+  const result = git(['ls-files', '--', toGitPath(prefix)], cwd);
   if (result.status !== 0) return [];
   return result.stdout.trim().split('\n').filter((entry) => entry.length > 0);
 }
 
+/** Returns true when `relativePath` exists as a blob in HEAD (even if staged for deletion). */
+export function pathExistsInHead(relativePath: string, cwd?: string): boolean {
+  const result = git(['cat-file', '-e', `HEAD:${toGitPath(relativePath)}`], cwd);
+  return result.status === 0;
+}
+
 /**
- * Discards working-tree changes to a single tracked file, restoring it to the
- * HEAD version (`git checkout -- <path>`). Used to clean aidev's own bookkeeping
- * files (e.g. `.aidev/last-cleanup.log`) that are tracked in legacy repos but
- * should be gitignored — restoring to HEAD keeps the working tree clean without
- * committing a `.gitignore`/`git rm --cached` fix on the base branch.
+ * Discards index and working-tree changes to a single tracked file, restoring
+ * it to the HEAD version (`git checkout HEAD -- <path>`). Used to clean aidev's
+ * own bookkeeping files (e.g. `.aidev/last-cleanup.log`) that are tracked in
+ * legacy repos but should be gitignored — restoring to HEAD keeps the working
+ * tree clean without committing a `.gitignore`/`git rm --cached` fix on the
+ * base branch.
+ *
+ * Uses `HEAD` (not the index) so staged deletions (`D `) and staged edits are
+ * cleared too — `git checkout -- <path>` alone only restores the worktree from
+ * the index and leaves a staged deletion dirty.
  */
 export function restoreFile(relativePath: string, cwd?: string): boolean {
-  logger.debug(`git checkout -- ${relativePath}`);
-  const result = git(['checkout', '--', relativePath], cwd);
+  const gitPath = toGitPath(relativePath);
+  logger.debug(`git checkout HEAD -- ${gitPath}`);
+  const result = git(['checkout', 'HEAD', '--', gitPath], cwd);
   if (result.status !== 0) {
-    logger.warn(`git checkout -- ${relativePath} failed: ${result.stderr}`);
+    logger.warn(`git checkout HEAD -- ${gitPath} failed: ${result.stderr}`);
     return false;
   }
   return true;

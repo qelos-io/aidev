@@ -53,19 +53,27 @@ export function shouldRunWeeklyCleanup(lastCleanupAt: number | null, now: Date =
 /**
  * Older aidev versions kept the cleanup timestamp in `.aidev/last-cleanup.json`,
  * which many repos never gitignored. Left untracked it gets swept into task
- * commits by `git add -A`; left tracked-but-modified it dirties the tree and
- * blocks branch creation. Heal it at the start of a run: delete it when
- * untracked, restore it to HEAD when tracked. The current state lives in
+ * commits by `git add -A`; left tracked-but-modified (or deleted in the
+ * worktree / staged for deletion) it dirties the tree and blocks branch
+ * creation. Heal it at the start of a run: delete it when untracked, restore
+ * it to HEAD when still indexed. The current state lives in
  * `.aidev/last-cleanup.log`, so nothing of value is lost.
+ *
+ * Path is forward-slash form so git pathspecs work on Windows (`path.join`
+ * would produce backslashes).
  */
-export const LEGACY_CLEANUP_STATE_RELPATH = path.join('.aidev', 'last-cleanup.json');
+export const LEGACY_CLEANUP_STATE_RELPATH = '.aidev/last-cleanup.json';
 
 export function healLegacyCleanupState(cwd = process.cwd()): void {
-  const file = path.join(cwd, LEGACY_CLEANUP_STATE_RELPATH);
-  if (!fs.existsSync(file)) return;
-  if (git.listIndexedPaths(LEGACY_CLEANUP_STATE_RELPATH, cwd).length === 0) {
-    fs.rmSync(file, { force: true });
-  } else {
+  const file = path.join(cwd, ...LEGACY_CLEANUP_STATE_RELPATH.split('/'));
+  // Prefer HEAD over the index: after `git rm` the path is gone from the index
+  // (`D ` staged deletion) but still present in HEAD, and that dirty state is
+  // exactly what was blocking createBranchFromRemote in aidev.log.
+  if (git.pathExistsInHead(LEGACY_CLEANUP_STATE_RELPATH, cwd)) {
     git.restoreFile(LEGACY_CLEANUP_STATE_RELPATH, cwd);
+    return;
   }
+  // Never committed (or already removed from the tree) — drop any stray
+  // working-tree copy so `git add -A` cannot re-commit it.
+  if (fs.existsSync(file)) fs.rmSync(file, { force: true });
 }

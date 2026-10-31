@@ -101,4 +101,24 @@ describe('aidev run with stray uncommitted files (e2e, local provider)', () => {
 
     assertTaskBranchCreated(runAidev());
   });
+
+  it('creates the task branch when a tracked legacy last-cleanup.json is deleted in the worktree', () => {
+    const file = writeLegacyState();
+    sh('git', ['add', '-f', '.aidev/last-cleanup.json'], work);
+    sh('git', ['commit', '-m', 'legacy state'], work);
+    sh('git', ['push', 'origin', 'main'], work);
+    fs.rmSync(file);
+
+    assertTaskBranchCreated(runAidev());
+  });
+
+  it('creates the task branch when a tracked legacy last-cleanup.json is staged for deletion', () => {
+    writeLegacyState();
+    sh('git', ['add', '-f', '.aidev/last-cleanup.json'], work);
+    sh('git', ['commit', '-m', 'legacy state'], work);
+    sh('git', ['push', 'origin', 'main'], work);
+    sh('git', ['rm', '--', '.aidev/last-cleanup.json'], work);
+
+    assertTaskBranchCreated(runAidev());
+  });
 });

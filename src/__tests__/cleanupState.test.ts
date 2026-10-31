@@ -1,14 +1,18 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   cleanupStatePath,
+  healLegacyCleanupState,
+  LEGACY_CLEANUP_STATE_RELPATH,
   readLastCleanupAt,
   writeLastCleanupAt,
   shouldRunWeeklyCleanup,
 } from '../cleanupState';
+import { listWorkingTreeChanges } from '../git';
 
 describe('shouldRunWeeklyCleanup', () => {
   it('is not due on a non-Monday, even with no prior run', () => {
@@ -65,5 +69,89 @@ describe('readLastCleanupAt / writeLastCleanupAt', () => {
     fs.mkdirSync(path.join(tmpDir, '.aidev'), { recursive: true });
     fs.writeFileSync(cleanupStatePath(tmpDir), 'not json', 'utf8');
     assert.equal(readLastCleanupAt(tmpDir), null);
+  });
+});
+
+describe('healLegacyCleanupState', () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  function gitCmd(args: string[]): void {
+    const result = spawnSync('git', args, { cwd: tmpDir, encoding: 'utf8' });
+    if (result.status !== 0) {
+      throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+    }
+  }
+
+  function commitLegacyFile(): string {
+    const file = path.join(tmpDir, ...LEGACY_CLEANUP_STATE_RELPATH.split('/'));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ lastCleanupAt: 1 }), 'utf8');
+    gitCmd(['add', '-f', LEGACY_CLEANUP_STATE_RELPATH]);
+    gitCmd(['commit', '-m', 'legacy cleanup state']);
+    return file;
+  }
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-heal-legacy-'));
+    gitCmd(['init', '-b', 'main']);
+    gitCmd(['config', 'user.email', 't@t.t']);
+    gitCmd(['config', 'user.name', 't']);
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# t\n');
+    gitCmd(['add', 'README.md']);
+    gitCmd(['commit', '-m', 'init']);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('deletes an untracked legacy file', () => {
+    const file = path.join(tmpDir, ...LEGACY_CLEANUP_STATE_RELPATH.split('/'));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ lastCleanupAt: 1 }), 'utf8');
+
+    healLegacyCleanupState(tmpDir);
+
+    assert.equal(fs.existsSync(file), false);
+    assert.deepEqual(listWorkingTreeChanges(), []);
+  });
+
+  it('restores a tracked legacy file after an unstaged deletion', () => {
+    const file = commitLegacyFile();
+    fs.rmSync(file);
+
+    assert.ok(listWorkingTreeChanges().includes(LEGACY_CLEANUP_STATE_RELPATH));
+
+    healLegacyCleanupState(tmpDir);
+
+    assert.ok(fs.existsSync(file));
+    assert.deepEqual(listWorkingTreeChanges(), []);
+  });
+
+  it('restores a tracked legacy file after a staged deletion', () => {
+    const file = commitLegacyFile();
+    gitCmd(['rm', '--', LEGACY_CLEANUP_STATE_RELPATH]);
+
+    assert.ok(listWorkingTreeChanges().includes(LEGACY_CLEANUP_STATE_RELPATH));
+    assert.equal(fs.existsSync(file), false);
+
+    healLegacyCleanupState(tmpDir);
+
+    assert.ok(fs.existsSync(file));
+    assert.deepEqual(listWorkingTreeChanges(), []);
+  });
+
+  it('restores a tracked legacy file after a content modification', () => {
+    const file = commitLegacyFile();
+    fs.writeFileSync(file, JSON.stringify({ lastCleanupAt: 99 }), 'utf8');
+
+    healLegacyCleanupState(tmpDir);
+
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).lastCleanupAt, 1);
+    assert.deepEqual(listWorkingTreeChanges(), []);
   });
 });
