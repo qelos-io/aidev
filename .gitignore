@@ -23,3 +23,5 @@ ui/.output
 .codex/config.toml
 opencode.json
 *.aidev-backup
+.aidev.lock
+.aidev.active
