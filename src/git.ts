@@ -288,6 +288,13 @@ export function addPath(relativePath: string, cwd?: string): boolean {
   return result.status === 0;
 }
 
+/** True when the index differs from HEAD for the given path (i.e. a commit would not be empty). */
+export function hasStagedChanges(relativePath: string, cwd?: string): boolean {
+  // `diff --cached --quiet` exits 1 when there are staged differences, 0 when none.
+  const result = git(['diff', '--cached', '--quiet', '--', relativePath], cwd);
+  return result.status !== 0;
+}
+
 /** Removes a path from the index and working tree. */
 export function removePathFromIndexAndTree(relativePath: string, cwd?: string): boolean {
   logger.debug(`git rm -r -f -- ${relativePath}`);
@@ -314,7 +321,8 @@ export function commit(message: string, expectedBranch?: string): boolean {
   logger.debug(`git commit -m "${message}"`);
   const result = git(['commit', '-m', message]);
   if (result.status !== 0) {
-    logger.error(`git commit failed: ${result.stderr}`);
+    // git reports e.g. "nothing to commit" and hook output on stdout, so include both.
+    logger.error(`git commit failed: ${(result.stderr || result.stdout).trim()}`);
     return false;
   }
   return true;
