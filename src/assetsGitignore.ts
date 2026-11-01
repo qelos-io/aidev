@@ -7,6 +7,17 @@ import { logger } from './logger';
 
 const ASSETS_GIT_PREFIX = '.aidev/assets/';
 
+/** Git pathspecs for aidev's own bookkeeping files, which must never be in the index. */
+const OPERATIONAL_PATHSPECS = [
+  ':(glob)**/.aidev.lock',
+  ':(glob)**/.aidev.active',
+  ':(glob)**/.aidev.log',
+  ':(glob)**/*.aidev.task.json',
+  ':(glob)**/*.aidev.instructions.md',
+  '.aidev/last-cleanup.log',
+  '.aidev/last-cleanup.json',
+];
+
 export interface AidevAssetsGitignoreState {
   missingGitignore: boolean;
   indexedFiles: string[];
@@ -65,6 +76,24 @@ export function prepareForTaskCommit(
       }
     } else if (fs.existsSync(assetsDir)) {
       fs.rmSync(assetsDir, { recursive: true, force: true });
+    }
+  }
+
+  // Operational files (lock, active-task marker, logs, per-task scratch files) must never be
+  // committed: a tracked `.aidev.lock` / `.aidev.active` leaves aidev stuck. Untrack them (the
+  // working-tree copies stay) and let the .gitignore update below keep them out for good.
+  const operational = git.listIndexedMatching(OPERATIONAL_PATHSPECS, cwd);
+  if (operational.length > 0) {
+    logger.warn(`aidev operational files are indexed — untracking: ${operational.join(', ')}`);
+    if (!git.removePathsFromIndex(operational, cwd)) {
+      return false;
+    }
+    if (!git.commit(
+      `${commitPrefix} Stop tracking aidev operational files\n\nUntracked: ${operational.join(', ')}`,
+      branchName,
+    )) {
+      logger.error('Failed to commit removal of aidev operational files');
+      return false;
     }
   }
 

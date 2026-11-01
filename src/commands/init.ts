@@ -27,7 +27,9 @@ const GITIGNORE_RULES: Array<[string, RegExp]> = [
   ['*.aidev.task.json',       /^\*\.aidev\.task\.json/m],
   ['aidev.tasks.json',        /^aidev\.tasks\.json/m],
   ['.aidev/assets/',          /^\/?\.aidev\/assets\/?$/m],
-  // No explicit rule for .aidev/last-cleanup.log: the `*.log` rule above already covers it.
+  ['.aidev.lock',             /^\/?\.aidev\.lock\s*$/m],
+  ['.aidev.active',           /^\/?\.aidev\.active\s*$/m],
+  // No explicit rule for .aidev.log / .aidev/last-cleanup.log: the `*.log` rule above already covers them.
   ...MCP_GITIGNORE_RULES,
 ];
 
