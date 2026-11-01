@@ -164,7 +164,7 @@ export async function acceptedCommand(
 
   let merged = 0;
   for (const task of acceptedTasks) {
-    const branchName = `${task.id}/${git.slugify(task.name)}`;
+    const branchName = git.buildBranchName(task.id, task.name);
     logger.task(`[${task.id}] "${task.name}" — merging branch ${branchName}`);
 
     const mergeability = getPullRequestMergeability(branchName);

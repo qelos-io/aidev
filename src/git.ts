@@ -485,3 +485,9 @@ export function slugify(text: string): string {
     .replace(/^-|-$/g, '')
     .slice(0, 50);
 }
+
+/** `<id>/<slug>`, or just `<id>` when the title slugifies to nothing (e.g. non-English titles). */
+export function buildBranchName(taskId: string, title: string): string {
+  const slug = slugify(title);
+  return slug ? `${taskId}/${slug}` : taskId;
+}
