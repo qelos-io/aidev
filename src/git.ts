@@ -246,6 +246,26 @@ export function listIndexedPaths(prefix: string, cwd?: string): string[] {
   return result.stdout.trim().split('\n').filter((entry) => entry.length > 0);
 }
 
+/** Indexed (tracked or staged) paths matching any of the given git pathspecs. */
+export function listIndexedMatching(pathspecs: string[], cwd?: string): string[] {
+  if (pathspecs.length === 0) return [];
+  const result = git(['ls-files', '--', ...pathspecs], cwd);
+  if (result.status !== 0) return [];
+  return result.stdout.trim().split('\n').map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+}
+
+/** Removes paths from the index only (`git rm --cached`), leaving working-tree files intact. */
+export function removePathsFromIndex(relativePaths: string[], cwd?: string): boolean {
+  if (relativePaths.length === 0) return true;
+  logger.debug(`git rm --cached -r -f -- ${relativePaths.join(' ')}`);
+  const result = git(['rm', '--cached', '-r', '-f', '--', ...relativePaths], cwd);
+  if (result.status !== 0) {
+    logger.error(`git rm --cached failed: ${result.stderr}`);
+    return false;
+  }
+  return true;
+}
+
 /**
  * Discards working-tree changes to a single tracked file, restoring it to the
  * HEAD version (`git checkout -- <path>`). Used to clean aidev's own bookkeeping
