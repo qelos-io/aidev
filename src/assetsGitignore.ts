@@ -110,6 +110,10 @@ export function prepareForTaskCommit(
       logger.error('Failed to stage .gitignore update');
       return false;
     }
+    // A whitespace/line-ending-only rewrite stages nothing; committing would fail as "nothing to commit".
+    if (!git.hasStagedChanges('.gitignore', cwd)) {
+      return true;
+    }
     const message = hasAssetsIssues
       ? `${commitPrefix} Ignore .aidev/assets/\n\nEnsure task asset downloads are never committed.`
       : `${commitPrefix} Update .gitignore\n\nEnsure aidev-managed files are git-ignored.`;
