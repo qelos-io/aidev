@@ -790,6 +790,12 @@ describe('getRunSkipReason', () => {
     assert.equal(getRunSkipReason('Pending Review', 'all', 'pending review'), null);
   });
 
+  it('ignores surrounding whitespace in task and configured statuses', () => {
+    assert.equal(getRunSkipReason(' open ', 'all', 'pending'), null);
+    assert.equal(getRunSkipReason('pending review ', 'all', ' pending review'), null);
+    assert.equal(getRunSkipReason('closed ', 'all', 'pending'), 'terminal status: closed ');
+  });
+
   it('skips statuses that are neither open nor pending', () => {
     assert.equal(getRunSkipReason('failed', 'all', 'pending'), 'status "failed" is not open or pending');
   });
@@ -1356,6 +1362,14 @@ describe('getBlockedBySkipReason', () => {
 
   it('returns null when the blocker task is closed', async () => {
     const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: 'closed', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['blocker1']);
+    const result = await getBlockedBySkipReason(task, provider);
+    assert.equal(result, null);
+  });
+
+  it('returns null when the blocker status has surrounding whitespace', async () => {
+    const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: ' Closed ', url: '', tags: [] };
     const provider = makeProviderWithFetchById(blocker);
     const task = makeBlockedTask(['blocker1']);
     const result = await getBlockedBySkipReason(task, provider);

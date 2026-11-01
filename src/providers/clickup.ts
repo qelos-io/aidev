@@ -226,7 +226,7 @@ export class ClickUpProvider implements TaskProvider {
     let pending = 0;
     let inReview = 0;
     for (const t of activeTasks) {
-      const status = t.status.status.toLowerCase();
+      const status = t.status.status.trim().toLowerCase();
       if (openSet.has(status)) open += 1;
       else if (pendingSet.has(status)) pending += 1;
       else if (reviewSet.has(status)) inReview += 1;
@@ -310,7 +310,7 @@ export class ClickUpProvider implements TaskProvider {
       id: t.id,
       name: t.name,
       description,
-      status: t.status.status.toLowerCase(),
+      status: t.status.status.trim().toLowerCase(),
       url: t.url,
       tags: t.tags.map((tag) => tag.name),
       priority: t.priority ? parseInt(t.priority.id, 10) : undefined,
@@ -351,7 +351,7 @@ export class ClickUpProvider implements TaskProvider {
     const data = await this.request<TasksResponse>(
       `/team/${this.teamId}/task?subtasks=true&include_closed=false&include_markdown_description=true`,
     );
-    return data.tasks.filter((t) => normalized.includes(t.status.status.toLowerCase()));
+    return data.tasks.filter((t) => normalized.includes(t.status.status.trim().toLowerCase()));
   }
 
   async fetchBoardTasks(options?: FetchTasksOptions): Promise<Task[]> {
@@ -361,8 +361,8 @@ export class ClickUpProvider implements TaskProvider {
       omitDescription: true,
       ...options,
     };
-    const pendingStatus = this.pendingStatus.toLowerCase();
-    const openStatus = this.openStatus.toLowerCase();
+    const pendingStatus = this.pendingStatus.trim().toLowerCase();
+    const openStatus = this.openStatus.trim().toLowerCase();
     const inProgress = ClickUpProvider.IN_PROGRESS_STATUS;
     const inReviewStatus = this.inReviewStatus.toLowerCase();
 
@@ -372,7 +372,7 @@ export class ClickUpProvider implements TaskProvider {
       options?.omitDescription !== true,
     );
     const eligible = tagged.filter((t) => {
-      const status = t.status.status.toLowerCase();
+      const status = t.status.status.trim().toLowerCase();
       return status === openStatus || status === pendingStatus || status === inProgress || status === inReviewStatus;
     });
 
@@ -396,15 +396,15 @@ export class ClickUpProvider implements TaskProvider {
   async fetchTasks(options?: FetchTasksOptions): Promise<Task[]> {
     logger.debug(`Fetching tasks with tag "${this.tag}" from team ${this.teamId}`);
 
-    const pendingStatus = this.pendingStatus.toLowerCase();
-    const openStatus = this.openStatus.toLowerCase();
+    const pendingStatus = this.pendingStatus.trim().toLowerCase();
+    const openStatus = this.openStatus.trim().toLowerCase();
     const all = await this.fetchTaggedTeamTasks(
       options?.updatedAfter,
       options?.includeClosed === true,
       options?.omitDescription !== true,
     );
     const eligibleTasks = all.filter((t) => {
-      const status = t.status.status.toLowerCase();
+      const status = t.status.status.trim().toLowerCase();
       return status === openStatus || status === pendingStatus;
     });
 
@@ -419,7 +419,7 @@ export class ClickUpProvider implements TaskProvider {
       options?.omitDescription !== true,
     );
     const eligibleTasks = all.filter((t) =>
-      normalized.includes(t.status.status.toLowerCase()),
+      normalized.includes(t.status.status.trim().toLowerCase()),
     );
     return this.mapRawTasks(eligibleTasks, options);
   }
