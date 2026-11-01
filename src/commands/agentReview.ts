@@ -164,7 +164,7 @@ export async function agentReviewCommand(
 
   let reviewed = 0;
   for (const task of reviewTasks) {
-    const branchName = `${task.id}/${git.slugify(task.name)}`;
+    const branchName = git.buildBranchName(task.id, task.name);
     logger.task(`[${task.id}] "${task.name}" — agent review for branch ${branchName}`);
 
     const prNumber = deps.getPrNumberForBranch(branchName);

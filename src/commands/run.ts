@@ -833,7 +833,7 @@ async function processTask(
     return 'skipped';
   }
 
-  const branchName = `${task.id}/${git.slugify(task.name)}`;
+  const branchName = git.buildBranchName(task.id, task.name);
   const branchExists = git.remoteBranchExists(config.gitRemote, branchName);
 
   if (isPending || branchExists) {
@@ -2957,7 +2957,7 @@ async function processReviewTask(
   hooks: AidevHooks = {},
   vm?: HookVM
 ): Promise<'processed' | 'skipped'> {
-  const branchName = `${task.id}/${git.slugify(task.name)}`;
+  const branchName = git.buildBranchName(task.id, task.name);
 
   logger.task(`[${task.id}] "${task.name}" [review] — checking code reviews`);
 
