@@ -140,9 +140,17 @@ export async function acceptedCommand(
 
   const tasks = await provider.fetchTasksByStatus([reviewStatus]);
   const acceptedTag = config.acceptedTag.toLowerCase();
-  const acceptedTasks = tasks.filter((t) =>
-    t.tags.some((tag) => tag.toLowerCase() === acceptedTag)
-  );
+  const reviewTag = config.agentReviewTag?.toLowerCase();
+  const acceptedTasks = tasks.filter((t) => {
+    const tags = t.tags.map((tag) => tag.toLowerCase());
+    if (!tags.includes(acceptedTag)) return false;
+    // Agent review takes precedence: don't merge while the review tag is still pending.
+    if (reviewTag && tags.includes(reviewTag)) {
+      logger.info(`[${t.id}] Has both accepted and "${config.agentReviewTag}" tags — deferring merge until agent review completes`);
+      return false;
+    }
+    return true;
+  });
 
   if (acceptedTasks.length === 0) {
     logger.info('No accepted tasks found.');
