@@ -237,7 +237,7 @@ export function loadConfig(customEnvPath?: string): Config {
   const acceptedTag = process.env.ACCEPTED_TAG || 'accepted';
   const autoApproveRaw = (process.env.AUTO_APPROVE || '').trim().toLowerCase();
   const autoApprove = ['true', '1', 'yes'].includes(autoApproveRaw);
-  const agentReviewTag = process.env.AGENT_REVIEW_TAG || 'agent review';
+  const agentReviewTag = process.env.AGENT_REVIEW_TAG || 'agent-review';
   const autoReviewRaw = (process.env.AUTO_REVIEW || '').trim().toLowerCase();
   const autoReview = ['true', '1', 'yes'].includes(autoReviewRaw);
   const doneStatus = process.env.DONE_STATUS || '';

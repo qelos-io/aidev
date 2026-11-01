@@ -491,10 +491,10 @@ describe('loadConfig tag defaults', () => {
     delete process.env.AUTO_APPROVE;
   });
 
-  it('defaults agentReviewTag to "agent review" when AGENT_REVIEW_TAG is unset', () => {
+  it('defaults agentReviewTag to "agent-review" when AGENT_REVIEW_TAG is unset', () => {
     delete process.env.AGENT_REVIEW_TAG;
     const config = loadConfig();
-    assert.equal(config.agentReviewTag, 'agent review');
+    assert.equal(config.agentReviewTag, 'agent-review');
   });
 
   it('respects explicit AGENT_REVIEW_TAG when set', () => {

@@ -18,7 +18,7 @@ function stubTask(overrides: Partial<Task> = {}): Task {
     description: 'Implement the feature.',
     status: 'review',
     url: 'https://example.test/t/TASK-1',
-    tags: ['agent review'],
+    tags: ['agent-review'],
     ...overrides,
   };
 }
@@ -85,7 +85,7 @@ function stubConfig(overrides: Partial<Config> = {}): Config {
     doneStatus: '',
     autoCompress: false,
     compressThreshold: 0,
-    agentReviewTag: 'agent review',
+    agentReviewTag: 'agent-review',
     autoReview: false,
     safeMode: false,
     ...overrides,
@@ -206,7 +206,7 @@ describe('agentReviewCommand', () => {
     await agentReviewCommand(config, provider, runners, true, deps);
 
     assert.equal(ghCalled, true);
-    assert.deepEqual(provider.removedTags, [{ taskId: 'TASK-1', tag: 'agent review' }]);
+    assert.deepEqual(provider.removedTags, [{ taskId: 'TASK-1', tag: 'agent-review' }]);
     assert.ok(provider.postedComments.some((c) => c.includes('Starting automated code review')));
     assert.ok(provider.postedComments.some((c) => c.includes('posted 1 comment(s)')));
   });
@@ -247,7 +247,7 @@ describe('agentReviewCommand', () => {
     await agentReviewCommand(config, provider, [stubRunner('[]')], true, deps);
 
     assert.deepEqual(postedComments, []);
-    assert.deepEqual(provider.removedTags, [{ taskId: 'TASK-1', tag: 'agent review' }]);
+    assert.deepEqual(provider.removedTags, [{ taskId: 'TASK-1', tag: 'agent-review' }]);
     assert.ok(provider.postedComments.some((c) => c.includes('no issues found')));
   });
 
