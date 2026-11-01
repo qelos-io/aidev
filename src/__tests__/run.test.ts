@@ -889,11 +889,11 @@ describe('applyAutoReviewTag', () => {
     const provider = {
       addTag: async (_taskId: string, tag: string) => { added.push(tag); },
     } as TaskProvider;
-    const config = { ...baseConfig, autoReview: true, agentReviewTag: 'agent review' } as Config;
+    const config = { ...baseConfig, autoReview: true, agentReviewTag: 'agent-review' } as Config;
 
     await applyAutoReviewTag(task, config, provider);
 
-    assert.deepEqual(added, ['agent review']);
+    assert.deepEqual(added, ['agent-review']);
   });
 
   it('does nothing when autoReview is disabled', async () => {
@@ -901,7 +901,7 @@ describe('applyAutoReviewTag', () => {
     const provider = {
       addTag: async () => { called = true; },
     } as TaskProvider;
-    const config = { ...baseConfig, autoReview: false, agentReviewTag: 'agent review' } as Config;
+    const config = { ...baseConfig, autoReview: false, agentReviewTag: 'agent-review' } as Config;
 
     await applyAutoReviewTag(task, config, provider);
 
@@ -913,8 +913,8 @@ describe('applyAutoReviewTag', () => {
     const provider = {
       addTag: async () => { called = true; },
     } as TaskProvider;
-    const config = { ...baseConfig, autoReview: true, agentReviewTag: 'agent review' } as Config;
-    const taggedTask = { ...task, tags: ['myproject', 'Agent Review'] };
+    const config = { ...baseConfig, autoReview: true, agentReviewTag: 'agent-review' } as Config;
+    const taggedTask = { ...task, tags: ['myproject', 'Agent-Review'] };
 
     await applyAutoReviewTag(taggedTask, config, provider);
 
@@ -923,7 +923,7 @@ describe('applyAutoReviewTag', () => {
 
   it('does nothing when provider lacks addTag', async () => {
     const provider = {} as TaskProvider;
-    const config = { ...baseConfig, autoReview: true, agentReviewTag: 'agent review' } as Config;
+    const config = { ...baseConfig, autoReview: true, agentReviewTag: 'agent-review' } as Config;
 
     await applyAutoReviewTag(task, config, provider);
   });

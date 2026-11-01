@@ -993,7 +993,7 @@ export async function initCommand(): Promise<void> {
       agentReviewTag = await ask(
         rl,
         `Agent review tag ${hint('tag marking a task for automated PR review')}`,
-        existing.AGENT_REVIEW_TAG || 'agent review'
+        existing.AGENT_REVIEW_TAG || 'agent-review'
       );
       const existingAutoReview = (existing.AUTO_REVIEW || '').trim().toLowerCase();
       const autoReviewDefault = ['true', '1', 'yes'].includes(existingAutoReview) ? 'yes' : 'no';

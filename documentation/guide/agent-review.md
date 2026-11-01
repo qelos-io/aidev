@@ -1,12 +1,12 @@
 # Agent review
 
-When a task is in your configured **in review** status and tagged with `agent review` (the default — override via `AGENT_REVIEW_TAG`), aidev fetches the pull request diff via the GitHub CLI, runs an AI code review, and posts the results on the PR. This is a **proactive** review of the diff — it does not wait for human reviewers to leave comments.
+When a task is in your configured **in review** status and tagged with `agent-review` (the default — override via `AGENT_REVIEW_TAG`), aidev fetches the pull request diff via the GitHub CLI, runs an AI code review, and posts the results on the PR. This is a **proactive** review of the diff — it does not wait for human reviewers to leave comments.
 
 For **reactive** handling of existing human review threads, see [Code review resolution](/guide/code-review).
 
 ```bash
 # In .env.aidev (both optional)
-# AGENT_REVIEW_TAG=agent review
+# AGENT_REVIEW_TAG=agent-review
 # AUTO_REVIEW=false
 ```
 

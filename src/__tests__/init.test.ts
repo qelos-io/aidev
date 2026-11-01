@@ -166,10 +166,10 @@ describe('renderEnv', () => {
   it('includes AGENT_REVIEW_TAG and AUTO_REVIEW when set', () => {
     const out = renderEnv({
       ...baseAnswers,
-      agentReviewTag: 'agent review',
+      agentReviewTag: 'agent-review',
       autoReview: true,
     });
-    assert.ok(out.includes('AGENT_REVIEW_TAG="agent review"'));
+    assert.ok(out.includes('AGENT_REVIEW_TAG=agent-review'));
     assert.ok(out.includes('AUTO_REVIEW=true'));
   });
 
