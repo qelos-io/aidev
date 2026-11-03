@@ -4,6 +4,7 @@ export const HOOK_NAMES: string[] = [
   'afterRun',
   'beforeEachTask',
   'afterEachTask',
+  'beforeContinueTask',
   'beforeResolveConflicts',
   'afterResolveConflicts',
   'beforeNonCodeTask',
@@ -40,6 +41,16 @@ interface TaskContext {
   config: Record<string, unknown>;
   branchName: string;
   prompt: string;
+}
+
+interface ContinueTaskContext {
+  task: { id: string; name: string; description: string; status: string; url: string; tags: string[] };
+  config: Record<string, unknown>;
+  branchName: string;
+  /** Follow-up prompt sent in the same agent session. Set to '' to skip the follow-up. */
+  prompt: string;
+  runner: string;
+  sessionId: string;
 }
 
 interface ResolveConflictsContext {
@@ -105,6 +116,11 @@ export async function beforeEachTask(_context: TaskContext, _vm: HookVM): Promis
 
 /** After a code task completes the success path (push + review). */
 export async function afterEachTask(_context: TaskContext & { success: boolean }, _vm: HookVM): Promise<void> {
+  return;
+}
+
+/** Before the "continue if you haven't finished" follow-up in the same agent session. AI idea: demand tests/lint pass, or set context.prompt = '' to skip. */
+export async function beforeContinueTask(_context: ContinueTaskContext, _vm: HookVM): Promise<ContinueTaskContext | void> {
   return;
 }
 
@@ -183,6 +199,10 @@ const HOOK_STUBS: Record<string, HookStub> = {
   afterEachTask: {
     namedExport: `/** After a code task completes the success path (push + review). */\nexport async function afterEachTask(_context: TaskContext & { success: boolean }, _vm: HookVM): Promise<void> {\n  return;\n}\n`,
     objectMethod: `  /** After a code task completes the success path (push + review). */\n  async afterEachTask(_context: TaskContext & { success: boolean }, _vm: HookVM): Promise<void> {\n    return;\n  },\n`,
+  },
+  beforeContinueTask: {
+    namedExport: `/** Before the "continue if you haven't finished" follow-up in the same agent session. AI idea: demand tests/lint pass, or set context.prompt = '' to skip. */\nexport async function beforeContinueTask(_context: ContinueTaskContext, _vm: HookVM): Promise<ContinueTaskContext | void> {\n  return;\n}\n`,
+    objectMethod: `  /** Before the "continue if you haven't finished" follow-up in the same agent session. AI idea: demand tests/lint pass, or set context.prompt = '' to skip. */\n  async beforeContinueTask(_context: ContinueTaskContext, _vm: HookVM): Promise<ContinueTaskContext | void> {\n    return;\n  },\n`,
   },
   beforeResolveConflicts: {
     namedExport: `/** Before AI-driven merge conflict resolution. AI idea: tighten context.prompt for your stack. */\nexport async function beforeResolveConflicts(_context: ResolveConflictsContext, _vm: HookVM): Promise<ResolveConflictsContext | void> {\n  return;\n}\n`,

@@ -10,6 +10,7 @@ export {
 } from './comments';
 export {
   buildConflictResolutionPrompt,
+  buildContinuePrompt,
   buildImplementPrompt,
   buildPlanningAnalysisPrompt,
   buildThinkingAnalysisPrompt,

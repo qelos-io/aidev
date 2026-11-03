@@ -8,6 +8,7 @@ import { runSpawnAttempts } from './spawnAttempts';
 
 export class DevinRunner implements AIRunner {
   readonly name = 'devin';
+  readonly supportsSessions = true;
 
   isAvailable(): boolean {
     return commandExists('devin');
@@ -35,6 +36,8 @@ async function runViaCli(fullPrompt: string, options?: AIRunOptions): Promise<AI
       '--respect-workspace-trust', 'false',
       '--prompt-file', promptFile,
     ];
+    // Devin generates its own session ids; a follow-up continues the most recent one.
+    if (options?.session?.resume) args.unshift('--continue');
 
     const result = await runSpawnAttempts('devin', [args], {
       encoding: 'utf8',

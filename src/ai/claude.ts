@@ -56,6 +56,7 @@ function logClaudeAuthStatus(): void {
 
 export class ClaudeRunner implements AIRunner {
   readonly name = 'claude';
+  readonly supportsSessions = true;
 
   isAvailable(): boolean {
     return commandExists('claude');
@@ -75,7 +76,12 @@ export class ClaudeRunner implements AIRunner {
     const mcp = getMcpState();
     const mcpArgs = mcp ? ['--mcp-config', mcp.claudeConfigPath, '--strict-mcp-config'] : [];
 
-    const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions', ...mcpArgs];
+    const session = options?.session;
+    const sessionArgs = session
+      ? [session.resume ? '--resume' : '--session-id', session.id]
+      : [];
+
+    const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions', ...mcpArgs, ...sessionArgs];
     const attempts: string[][] = [
       [...baseArgs, '--model', model],
       baseArgs,

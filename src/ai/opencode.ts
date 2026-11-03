@@ -9,6 +9,7 @@ import { runSpawnAttempts } from './spawnAttempts';
  */
 export class OpencodeRunner implements AIRunner {
   readonly name = 'opencode';
+  readonly supportsSessions = true;
 
   isAvailable(): boolean {
     return commandExists('opencode');
@@ -22,6 +23,10 @@ export class OpencodeRunner implements AIRunner {
 
     const cwd = process.cwd();
     const args = ['run', '--dangerously-skip-permissions', '--dir', cwd];
+
+    // opencode generates its own session ids, so a follow-up continues the most
+    // recent session in this directory (`--continue`).
+    if (options?.session?.resume) args.push('--continue');
 
     const model = (process.env.OPENCODE_MODEL || '').trim();
     if (model) args.push('--model', model);

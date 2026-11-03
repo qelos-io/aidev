@@ -9,6 +9,7 @@ import { runSpawnAttempts } from './spawnAttempts';
  */
 export class CodexRunner implements AIRunner {
   readonly name = 'codex';
+  readonly supportsSessions = true;
 
   isAvailable(): boolean {
     return commandExists('codex');
@@ -21,13 +22,17 @@ export class CodexRunner implements AIRunner {
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
     const cwd = process.cwd();
-    const args = [
-      'exec',
-      '--ask-for-approval', 'never',
-      '--sandbox', 'workspace-write',
-      '--cd', cwd,
-      fullPrompt,
-    ];
+    // Codex generates its own session ids; a follow-up resumes the most recent
+    // session (`codex exec resume --last`).
+    const args = options?.session?.resume
+      ? ['exec', 'resume', '--last', fullPrompt]
+      : [
+          'exec',
+          '--ask-for-approval', 'never',
+          '--sandbox', 'workspace-write',
+          '--cd', cwd,
+          fullPrompt,
+        ];
 
     const result = await runSpawnAttempts('codex', [args], {
       encoding: 'utf8',

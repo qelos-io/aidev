@@ -3,7 +3,8 @@ import * as path from 'node:path';
 import { Config, Task, Comment } from '../types';
 import { TaskProvider } from '../providers';
 import { AIRunner } from '../ai';
-import type { AIRunOptions } from '../ai/base';
+import type { AIRunOptions, AIRunResult } from '../ai/base';
+import { randomUUID } from 'node:crypto';
 import { logger, logRunStart } from '../logger';
 import { isScreenAvailable } from '../platform';
 import * as git from '../git';
@@ -20,7 +21,7 @@ import { startConfigServer, type ConfigServer, type ConfigInheritPayload } from 
 import { envFileKeys } from '../config';
 import {
   AidevHooks, HookVM, executeHook, postCommentWithHooks,
-  RunContext, TaskContext, ResolveConflictsContext, NonCodeTaskContext, ThinkingTaskContext,
+  RunContext, TaskContext, ContinueTaskContext, ResolveConflictsContext, NonCodeTaskContext, ThinkingTaskContext,
   ReviewTaskContext,
 } from '../hooks';
 import { buildCompressedContext } from '../sessions';
@@ -42,6 +43,7 @@ import {
   buildAssetsAccessInstructions,
   buildCompletionComment,
   buildConflictResolutionPrompt,
+  buildContinuePrompt,
   buildConsultCompletionComment,
   buildConsultPrompt,
   buildImplementPrompt,
@@ -1257,6 +1259,59 @@ function resolveHandledThreads(threads: ReviewThread[]): void {
   }
 }
 
+/**
+ * Runs the implementation prompt in a fresh agent session and, when the agent
+ * supports sessions, sends a follow-up prompt ("if you haven't finished yet -
+ * continue") in the same session so the task goes all the way. The follow-up
+ * prompt can be changed or skipped via the `beforeContinueTask` hook.
+ */
+export async function runCodeTaskWithContinuation(
+  runner: AIRunner,
+  prompt: string,
+  notes: string | undefined,
+  task: Task,
+  branchName: string,
+  provider: TaskProvider,
+  config: Config,
+  assetOptions: Pick<AIRunOptions, 'assetDirs'> | undefined,
+  hooks: AidevHooks,
+  vm: HookVM | undefined,
+): Promise<AIRunResult & { stoppedByStatus?: boolean; stopReason?: string }> {
+  const useSession = config.continueAfterRun && runner.supportsSessions === true;
+  const sessionId = useSession ? randomUUID() : '';
+
+  const first = await runRunnerWithStatusWatch(
+    runner, prompt, notes, provider, task.id, config, 'code',
+    useSession ? { ...assetOptions, session: { id: sessionId, resume: false } } : assetOptions,
+  );
+  if (!useSession || !first.success || first.stoppedByStatus) return first;
+
+  let continuePrompt = buildContinuePrompt();
+  if (vm) {
+    const ctx: ContinueTaskContext = {
+      task, config, branchName, prompt: continuePrompt, runner: runner.name, sessionId,
+    };
+    continuePrompt = (await executeHook(hooks, 'beforeContinueTask', ctx, vm)).prompt;
+  }
+  if (!continuePrompt.trim()) {
+    logger.debug('Follow-up prompt is empty — skipping continuation');
+    return first;
+  }
+
+  logger.info(`Asking ${runner.name} to continue in the same session if it has not finished...`);
+  const second = await runRunnerWithStatusWatch(
+    runner, continuePrompt, undefined, provider, task.id, config, 'code',
+    { ...assetOptions, session: { id: sessionId, resume: true } },
+  );
+  if (second.stoppedByStatus) return second;
+  if (!second.success) {
+    // The first run already succeeded; a failed follow-up must not discard its work.
+    logger.warn(`${runner.name} follow-up failed — keeping the result of the first run`);
+    return first;
+  }
+  return { ...second, output: [first.output, second.output].filter(Boolean).join('\n') };
+}
+
 async function implementTask(
   task: Task,
   branchName: string,
@@ -1344,8 +1399,8 @@ async function implementTask(
     }
 
     logger.info(`Running ${runner.name}...`);
-    const result = await runRunnerWithStatusWatch(
-      runner, implementPrompt, previousNotes || undefined, provider, task.id, config, 'code', assetOptions,
+    const result = await runCodeTaskWithContinuation(
+      runner, implementPrompt, previousNotes || undefined, task, branchName, provider, config, assetOptions, hooks, vm,
     );
 
     if (result.stoppedByStatus) {

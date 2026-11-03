@@ -62,6 +62,11 @@ Respond with valid JSON only — no markdown fences, no extra text:
 If you set "clarification" to a non-null question, "subtasks" must be an empty array. If you provide sub-tasks, "clarification" must be null.`;
 }
 
+/** Default follow-up sent in the same agent session after the first implementation run. */
+export function buildContinuePrompt(): string {
+  return "If you haven't finished yet - continue. Make sure the task is fully implemented all the way (code, tests, and any loose ends). If everything is already done, reply briefly that it is complete and make no further changes.";
+}
+
 export function buildImplementPrompt(task: Task, context: string): string {
   return `You are implementing a software development task. Make the necessary code changes to complete the task described below.
 

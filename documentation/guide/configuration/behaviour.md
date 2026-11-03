@@ -17,6 +17,7 @@
 | `DONE_STATUS` | auto-detected | Status to set after auto-merging an accepted PR |
 | `PR_SIGNATURE` | `Automated PR by aidev.` | Custom signature line appended to the PR body |
 | `AIDEV_SAFE_MODE` | `true` | Redact secret env values from AI prompts (see [Safe mode](#safe-mode) below) |
+| `AIDEV_CONTINUE_AFTER_RUN` | `true` | After a code task's AI run, send a follow-up prompt in the same agent session ("if you haven't finished yet - continue"). See [AI agents](/guide/agents#follow-up-in-the-same-session) |
 | `AIDEV_AUTO_COMPRESS` | `true` | Auto-compress older comments when the prompt grows large |
 | `AIDEV_COMPRESS_THRESHOLD` | `12000` | Char-length threshold that triggers compression |
 | `MCP_JSON_PATH` | auto-discovered | Path to a generic `mcp.json` injected into every agent — see [MCP servers](/guide/mcp) |

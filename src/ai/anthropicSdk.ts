@@ -1,4 +1,4 @@
-import { AIRunner, AIRunOptions, AIRunResult } from './base';
+import { AIRunner, AIRunOptions, AIRunResult, AISessionOptions } from './base';
 import { logger } from '../logger';
 import { parseAnthropicTokens, pickNextToken } from '../config';
 import { getMcpState } from '../mcp';
@@ -52,6 +52,7 @@ type RunAttemptResult = {
  */
 export class AnthropicSdkRunner implements AIRunner {
   readonly name = 'anthropic-sdk';
+  readonly supportsSessions = true;
 
   private tokenCursor = 0;
 
@@ -117,7 +118,7 @@ export class AnthropicSdkRunner implements AIRunner {
         }
         logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-        const attemptResult = await this.runOnce(fullPrompt, model, options?.signal);
+        const attemptResult = await this.runOnce(fullPrompt, model, options?.signal, options?.session);
         if (attemptResult.success) {
           return { success: true, output: attemptResult.output, error: '' };
         }
@@ -150,7 +151,12 @@ export class AnthropicSdkRunner implements AIRunner {
     }
   }
 
-  private async runOnce(fullPrompt: string, model: string, signal?: AbortSignal): Promise<RunAttemptResult> {
+  private async runOnce(
+    fullPrompt: string,
+    model: string,
+    signal?: AbortSignal,
+    session?: AISessionOptions,
+  ): Promise<RunAttemptResult> {
     let output = '';
     let timedOut = false;
     const watchdog = setTimeout(() => {
@@ -171,6 +177,7 @@ export class AnthropicSdkRunner implements AIRunner {
           systemPrompt: { type: 'preset', preset: 'claude_code' },
           maxTurns: 20,
           model,
+          ...(session ? (session.resume ? { resume: session.id } : { sessionId: session.id }) : {}),
           ...(mcp ? { mcpServers: mcp.servers, strictMcpConfig: true } : {}),
         },
       });

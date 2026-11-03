@@ -21,6 +21,18 @@ export interface TaskContext {
   prompt: string;
 }
 
+export interface ContinueTaskContext {
+  task: Task;
+  config: Config;
+  branchName: string;
+  /** Follow-up prompt sent to the agent in the same session. Set to an empty string to skip the follow-up. */
+  prompt: string;
+  /** Name of the AI runner whose session is being continued. */
+  runner: string;
+  /** aidev-generated session id (UUID) used for the first run and this follow-up. */
+  sessionId: string;
+}
+
 export interface ResolveConflictsContext {
   task: Task;
   config: Config;
@@ -87,6 +99,12 @@ export interface AidevHooks {
   beforeEachTask?(context: TaskContext, vm: HookVM): Promise<TaskContext | void>;
   /** Called after each task is implemented (code tasks) */
   afterEachTask?(context: TaskContext & { success: boolean }, vm: HookVM): Promise<void>;
+  /**
+   * Called before the follow-up prompt ("continue if you haven't finished") is sent to the agent
+   * in the same session as a code task's first run. Return a modified context to change the
+   * prompt, or set `prompt` to an empty string to skip the follow-up.
+   */
+  beforeContinueTask?(context: ContinueTaskContext, vm: HookVM): Promise<ContinueTaskContext | void>;
   /** Called before merge conflict resolution */
   beforeResolveConflicts?(context: ResolveConflictsContext, vm: HookVM): Promise<ResolveConflictsContext | void>;
   /** Called after merge conflict resolution */
@@ -151,6 +169,7 @@ export function loadHooks(hooksPath: string): AidevHooks {
     const validKeys = new Set<string>([
       'beforeRun', 'afterRun',
       'beforeEachTask', 'afterEachTask',
+      'beforeContinueTask',
       'beforeResolveConflicts', 'afterResolveConflicts',
       'beforeNonCodeTask', 'afterNonCodeTask',
       'beforeThinkingTask', 'afterThinkingTask',

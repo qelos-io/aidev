@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
-import { commandExists, getUserShellEnv } from '../platform';
+import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
 import { getMcpState } from '../mcp';
 
@@ -14,6 +14,25 @@ import { getMcpState } from '../mcp';
  */
 export class CursorRunner implements AIRunner {
   readonly name = 'cursor';
+  readonly supportsSessions = true;
+
+  /** aidev session id -> Cursor chat id created via `agent create-chat`. */
+  private readonly chatIds = new Map<string, string>();
+
+  private createChat(cwd: string): string | null {
+    const res = spawnCommand('agent', ['create-chat'], {
+      encoding: 'utf8',
+      timeout: 30 * 1000,
+      cwd,
+      env: getUserShellEnv(),
+    });
+    const id = (res.stdout || '').trim().split(/\s+/).pop() || '';
+    if (res.status !== 0 || !/^[0-9a-f-]{16,}$/i.test(id)) {
+      logger.warn('Could not create a Cursor chat — continuing without a session');
+      return null;
+    }
+    return id;
+  }
 
   isAvailable(): boolean {
     return commandExists('agent');
@@ -37,6 +56,20 @@ export class CursorRunner implements AIRunner {
         const absPath = path.resolve(dir);
         if (fs.existsSync(absPath) && fs.statSync(absPath).isDirectory()) {
           baseArgs.push('--add-dir', absPath);
+        }
+      }
+    }
+
+    const session = options?.session;
+    if (session) {
+      if (session.resume) {
+        const chatId = this.chatIds.get(session.id);
+        baseArgs.push(...(chatId ? ['--resume', chatId] : ['--continue']));
+      } else {
+        const chatId = this.createChat(cwd);
+        if (chatId) {
+          this.chatIds.set(session.id, chatId);
+          baseArgs.push('--resume', chatId);
         }
       }
     }

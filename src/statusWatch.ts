@@ -65,7 +65,7 @@ export async function runRunnerWithStatusWatch(
   taskId: string,
   config: Config,
   tagMode: ImplementationTagMode = 'code',
-  runOptions?: Pick<AIRunOptions, 'assetDirs'>,
+  runOptions?: Pick<AIRunOptions, 'assetDirs' | 'session'>,
 ): Promise<AIRunResult & { stoppedByStatus?: boolean; stopReason?: string }> {
   if (!provider.fetchTaskById) {
     return runner.run(prompt, notes, runOptions);

@@ -165,6 +165,8 @@ export interface Config {
   compressThreshold: number;
   logTtlDays: number;
   safeMode: boolean;
+  /** After a code task's AI run, send a follow-up prompt in the same agent session asking it to finish any unfinished work. */
+  continueAfterRun: boolean;
   // MCP (Model Context Protocol)
   mcpJsonPath: string;
   betterMcp: boolean;

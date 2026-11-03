@@ -17,6 +17,33 @@ aidev supports multiple AI agents with automatic fallback. The first available a
 | `devin` | [Devin CLI](https://docs.devin.ai/cli) installed and authenticated |
 | `opencode` | [OpenCode CLI](https://opencode.ai) installed (`npm install -g opencode-ai`) |
 
+## Follow-up in the same session
+
+For every code task aidev generates a random UUID session and runs the implementation prompt in it. When the agent finishes, aidev sends a second prompt **in the same session** — by default *"If you haven't finished yet - continue…"* — so the agent keeps its full context and the task goes all the way. With Claude this is equivalent to:
+
+```bash
+claude -p "<task prompt>" --session-id <uuid> --dangerously-skip-permissions
+claude -p "If you haven't finished yet - continue." --resume <uuid> --dangerously-skip-permissions
+```
+
+| Agent | How the follow-up reuses the session |
+|---|---|
+| `claude` | `--session-id <uuid>` first, then `--resume <uuid>` |
+| `anthropic-sdk` | SDK `sessionId` option first, then `resume` |
+| `cursor` | `agent create-chat` once, then `--resume <chatId>` on both runs (falls back to `--continue`) |
+| `opencode` | `--continue` on the follow-up (OpenCode picks its own session ids) |
+| `devin` | `--continue` on the follow-up |
+| `codex` | `codex exec resume --last` on the follow-up |
+| `aider` | per-session `--chat-history-file` in `.aidev/sessions/`, plus `--restore-chat-history` on the follow-up |
+| `antigravity` | not supported — no follow-up is sent |
+
+Notes:
+
+- If the follow-up fails, the first run's result is kept.
+- Change the prompt (or skip the follow-up by returning an empty one) with the [`beforeContinueTask` hook](/guide/hooks).
+- Disable it with `AIDEV_CONTINUE_AFTER_RUN=false`.
+- `opencode`, `devin` and `codex` continue the most recent session in the directory, which is the one aidev just ran because tasks run sequentially per directory.
+
 ## Claude CLI
 
 The `claude` agent shells out to the [Claude CLI](https://github.com/anthropics/claude-code). Install it and authenticate (`claude login` or set credentials via your environment).

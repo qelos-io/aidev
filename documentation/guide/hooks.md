@@ -10,6 +10,7 @@ The module should export an object (or `export default`) whose properties are op
 |---|---|---|
 | `beforeRun` / `afterRun` | Start / end of `aidev run` | `afterRun` includes `processed` and `skipped` counts |
 | `beforeEachTask` / `afterEachTask` | Around each code task implementation | `prompt`, `branchName`, `task`; `afterEachTask` has `success` |
+| `beforeContinueTask` | Before the "continue if you haven't finished" follow-up sent in the same agent session after a code task's first run | `prompt` (edit it, or set it to `''` to skip the follow-up), `runner`, `sessionId`, `branchName`, `task` |
 | `beforeResolveConflicts` / `afterResolveConflicts` | Merge conflict resolution with AI | `conflictFiles`, `prompt`; `afterResolveConflicts` has `resolved` |
 | `beforeNonCodeTask` / `afterNonCodeTask` | Non-code tasks | `afterNonCodeTask` includes agent `output` |
 | `beforeThinkingTask` / `afterThinkingTask` | Thinking-tag tasks (subtask plan) | `beforeThinkingTask` may adjust `subtasks` before steps run |
