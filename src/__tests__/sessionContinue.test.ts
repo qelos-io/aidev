@@ -415,7 +415,14 @@ describe('continue prompt', () => {
 });
 
 describe('AIDEV_CONTINUE_AFTER_RUN config', () => {
-  afterEach(() => { delete process.env.AIDEV_CONTINUE_AFTER_RUN; });
+  const prevProvider = process.env.PROVIDER;
+  // 'local' needs no credentials, so loadConfig works on CI without .env.aidev
+  beforeEach(() => { process.env.PROVIDER = 'local'; });
+  afterEach(() => {
+    delete process.env.AIDEV_CONTINUE_AFTER_RUN;
+    if (prevProvider === undefined) delete process.env.PROVIDER;
+    else process.env.PROVIDER = prevProvider;
+  });
 
   it('defaults to true', () => {
     delete process.env.AIDEV_CONTINUE_AFTER_RUN;
