@@ -225,11 +225,13 @@ describe('createBranchFromRemote (integration)', () => {
     assert.equal(getCurrentBranch(), 'task456/new-feature');
   });
 
-  it('fails fast when the working tree is dirty (aidev never stashes)', () => {
+  it('discards a dirty working tree and creates the branch', () => {
     fs.writeFileSync(path.join(tmpDir, 'dirty.txt'), 'uncommitted');
     assert.equal(hasChanges(), true);
-    assert.equal(createBranchFromRemote('origin', 'main', 'task789/clean-start'), false);
-    assert.equal(getCurrentBranch(), 'main');
+    assert.equal(createBranchFromRemote('origin', 'main', 'task789/clean-start'), true);
+    assert.equal(getCurrentBranch(), 'task789/clean-start');
+    assert.equal(hasChanges(), false);
+    assert.equal(fs.existsSync(path.join(tmpDir, 'dirty.txt')), false);
   });
 
   it('branches from the remote ref, not the local base branch', () => {
@@ -490,18 +492,23 @@ describe('requireCleanWorkingTree (integration)', () => {
     assert.equal(hasChanges(), false);
   });
 
-  it('returns false and leaves uncommitted changes in place', () => {
+  it('discards tracked modifications without leaving a stash entry', () => {
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), 'modified');
+    gitCmd(['add', 'README.md'], tmpDir);
     fs.writeFileSync(path.join(tmpDir, 'dirty.txt'), 'uncommitted');
     assert.equal(hasChanges(), true);
-    assert.equal(requireCleanWorkingTree('do something'), false);
-    assert.equal(hasChanges(), true);
+    assert.equal(requireCleanWorkingTree('do something'), true);
+    assert.equal(hasChanges(), false);
+    assert.equal(stashCount(), 0);
   });
 
-  it('returns false and leaves untracked files in place', () => {
+  it('discards untracked files without leaving a stash entry', () => {
     fs.writeFileSync(path.join(tmpDir, 'untracked.txt'), 'new file');
     assert.equal(hasChanges(), true);
-    assert.equal(requireCleanWorkingTree('do something'), false);
-    assert.equal(hasChanges(), true);
+    assert.equal(requireCleanWorkingTree('do something'), true);
+    assert.equal(hasChanges(), false);
+    assert.equal(fs.existsSync(path.join(tmpDir, 'untracked.txt')), false);
+    assert.equal(stashCount(), 0);
   });
 });
 
@@ -527,19 +534,21 @@ describe('fetchAndCheckout with dirty working tree (integration)', () => {
     fs.rmSync(bareDir, { recursive: true, force: true });
   });
 
-  it('fails fast when there are uncommitted changes (aidev never stashes)', () => {
+  it('discards uncommitted changes and checks out the base branch', () => {
     gitCmd(['checkout', '-b', 'feature/dirty'], tmpDir);
     fs.writeFileSync(path.join(tmpDir, 'leftover.txt'), 'from previous run');
     assert.equal(hasChanges(), true);
-    assert.equal(fetchAndCheckout('origin', 'main'), false);
-    assert.equal(getCurrentBranch(), 'feature/dirty');
+    assert.equal(fetchAndCheckout('origin', 'main'), true);
+    assert.equal(getCurrentBranch(), 'main');
+    assert.equal(hasChanges(), false);
   });
 
-  it('fails fast when there are untracked files (aidev never stashes)', () => {
+  it('discards untracked files and checks out the base branch', () => {
     fs.writeFileSync(path.join(tmpDir, 'untracked.txt'), 'untracked');
     assert.equal(hasChanges(), true);
-    assert.equal(fetchAndCheckout('origin', 'main'), false);
+    assert.equal(fetchAndCheckout('origin', 'main'), true);
     assert.equal(getCurrentBranch(), 'main');
+    assert.equal(hasChanges(), false);
   });
 });
 
