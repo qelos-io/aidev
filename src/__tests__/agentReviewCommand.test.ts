@@ -7,6 +7,7 @@ import {
   buildAgentReviewStartComment,
   type AgentReviewDeps,
 } from '../commands/agentReview';
+import { parseGithubRepoFromRemoteUrl, resolveGithubRepo } from '../github';
 import type { Config, Task } from '../types';
 import type { TaskProvider } from '../providers';
 import type { AIRunner, AIRunResult } from '../ai/base';
@@ -289,5 +290,46 @@ describe('agentReviewCommand', () => {
 
     assert.deepEqual(provider.removedTags, []);
     assert.ok(provider.postedComments.some((c) => c.includes('validation failed')));
+  });
+});
+
+describe('GitHub repo resolution', () => {
+  it('parses owner/repo from https, ssh and ssh:// remote URLs', () => {
+    const parse = parseGithubRepoFromRemoteUrl;
+    assert.equal(parse('https://github.com/acme/widgets.git'), 'acme/widgets');
+    assert.equal(parse('https://github.com/acme/widgets'), 'acme/widgets');
+    assert.equal(parse('git@github.com:acme/widgets.git\n'), 'acme/widgets');
+    assert.equal(parse('ssh://git@github.com/acme/widgets.git'), 'acme/widgets');
+    assert.equal(parse('https://gitlab.com/acme/widgets.git'), '');
+    assert.equal(parse(''), '');
+  });
+
+  it('prefers the configured GITHUB_REPO over the remote', () => {
+    assert.equal(resolveGithubRepo({ githubRepo: ' acme/widgets ', gitRemote: 'origin' }), 'acme/widgets');
+  });
+
+  it('agentReviewCommand uses a derived repo when GITHUB_REPO is empty', async () => {
+    const posted: Array<{ owner: string; repo: string }> = [];
+    const provider = {
+      fetchTasksByStatus: async () => [stubTask()],
+      postComment: async () => {},
+    } as unknown as TaskProvider;
+    const runner = {
+      name: 'stub',
+      isAvailable: () => true,
+      run: async (): Promise<AIRunResult> => ({ success: true, output: '[]', error: '' }),
+    } as AIRunner;
+    const deps: AgentReviewDeps = {
+      isGhInstalled: () => true,
+      isGhAuthenticated: () => true,
+      getPrNumberForBranch: () => 7,
+      fetchPrDiff: () => ({ diff: 'diff', error: '' }),
+      getPrHeadSha: () => 'sha',
+      postAgentPullRequestReview: (o) => { posted.push({ owner: o.owner, repo: o.repo }); return { success: true, commentsPosted: 0, error: '' } as never; },
+      resolveSkillContent: () => null,
+      resolveGithubRepo: () => 'derived/repo',
+    };
+    await agentReviewCommand(stubConfig({ githubRepo: '' }), provider, [runner], true, deps);
+    assert.deepEqual(posted, [{ owner: 'derived', repo: 'repo' }]);
   });
 });

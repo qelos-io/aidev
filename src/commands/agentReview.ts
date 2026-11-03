@@ -10,6 +10,7 @@ import {
   getPrHeadSha,
   postAgentPullRequestReview,
   PostAgentReviewResult,
+  resolveGithubRepo,
 } from '../github';
 import * as git from '../git';
 import { getInReviewStatus } from './run';
@@ -97,6 +98,8 @@ export interface AgentReviewDeps {
     summary: string;
   }) => PostAgentReviewResult;
   resolveSkillContent: (skillName: string) => string | null;
+  /** Optional override; defaults to GITHUB_REPO, falling back to the git remote URL. */
+  resolveGithubRepo?: (config: Config) => string;
 }
 
 const defaultAgentReviewDeps: AgentReviewDeps = {
@@ -107,6 +110,7 @@ const defaultAgentReviewDeps: AgentReviewDeps = {
   getPrHeadSha,
   postAgentPullRequestReview,
   resolveSkillContent,
+  resolveGithubRepo,
 };
 
 /**
@@ -125,14 +129,15 @@ export async function agentReviewCommand(
     return;
   }
 
-  if (!config.githubRepo) {
-    logger.warn('GITHUB_REPO is not configured — agent review requires owner/repo.');
+  const githubRepo = deps.resolveGithubRepo ? deps.resolveGithubRepo(config) : config.githubRepo;
+  if (!githubRepo) {
+    logger.warn('GITHUB_REPO is not configured and could not be derived from the git remote — agent review requires owner/repo.');
     return;
   }
 
-  const repoParts = parseGithubRepo(config.githubRepo);
+  const repoParts = parseGithubRepo(githubRepo);
   if (!repoParts) {
-    logger.warn(`GITHUB_REPO must be owner/repo (got "${config.githubRepo}")`);
+    logger.warn(`GITHUB_REPO must be owner/repo (got "${githubRepo}")`);
     return;
   }
 

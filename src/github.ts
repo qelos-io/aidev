@@ -54,6 +54,22 @@ export function getRemoteUrl(remote: string): string {
   return result.stdout.trim();
 }
 
+/** Extracts `owner/repo` from a GitHub remote URL (https, ssh, or ssh://). Returns '' when it is not a GitHub URL. */
+export function parseGithubRepoFromRemoteUrl(url: string): string {
+  const m = url.trim().match(/github\.com[:/]+([^/\s:]+)\/([^/\s]+?)(?:\.git)?\/?$/i);
+  return m ? `${m[1]}/${m[2]}` : '';
+}
+
+/**
+ * The GitHub `owner/repo` to use: the configured GITHUB_REPO, or — when it is
+ * not set — derived from the git remote URL so PR features work without it.
+ */
+export function resolveGithubRepo(config: { githubRepo: string; gitRemote: string }): string {
+  const configured = (config.githubRepo || '').trim();
+  if (configured) return configured;
+  return parseGithubRepoFromRemoteUrl(getRemoteUrl(config.gitRemote));
+}
+
 export function isGitHubRemote(remote: string): boolean {
   const url = getRemoteUrl(remote);
   return /github\.com/i.test(url);

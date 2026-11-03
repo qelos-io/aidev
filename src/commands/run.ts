@@ -9,7 +9,7 @@ import { logger, logRunStart } from '../logger';
 import { isScreenAvailable } from '../platform';
 import * as git from '../git';
 import {
-  isGhAuthenticated, isGhInstalled, isGitHubRemote, createPullRequest,
+  isGhAuthenticated, isGhInstalled, isGitHubRemote, resolveGithubRepo, createPullRequest,
   getPrNumberForBranch, fetchUnresolvedReviewThreads, resolveReviewThread,
   replyToReviewThread, filterUnresolvedByNonAidev,
   ReviewThread,
@@ -741,7 +741,7 @@ export async function runCommand(
     let skipped = 0;
 
     // Review task phase (first): check tasks in review status for unresolved code review comments
-    if (!taskId && isGitHubRemote(config.gitRemote) && isGhInstalled() && isGhAuthenticated() && config.githubRepo) {
+    if (!taskId && isGitHubRemote(config.gitRemote) && isGhInstalled() && isGhAuthenticated() && resolveGithubRepo(config)) {
       const reviewStatus = getInReviewStatus(config);
       logger.info(`Fetching tasks in "${reviewStatus}" status for code review checks...`);
       try {
@@ -1213,7 +1213,8 @@ async function resolveConflictsWithAI(
 
 function fetchPrReviewComments(config: Config, branchName: string): ReviewThread[] {
   if (!isGitHubRemote(config.gitRemote) || !isGhAuthenticated()) return [];
-  if (!config.githubRepo) return [];
+  const githubRepo = resolveGithubRepo(config);
+  if (!githubRepo) return [];
 
   const prNumber = getPrNumberForBranch(branchName);
   if (!prNumber) {
@@ -1221,7 +1222,7 @@ function fetchPrReviewComments(config: Config, branchName: string): ReviewThread
     return [];
   }
 
-  const parts = config.githubRepo.split('/');
+  const parts = githubRepo.split('/');
   if (parts.length !== 2 || !parts[0] || !parts[1]) return [];
 
   return fetchUnresolvedReviewThreads(parts[0], parts[1], prNumber);
@@ -3039,7 +3040,8 @@ async function processReviewTask(
 
   logger.task(`[${task.id}] "${task.name}" [review] — checking code reviews`);
 
-  if (!config.githubRepo) {
+  const githubRepo = resolveGithubRepo(config);
+  if (!githubRepo) {
     logger.debug(`[${task.id}] No githubRepo configured — skipping review check`);
     return 'skipped';
   }
@@ -3050,7 +3052,7 @@ async function processReviewTask(
     return 'skipped';
   }
 
-  const parts = config.githubRepo.split('/');
+  const parts = githubRepo.split('/');
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
     logger.debug(`[${task.id}] Invalid githubRepo format — skipping`);
     return 'skipped';
