@@ -47,21 +47,41 @@ export function remoteBranchExists(remote: string, branch: string): boolean {
 
 /**
  * Verifies the working tree is clean before a branch-switching operation.
- * aidev never stashes local changes (stashed entries are never popped and
- * silently accumulate). If the tree is dirty, logs the offending files and
- * instructs the user to clean up manually before rerunning aidev.
+ * Leftovers from failed tasks would otherwise block every later checkout, so
+ * a dirty tree is stashed (including untracked files) and the stash entry is
+ * dropped immediately — the changes are discarded and no stash accumulates.
+ * aidev's own bookkeeping files are excluded. Returns false only if the
+ * changes could not be removed.
  */
 export function requireCleanWorkingTree(actionDescription: string): boolean {
   if (!hasChanges()) return true;
 
   const dirtyFiles = listWorkingTreeChanges();
-  logger.error(
-    `Cannot ${actionDescription}: working tree has uncommitted changes:\n` +
-    dirtyFiles.map((file) => `  ${file}`).join('\n') +
-    '\nPlease commit your changes, stash them yourself (git stash), or discard them ' +
-    '(git reset --hard && git clean -fd) before rerunning aidev.'
+  logger.warn(
+    `Working tree has uncommitted changes before ${actionDescription} — discarding them:\n` +
+    dirtyFiles.map((file) => `  ${file}`).join('\n')
   );
-  return false;
+
+  const countBefore = stashCount();
+  const stash = git(['stash', 'push', '--include-untracked', '--', ...dirtyFiles]);
+  if (stash.status !== 0) {
+    logger.error(`Cannot ${actionDescription}: git stash failed: ${stash.stderr}`);
+    return false;
+  }
+
+  // "No local changes to save" exits 0 without creating an entry; only drop ours.
+  if (stashCount() > countBefore) {
+    const drop = git(['stash', 'drop']);
+    if (drop.status !== 0) {
+      logger.warn(`git stash drop failed: ${drop.stderr}`);
+    }
+  }
+
+  if (hasChanges()) {
+    logger.error(`Cannot ${actionDescription}: working tree is still dirty after stash`);
+    return false;
+  }
+  return true;
 }
 
 export function fetchAndCheckout(remote: string, baseBranch: string): boolean {
