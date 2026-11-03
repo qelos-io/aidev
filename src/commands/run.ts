@@ -504,7 +504,7 @@ function parsePlanningResponseObject(obj: Record<string, unknown>): PlanningAnal
   const subtasks: PlanningSubtaskDraft[] = [];
   for (const s of rawSubtasks) {
     if (!s || typeof s !== 'object') continue;
-    const entry = s as { title?: unknown; description?: unknown; priority?: unknown };
+    const entry = s as { title?: unknown; description?: unknown; priority?: unknown; includesCoding?: unknown };
     const title = typeof entry.title === 'string' ? entry.title.trim() : '';
     const description = typeof entry.description === 'string' ? entry.description.trim() : '';
     if (!title || !description) continue;
@@ -512,6 +512,9 @@ function parsePlanningResponseObject(obj: Record<string, unknown>): PlanningAnal
     const draft: PlanningSubtaskDraft = { title, description };
     if (typeof entry.priority === 'number' && Number.isFinite(entry.priority)) {
       draft.priority = entry.priority;
+    }
+    if (typeof entry.includesCoding === 'boolean') {
+      draft.includesCoding = entry.includesCoding;
     }
     const idx = subtasks.length;
     if (Array.isArray((entry as { blockedBy?: unknown }).blockedBy)) {
@@ -531,6 +534,26 @@ function parsePlanningResponseObject(obj: Record<string, unknown>): PlanningAnal
   if (!clarification && subtasks.length === 0) return null;
 
   return clarification ? { clarification, subtasks } : { subtasks };
+}
+
+/**
+ * Picks the code vs non-code tag for a planned sub-task based on the planner's
+ * `includesCoding` flag. Undefined leaves the inherited tags untouched.
+ */
+export function resolveSubtaskTags(
+  baseTags: string[],
+  includesCoding: boolean | undefined,
+  config: Pick<Config, 'clickupTag' | 'nonCodeTag'>
+): string[] {
+  if (includesCoding === undefined) return baseTags;
+  const codeTag = config.clickupTag;
+  const nonCodeTag = config.nonCodeTag;
+  if (!codeTag || !nonCodeTag) return baseTags;
+  const drop = (includesCoding ? nonCodeTag : codeTag).toLowerCase();
+  const want = includesCoding ? codeTag : nonCodeTag;
+  const tags = baseTags.filter((t) => t.toLowerCase() !== drop);
+  if (!tags.some((t) => t.toLowerCase() === want.toLowerCase())) tags.push(want);
+  return tags;
 }
 
 export function sortTasksByPriority(tasks: Task[]): Task[] {
@@ -2145,7 +2168,7 @@ export async function implementPlanningTask(
       const result = await provider.createTask({
         title: draft.title,
         description: draft.description,
-        tags: ticketTags,
+        tags: resolveSubtaskTags(ticketTags, draft.includesCoding, config),
         priority: draft.priority,
         listId: task.sourceListId,
       });

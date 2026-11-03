@@ -43,6 +43,8 @@ Sub-task blockers: each sub-task may include an optional "blockedBy" array of 0-
   - Do not reference a sub-task's own index (no self-blocking).
   - Do not create circular dependencies (if A blocks B, B must not block A).
 
+Sub-task coding flag: every sub-task MUST include a boolean "includesCoding". Set it to true only if completing the sub-task requires actually writing or modifying code. Set it to false for work that involves no code changes (e.g. running tests or builds, manual verification, research, writing a report, updating tickets or documentation outside the codebase).
+
 Respond with valid JSON only — no markdown fences, no extra text:
 {
   "clarification": "question text, or null if no clarification is needed",
@@ -51,6 +53,7 @@ Respond with valid JSON only — no markdown fences, no extra text:
       "title": "Short, specific title",
       "description": "Fully self-contained ticket body (markdown ok). Include all paths, references, and reasoning needed to do this work without seeing the parent ticket.",
       "priority": 2,
+      "includesCoding": true,
       "blockedBy": [0]
     }
   ]

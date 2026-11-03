@@ -31,6 +31,8 @@ export interface PlanningSubtaskDraft {
   description: string;
   priority?: number;
   blockedBy?: number[];
+  /** Whether the sub-task requires actual code changes (false for e.g. running tests, research). */
+  includesCoding?: boolean;
 }
 
 export interface PlanningAnalysisResponse {
