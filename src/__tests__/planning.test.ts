@@ -6,6 +6,7 @@ import {
   buildPlanningAnalysisPrompt,
   parsePlanningResponse,
   implementPlanningTask,
+  resolveSubtaskTags,
 } from '../commands/run';
 import type { Config, Task, Comment, CreateTaskParams, CreateTaskResult } from '../types';
 import type { TaskProvider } from '../providers';
@@ -755,5 +756,68 @@ describe('implementPlanningTask — setBlockedBy', () => {
     assert.ok(summary!.includes('Failed to set blockers'));
     assert.ok(summary!.includes('B'));
     assert.ok(summary!.includes('dependency API unavailable'));
+  });
+});
+
+// ─── includesCoding / tag selection ───────────────────────────────────────────
+
+describe('parsePlanningResponse — includesCoding', () => {
+  it('keeps boolean includesCoding and ignores non-boolean values', () => {
+    const parsed = parsePlanningResponse(JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'A', description: 'a', includesCoding: true },
+        { title: 'B', description: 'b', includesCoding: false },
+        { title: 'C', description: 'c', includesCoding: 'no' },
+        { title: 'D', description: 'd' },
+      ],
+    }));
+    assert.deepEqual(parsed!.subtasks.map((s) => s.includesCoding), [true, false, undefined, undefined]);
+  });
+});
+
+describe('resolveSubtaskTags', () => {
+  const cfg = { clickupTag: 'proj', nonCodeTag: 'proj-other' };
+
+  it('returns base tags when includesCoding is undefined', () => {
+    assert.deepEqual(resolveSubtaskTags(['proj', 'x'], undefined, cfg), ['proj', 'x']);
+  });
+
+  it('swaps the code tag for the non-code tag when includesCoding is false', () => {
+    assert.deepEqual(resolveSubtaskTags(['PROJ', 'x'], false, cfg), ['x', 'proj-other']);
+  });
+
+  it('swaps the non-code tag for the code tag when includesCoding is true', () => {
+    assert.deepEqual(resolveSubtaskTags(['proj-other', 'x'], true, cfg), ['x', 'proj']);
+  });
+
+  it('does not duplicate an existing wanted tag', () => {
+    assert.deepEqual(resolveSubtaskTags(['proj', 'x'], true, cfg), ['proj', 'x']);
+  });
+
+  it('returns base tags when either tag is unconfigured', () => {
+    assert.deepEqual(resolveSubtaskTags(['x'], false, { clickupTag: '', nonCodeTag: 'o' }), ['x']);
+  });
+});
+
+describe('implementPlanningTask — includesCoding tagging', () => {
+  it('tags non-coding sub-tasks with the non-code tag', async () => {
+    const task = stubTask({ tags: ['planning', 'proj'] });
+    const config = stubConfig({
+      planningTag: 'planning', doneStatus: 'closed', clickupTag: 'proj', nonCodeTag: 'proj-other',
+    });
+    const provider = makeMockProvider();
+    const runner = stubRunner(JSON.stringify({
+      clarification: null,
+      subtasks: [
+        { title: 'Code it', description: 'd', includesCoding: true },
+        { title: 'Run tests', description: 'd', includesCoding: false },
+      ],
+    }));
+
+    await implementPlanningTask(task, config, provider, [runner]);
+
+    assert.deepEqual(provider.createdTasks[0].params.tags, ['proj']);
+    assert.deepEqual(provider.createdTasks[1].params.tags, ['proj-other']);
   });
 });
