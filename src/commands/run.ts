@@ -204,9 +204,9 @@ export {
 export type RunFilter = 'all' | 'open' | 'pending' | 'review';
 
 export function getRunSkipReason(status: string, filter: RunFilter, pendingStatus: string, openStatus: string = 'open'): string | null {
-  const normalizedStatus = status.toLowerCase();
-  const normalizedPendingStatus = pendingStatus.toLowerCase();
-  const normalizedOpenStatus = openStatus.toLowerCase();
+  const normalizedStatus = status.trim().toLowerCase();
+  const normalizedPendingStatus = pendingStatus.trim().toLowerCase();
+  const normalizedOpenStatus = openStatus.trim().toLowerCase();
   const isPending = normalizedStatus === normalizedPendingStatus;
   const isOpen = normalizedStatus === normalizedOpenStatus;
 
@@ -281,7 +281,7 @@ export async function getBlockedBySkipReason(task: Task, provider: TaskProvider)
       logger.debug(`[${task.id}] blocker ${blockerId} not found — treating as non-blocking`);
       continue;
     }
-    if (!SKIP_STATUSES.has(blocker.status.toLowerCase())) {
+    if (!SKIP_STATUSES.has(blocker.status.trim().toLowerCase())) {
       return `blocked by task ${blockerId} (status: ${blocker.status})`;
     }
     logger.debug(`[${task.id}] blocker ${blockerId} is closed (status: ${blocker.status}) — not blocking`);
@@ -817,7 +817,7 @@ async function processTask(
 ): Promise<'processed' | 'skipped'> {
   const pendingStatus = getPendingStatus(config);
   const openStatus = getOpenStatus(config);
-  const isPending = task.status.toLowerCase() === pendingStatus.toLowerCase();
+  const isPending = task.status.trim().toLowerCase() === pendingStatus.trim().toLowerCase();
   const skipReason = getRunSkipReason(task.status, filter, pendingStatus, openStatus);
 
   logger.task(`[${task.id}] "${task.name}" (status: ${task.status})`);
@@ -2259,7 +2259,7 @@ export function getConsultSkipReason(
 ): string | null {
   const base = getRunSkipReason(status, filter, pendingStatus, openStatus);
   if (base) return base;
-  if (status.toLowerCase() !== pendingStatus.toLowerCase()) {
+  if (status.trim().toLowerCase() !== pendingStatus.trim().toLowerCase()) {
     return 'consult tasks only run when pending';
   }
   return null;
@@ -2321,7 +2321,7 @@ async function processNonCodeTask(
 ): Promise<'processed' | 'skipped'> {
   const pendingStatus = getPendingStatus(config);
   const openStatus = getOpenStatus(config);
-  const isPending = task.status.toLowerCase() === pendingStatus.toLowerCase();
+  const isPending = task.status.trim().toLowerCase() === pendingStatus.trim().toLowerCase();
   const skipReason = getRunSkipReason(task.status, filter, pendingStatus, openStatus);
 
   logger.task(`[${task.id}] "${task.name}" [non-code] (status: ${task.status})`);
