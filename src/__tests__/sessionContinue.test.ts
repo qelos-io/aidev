@@ -29,9 +29,17 @@ const SESSION = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 type Call = { cmd: string; args: string[] };
 
 /** Records argv for every spawn of `bin` (ignores PATH lookups such as `where`/`which`). */
+const NOT_FOUND = { pid: 1, output: [], stdout: '', stderr: '', status: 1, signal: null };
+
+/** PATH lookups (`where.exe`/`which`) must report "not found" so the bare command name is spawned. */
+function isLookup(cmd: unknown): boolean {
+  return /^(where|which)$/i.test(path.basename(String(cmd)).replace(/\.(exe|cmd)$/i, ''));
+}
+
 function captureSpawns(bin: string, stdout = 'ok'): Call[] {
   const calls: Call[] = [];
   mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    if (isLookup(cmd)) return NOT_FOUND;
     const command = String(cmd);
     const base = path.basename(command).replace(/\.(exe|cmd)$/i, '');
     if (base === bin) calls.push({ cmd: command, args: [...(args as string[])] });
@@ -182,6 +190,7 @@ describe('session support — cursor', () => {
     const chatId = '11111111-2222-4333-8444-555555555555';
     const calls: Call[] = [];
     mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      if (isLookup(cmd)) return NOT_FOUND;
       const a = [...(args as string[])];
       if (path.basename(String(cmd)).replace(/\.(exe|cmd)$/i, '') === 'agent') {
         calls.push({ cmd: String(cmd), args: a });
@@ -207,6 +216,7 @@ describe('session support — cursor', () => {
   it('runs without a session when create-chat fails, and falls back to --continue on resume', async () => {
     const calls: Call[] = [];
     mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+      if (isLookup(cmd)) return NOT_FOUND;
       const a = [...(args as string[])];
       if (path.basename(String(cmd)).replace(/\.(exe|cmd)$/i, '') === 'agent') {
         calls.push({ cmd: String(cmd), args: a });
