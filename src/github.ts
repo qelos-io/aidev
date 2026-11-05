@@ -325,6 +325,30 @@ export function fetchPrDiff(branch: string): { diff: string; error: string } {
   return { diff: result.stdout, error: '' };
 }
 
+export interface FailedPrCheck {
+  name: string;
+  link: string;
+}
+
+/**
+ * Lists CI checks/workflows on the PR for `branch` that are failing.
+ * Returns [] when there are no checks, none fail, or gh cannot report them.
+ */
+export function fetchFailingPrChecks(branch: string): FailedPrCheck[] {
+  // `gh pr checks` exits non-zero when checks fail/pend, but still prints JSON.
+  const result = gh(['pr', 'checks', branch, '--json', 'name,bucket,link']);
+  if (!result.stdout.trim()) return [];
+  try {
+    const parsed = JSON.parse(result.stdout) as Array<{ name?: string; bucket?: string; link?: string }>;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((c) => c.bucket === 'fail')
+      .map((c) => ({ name: c.name ?? '(unnamed check)', link: c.link ?? '' }));
+  } catch {
+    return [];
+  }
+}
+
 interface GhPrHeadResult {
   headRefOid: string;
 }
@@ -401,7 +425,22 @@ export function postAgentPullRequestReview(options: {
   });
 
   const endpoint = `repos/${options.owner}/${options.repo}/pulls/${options.prNumber}/reviews`;
-  const result = gh(['api', endpoint, '--input', '-'], JSON.stringify(payload));
+  let result = gh(['api', endpoint, '--input', '-'], JSON.stringify(payload));
+
+  // GitHub forbids approving your own PR (HTTP 422). Fall back to a plain comment
+  // stating the agent approves so the review flow doesn't fail.
+  if (
+    result.status !== 0 &&
+    payload.event === 'APPROVE' &&
+    /approve your own pull request/i.test(formatGhError(result))
+  ) {
+    const fallback: AgentReviewPayload = {
+      commit_id: payload.commit_id,
+      body: `✅ Agent approves (cannot formally approve own pull request).\n\n${payload.body}`,
+      event: 'COMMENT',
+    };
+    result = gh(['api', endpoint, '--input', '-'], JSON.stringify(fallback));
+  }
 
   if (result.status !== 0) {
     return {

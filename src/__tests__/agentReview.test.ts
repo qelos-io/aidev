@@ -151,3 +151,19 @@ describe('parseAgentReviewResponse', () => {
     ])), null);
   });
 });
+
+describe('composeAgentReviewPrompt failing CI checks', () => {
+  it('includes failing workflows with links and gh hint', () => {
+    const t = { id: '1', name: 'T', description: 'd', tags: [], comments: [] } as any;
+    const prompt = composeAgentReviewPrompt(t, 'diff', undefined, null, [
+      { name: 'build', link: 'https://github.com/o/r/actions/runs/1' },
+    ]);
+    assert.ok(prompt.includes('Failing CI Workflows'));
+    assert.ok(prompt.includes('https://github.com/o/r/actions/runs/1'));
+    assert.ok(prompt.includes('gh'));
+  });
+  it('omits section when none fail', () => {
+    const t = { id: '1', name: 'T', description: 'd', tags: [], comments: [] } as any;
+    assert.ok(!composeAgentReviewPrompt(t, 'diff', undefined, null, []).includes('Failing CI'));
+  });
+});

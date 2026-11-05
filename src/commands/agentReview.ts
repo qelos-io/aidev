@@ -8,6 +8,8 @@ import {
   getPrNumberForBranch,
   fetchPrDiff,
   getPrHeadSha,
+  fetchFailingPrChecks,
+  FailedPrCheck,
   postAgentPullRequestReview,
   PostAgentReviewResult,
   resolveGithubRepo,
@@ -89,6 +91,8 @@ export interface AgentReviewDeps {
   getPrNumberForBranch: (branch: string) => number | null;
   fetchPrDiff: (branch: string) => { diff: string; error: string };
   getPrHeadSha: (branch: string) => string | null;
+  /** Optional; defaults to `gh pr checks`. */
+  fetchFailingPrChecks?: (branch: string) => FailedPrCheck[];
   postAgentPullRequestReview: (options: {
     owner: string;
     repo: string;
@@ -108,6 +112,7 @@ const defaultAgentReviewDeps: AgentReviewDeps = {
   getPrNumberForBranch,
   fetchPrDiff,
   getPrHeadSha,
+  fetchFailingPrChecks,
   postAgentPullRequestReview,
   resolveSkillContent,
   resolveGithubRepo,
@@ -205,7 +210,16 @@ export async function agentReviewCommand(
 
     const { task: safeTask } = applySafeMode(task, '', config);
     const skillContent = deps.resolveSkillContent('aidev-review');
-    let reviewPrompt = composeAgentReviewPrompt(safeTask, diff, prUrl, skillContent);
+    let failedChecks: FailedPrCheck[] = [];
+    try {
+      failedChecks = deps.fetchFailingPrChecks ? deps.fetchFailingPrChecks(branchName) : [];
+    } catch (err) {
+      logger.debug(`[${task.id}] Could not fetch CI checks: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (failedChecks.length > 0) {
+      logger.info(`[${task.id}] ${failedChecks.length} failing CI check(s) will be included in the review prompt`);
+    }
+    let reviewPrompt = composeAgentReviewPrompt(safeTask, diff, prUrl, skillContent, failedChecks);
 
     if (!screenAvailable) {
       logger.info(`[${task.id}] Skipping agent review — screen not available`);

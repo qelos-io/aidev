@@ -44,7 +44,30 @@ When suggesting a design improvement, explain the rationale and the trade-off br
 Only flag issues you are confident about. Prefer fewer, high-signal comments over nitpicks.`;
 }
 
-function appendAgentReviewContext(task: Task, prDiff: string, prUrl?: string): string {
+export interface AgentReviewFailedCheck {
+  name: string;
+  link: string;
+}
+
+function buildFailedChecksSection(failedChecks?: AgentReviewFailedCheck[]): string {
+  if (!failedChecks || failedChecks.length === 0) return '';
+  const lines = failedChecks.map((c) => `  - ${c.name}${c.link ? `: ${c.link}` : ''}`);
+  return `
+
+## Failing CI Workflows
+
+The following CI checks are currently failing on this pull request:
+${lines.join('\n')}
+
+You can inspect the failure details with the gh CLI (e.g. \`gh pr checks\`, \`gh run view <run-id> --log-failed\`). Take these failures into account in your review and flag changes in the diff that likely cause them.`;
+}
+
+function appendAgentReviewContext(
+  task: Task,
+  prDiff: string,
+  prUrl?: string,
+  failedChecks?: AgentReviewFailedCheck[],
+): string {
   let context = `
 
 Task: ${task.name}
@@ -57,6 +80,8 @@ ${taskDescription(task)}`;
 
 Pull Request: ${prUrl}`;
   }
+
+  context += buildFailedChecksSection(failedChecks);
 
   context += `
 
@@ -81,11 +106,12 @@ export function composeAgentReviewPrompt(
   prDiff: string,
   prUrl?: string,
   skillContent?: string | null,
+  failedChecks?: AgentReviewFailedCheck[],
 ): string {
   const body = skillContent ?? buildAgentReviewBody();
   return (
     body
-    + appendAgentReviewContext(task, prDiff, prUrl)
+    + appendAgentReviewContext(task, prDiff, prUrl, failedChecks)
     + '\n\n'
     + buildAgentReviewExportInstructions()
   );
