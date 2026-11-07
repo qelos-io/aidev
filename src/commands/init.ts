@@ -518,7 +518,7 @@ export function renderEnv(a: Answers): string {
     a.mcpJsonPath ? `MCP_JSON_PATH=${envVal(a.mcpJsonPath)}` : `# MCP_JSON_PATH=.aidev/mcp.json`,
     ...(a.mcpJsonPath
       ? [
-          `# BETTER_MCP: route every agent's MCP traffic through the better-mcp Docker proxy`,
+          `# BETTER_MCP: route every agent's MCP traffic through the better-mcp proxy (auto-installed via npm)`,
           `# (https://github.com/qelos-io/better-mcp) instead of connecting to servers directly.`,
           `BETTER_MCP=${a.betterMcp ? 'true' : 'false'}`,
           `# BETTER_MCP_CONFIG_PATH: better-mcp's own config file. If it already exists, its`,
@@ -1027,14 +1027,14 @@ export async function initCommand(): Promise<void> {
       console.log(
         chalk.dim(
           `  better-mcp (https://github.com/qelos-io/better-mcp) proxies all MCP traffic\n` +
-          `  through a single Docker container that can namespace, log, redact, and offload it.`
+          `  through a single node proxy that can namespace, log, redact, and offload it.`
         )
       );
       const existingBetterMcp = (existing.BETTER_MCP || '').trim().toLowerCase();
       const betterMcpDefault = ['true', '1', 'yes'].includes(existingBetterMcp) ? 'yes' : 'no';
       const betterMcpAnswer = await choose(
         rl,
-        `Route MCP through the better-mcp Docker proxy? ${hint('requires docker')}`,
+        `Route MCP through the better-mcp proxy (auto-installed via npm)? ${hint('installed automatically via npm')}`,
         ['yes', 'no'],
         betterMcpDefault
       );

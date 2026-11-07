@@ -7,7 +7,7 @@ import {
   resolveMcpJsonPath,
   readMcpServers,
   buildBetterMcpConfig,
-  toDockerMountPath,
+  setBetterMcpResolver,
   betterMcpProxyServers,
   toStandardJson,
   toDevinJson,
@@ -20,32 +20,10 @@ import {
 import { logger } from '../logger';
 import type { Config } from '../types';
 
-// commandExists() -> findBin() -> fs.accessSync(), with a Windows-only
-// fallback to `spawnSync('where.exe', [name])` when the PATH+ext scan finds
-// nothing. Mocking commandExists itself doesn't work here: tsx/esbuild
-// compiles named exports as non-configurable getters, which node:test's
-// mock.method can't redefine. node:fs and node:child_process are real
-// builtins (not esbuild-compiled), so mocking them on the require()'d module
-// object propagates through platform.ts's own import. Both must be mocked —
-// on Windows CI runners, Docker is genuinely on PATH, so a "docker missing"
-// test that only stubs accessSync still finds it via the where.exe fallback.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const fsModule = require('node:fs');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const childProcessModule = require('node:child_process');
-
-function mockDockerOnPath(present: boolean) {
-  mock.method(fsModule, 'accessSync', (target: string) => {
-    if (!present) throw new Error('ENOENT');
-    if (path.basename(target).toLowerCase().startsWith('docker')) return undefined;
-    throw new Error('ENOENT');
-  });
-  return mock.method(childProcessModule, 'spawnSync', (cmd: string, args: string[]) => {
-    if (present && String(cmd).toLowerCase().includes('where') && args?.[0] === 'docker') {
-      return { status: 0, stdout: 'C:\\Program Files\\Docker\\docker.exe\r\n', stderr: '', pid: 1, output: [], signal: null };
-    }
-    return { status: 1, stdout: '', stderr: '', pid: 1, output: [], signal: null };
-  });
+// The install/version-check step is replaced via setBetterMcpResolver so tests
+// never touch npm or the network.
+function mockBetterMcp(present: boolean) {
+  setBetterMcpResolver(present ? () => ({ command: 'better-mcp', args: [] }) : () => null);
 }
 
 function withTmpDir(fn: (dir: string) => void): void {
@@ -190,7 +168,7 @@ describe('readMcpServers', () => {
   });
 });
 
-// ─── buildBetterMcpConfig / betterMcpProxyServers / toDockerMountPath ──────
+// ─── buildBetterMcpConfig / betterMcpProxyServers ──────
 
 describe('buildBetterMcpConfig', () => {
   it('forces namespace:true and injects mcpServers with no base', () => {
@@ -212,32 +190,17 @@ describe('buildBetterMcpConfig', () => {
   });
 });
 
-describe('toDockerMountPath', () => {
-  it('leaves posix paths unchanged', () => {
-    assert.equal(toDockerMountPath('/abs/path/mcp.json'), '/abs/path/mcp.json');
-  });
-
-  it('converts a Windows drive path to a Docker-mountable posix path when windows=true', () => {
-    assert.equal(toDockerMountPath('C:\\Users\\me\\project\\mcp.json', true), '/c/Users/me/project/mcp.json');
-  });
-
-  it('leaves a posix path unchanged even when windows=true', () => {
-    assert.equal(toDockerMountPath('/abs/path/mcp.json', true), '/abs/path/mcp.json');
-  });
-
-  it('lowercases the drive letter', () => {
-    assert.equal(toDockerMountPath('D:\\data\\mcp.json', true), '/d/data/mcp.json');
-  });
-});
-
 describe('betterMcpProxyServers', () => {
-  it('produces exactly one better-mcp docker entry', () => {
-    const servers = betterMcpProxyServers('/abs/path/better-mcp.json');
+  it('produces exactly one better-mcp entry using the installed binary', () => {
+    const servers = betterMcpProxyServers('/abs/path/better-mcp.json', { command: 'better-mcp', args: [] });
     assert.deepEqual(Object.keys(servers), ['better-mcp']);
-    assert.equal(servers['better-mcp'].command, 'docker');
-    assert.deepEqual(servers['better-mcp'].args, [
-      'run', '--rm', '-i', '-v', '/abs/path/better-mcp.json:/app/mcp.json:ro', 'ghcr.io/qelos-io/better-mcp:main',
-    ]);
+    assert.equal(servers['better-mcp'].command, 'better-mcp');
+    assert.deepEqual(servers['better-mcp'].args, ['-c', '/abs/path/better-mcp.json']);
+  });
+
+  it('prefixes launcher args (npx fallback)', () => {
+    const servers = betterMcpProxyServers('/p.json', { command: 'npx', args: ['-y', '@qelos/better-mcp@latest'] });
+    assert.deepEqual(servers['better-mcp'].args, ['-y', '@qelos/better-mcp@latest', '-c', '/p.json']);
   });
 });
 
@@ -360,7 +323,7 @@ describe('toCodexToml', () => {
 
 describe('materializeMcp', () => {
   beforeEach(() => mock.restoreAll());
-  afterEach(() => mock.restoreAll());
+  afterEach(() => { mock.restoreAll(); setBetterMcpResolver(null); });
 
   it('returns null and writes nothing when no mcp.json applies', () => {
     withTmpDir((dir) => {
@@ -492,7 +455,7 @@ describe('materializeMcp', () => {
     it('wraps every agent file down to a single better-mcp proxy server', () => {
       withTmpDir((dir) => {
         writeMcpJson(dir, '.aidev/mcp.json', { fs: { command: 'npx' }, gh: { command: 'npx' } });
-        mockDockerOnPath(true);
+        mockBetterMcp(true);
 
         const state = materializeMcp(baseConfig({ agents: ['claude', 'cursor'], betterMcp: true }), dir);
 
@@ -512,7 +475,7 @@ describe('materializeMcp', () => {
           JSON.stringify({ namespace: false, middleware: { log: { level: 'debug' } } }),
           'utf8',
         );
-        mockDockerOnPath(true);
+        mockBetterMcp(true);
 
         materializeMcp(baseConfig({ agents: ['claude'], betterMcp: true }), dir);
 
@@ -523,34 +486,17 @@ describe('materializeMcp', () => {
       });
     });
 
-    it('falls back to raw servers and warns when docker is not on PATH', () => {
+    it('falls back to raw servers and warns when better-mcp cannot be installed', () => {
       withTmpDir((dir) => {
         writeMcpJson(dir, '.aidev/mcp.json', { fs: { command: 'npx' } });
-        mockDockerOnPath(false);
+        mockBetterMcp(false);
         const warn = mock.method(logger, 'warn', () => {});
 
         const state = materializeMcp(baseConfig({ agents: ['claude'], betterMcp: true }), dir);
 
         assert.ok(state);
         assert.deepEqual(state!.servers, { fs: { command: 'npx' } });
-        assert.ok(warn.mock.calls.some((c) => String(c.arguments[0]).includes('docker')));
-      });
-    });
-
-    it('warns per server when a command is not guaranteed to exist inside the container', () => {
-      withTmpDir((dir) => {
-        writeMcpJson(dir, '.aidev/mcp.json', {
-          fs: { command: 'npx' },
-          shellScript: { command: './scripts/run.sh' },
-        });
-        mockDockerOnPath(true);
-        const warn = mock.method(logger, 'warn', () => {});
-
-        materializeMcp(baseConfig({ agents: ['claude'], betterMcp: true }), dir);
-
-        const warnings = warn.mock.calls.map((c) => String(c.arguments[0]));
-        assert.ok(warnings.some((m) => m.includes('shellScript') && m.includes('./scripts/run.sh')));
-        assert.ok(!warnings.some((m) => m.includes('"fs"') || m.includes('server "fs"')));
+        assert.ok(warn.mock.calls.some((c) => String(c.arguments[0]).includes('better-mcp')));
       });
     });
   });
