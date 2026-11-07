@@ -167,6 +167,8 @@ export interface Config {
   safeMode: boolean;
   /** After a code task's AI run, send a follow-up prompt in the same agent session asking it to finish any unfinished work. */
   continueAfterRun: boolean;
+  /** After the whole run, stop leftover processes (dev servers, docker containers) started by agent clients. */
+  autoShutdown: boolean;
   // MCP (Model Context Protocol)
   mcpJsonPath: string;
   betterMcp: boolean;

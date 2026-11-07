@@ -447,6 +447,35 @@ describe('AIDEV_CONTINUE_AFTER_RUN config', () => {
   });
 });
 
+describe('AIDEV_AUTO_SHUTDOWN config', () => {
+  const prevProvider = process.env.PROVIDER;
+  beforeEach(() => { process.env.PROVIDER = 'local'; });
+  afterEach(() => {
+    delete process.env.AIDEV_AUTO_SHUTDOWN;
+    if (prevProvider === undefined) delete process.env.PROVIDER;
+    else process.env.PROVIDER = prevProvider;
+  });
+
+  it('defaults to true', () => {
+    delete process.env.AIDEV_AUTO_SHUTDOWN;
+    assert.equal(loadConfig().autoShutdown, true);
+  });
+
+  it('stays enabled for true / 1 / yes', () => {
+    for (const v of ['true', '1', 'yes']) {
+      process.env.AIDEV_AUTO_SHUTDOWN = v;
+      assert.equal(loadConfig().autoShutdown, true, v);
+    }
+  });
+
+  it('can be disabled with false / 0 / no (case-insensitive)', () => {
+    for (const v of ['false', '0', 'no', ' FALSE ']) {
+      process.env.AIDEV_AUTO_SHUTDOWN = v;
+      assert.equal(loadConfig().autoShutdown, false, v);
+    }
+  });
+});
+
 describe('beforeContinueTask hook registration', () => {
   let tmp: string;
   beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-continue-hook-')); });
