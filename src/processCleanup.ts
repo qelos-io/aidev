@@ -125,3 +125,148 @@ export function listDockerContainers(): string[] {
     return [];
   }
 }
+
+/** A process recorded for shutdown. pid + startTime identify it (guards against PID reuse). */
+export interface TrackedProcess {
+  pid: number;
+  ppid: number;
+  name: string;
+  startTime?: number;
+}
+
+export interface ProcessTrackerOptions {
+  listProcesses?: () => ProcInfo[];
+  listDockerContainers?: () => string[];
+  /** PID treated as "aidev itself". Defaults to process.pid. */
+  selfPid?: number;
+  /** Clock used to stamp the beginning of the run. Defaults to Date.now. */
+  now?: () => number;
+}
+
+/** Start times from `ps` have 1s resolution; allow slack when comparing. */
+const START_TIME_TOLERANCE_MS = 2000;
+
+/** True when both start times are known and differ, i.e. the pid belongs to a different process. */
+export function isDifferentProcess(a: number | undefined, b: number | undefined): boolean {
+  if (a === undefined || b === undefined) return false;
+  return Math.abs(a - b) > START_TIME_TOLERANCE_MS;
+}
+
+/**
+ * Tracks processes (and docker containers) started during an aidev run so they can be
+ * cleaned up at the end. `begin()` snapshots the baseline; `capture()` records new
+ * descendants/orphans; nothing is killed here.
+ */
+export class ProcessTracker {
+  private readonly lister: () => ProcInfo[];
+  private readonly dockerLister: () => string[];
+  private readonly selfPid: number;
+  private readonly now: () => number;
+
+  private runStart = 0;
+  private begun = false;
+  private baseline = new Map<number, number | undefined>();
+  private baselineContainers = new Set<string>();
+  private readonly tracked = new Map<number, TrackedProcess>();
+  private readonly containers = new Set<string>();
+
+  constructor(opts: ProcessTrackerOptions = {}) {
+    this.lister = opts.listProcesses ?? listProcesses;
+    this.dockerLister = opts.listDockerContainers ?? listDockerContainers;
+    this.selfPid = opts.selfPid ?? process.pid;
+    this.now = opts.now ?? Date.now;
+  }
+
+  /** Snapshots the pre-existing processes and containers. */
+  begin(): void {
+    this.runStart = this.now();
+    this.baseline = new Map(this.lister().map((p) => [p.pid, p.startTime]));
+    this.baselineContainers = new Set(this.dockerLister());
+    this.tracked.clear();
+    this.containers.clear();
+    this.begun = true;
+  }
+
+  /** Records new descendants of aidev, and new orphans, plus new docker containers. */
+  capture(): void {
+    if (!this.begun) return;
+    const procs = this.lister();
+    if (procs.length > 0) this.captureProcesses(procs);
+    for (const id of this.dockerLister()) {
+      if (!this.baselineContainers.has(id)) this.containers.add(id);
+    }
+  }
+
+  getTrackedProcesses(): TrackedProcess[] {
+    return [...this.tracked.values()];
+  }
+
+  getTrackedContainers(): string[] {
+    return [...this.containers];
+  }
+
+  private isBaseline(p: ProcInfo): boolean {
+    if (!this.baseline.has(p.pid)) return false;
+    // Same pid with a clearly different start time => pid was reused by a new process.
+    return !isDifferentProcess(this.baseline.get(p.pid), p.startTime);
+  }
+
+  private captureProcesses(procs: ProcInfo[]): void {
+    const byPid = new Map<number, ProcInfo>(procs.map((p) => [p.pid, p]));
+
+    // Never touch aidev itself or any of its ancestors.
+    const protectedPids = new Set<number>([this.selfPid]);
+    for (let cur = byPid.get(this.selfPid); cur && !protectedPids.has(cur.ppid); cur = byPid.get(cur.ppid)) {
+      protectedPids.add(cur.ppid);
+    }
+
+    const isTracked = (p: ProcInfo): boolean => {
+      const t = this.tracked.get(p.pid);
+      return !!t && !isDifferentProcess(t.startTime, p.startTime);
+    };
+
+    // Walks up the parent chain; true if it reaches aidev or an already tracked process.
+    const descendsFromRun = (p: ProcInfo): boolean => {
+      const seen = new Set<number>([p.pid]);
+      let child = p;
+      for (;;) {
+        const parent = byPid.get(child.ppid);
+        if (!parent || seen.has(parent.pid)) return false;
+        // A parent cannot be younger than its child; otherwise the ppid was reused.
+        if (
+          parent.startTime !== undefined &&
+          child.startTime !== undefined &&
+          parent.startTime - child.startTime > START_TIME_TOLERANCE_MS
+        ) {
+          return false;
+        }
+        if (parent.pid === this.selfPid) return true;
+        if (isTracked(parent)) return true;
+        seen.add(parent.pid);
+        child = parent;
+      }
+    };
+
+    const isOrphan = (p: ProcInfo): boolean => {
+      if (p.startTime === undefined || p.startTime < this.runStart - START_TIME_TOLERANCE_MS) return false;
+      if (p.ppid <= 1) return true;
+      const parent = byPid.get(p.ppid);
+      if (!parent) return true;
+      // Parent pid exists but is younger than the child => original parent died, pid reused.
+      return parent.startTime !== undefined && parent.startTime - p.startTime > START_TIME_TOLERANCE_MS;
+    };
+
+    // Iterate until stable so that chains discovered out of order are all picked up.
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const p of procs) {
+        if (p.pid <= 1 || protectedPids.has(p.pid) || this.isBaseline(p) || isTracked(p)) continue;
+        if (descendsFromRun(p) || isOrphan(p)) {
+          this.tracked.set(p.pid, { pid: p.pid, ppid: p.ppid, name: p.name, startTime: p.startTime });
+          changed = true;
+        }
+      }
+    }
+  }
+}
