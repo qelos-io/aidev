@@ -25,6 +25,10 @@ import {
   forceDeleteBranch,
   stashCount,
   clearStashes,
+  ensureLocalExclude,
+  unstageAidevSkills,
+  isAidevSkillsPath,
+  AIDEV_SKILLS_LINK_NAME,
 } from '../git';
 
 // ─── slugify ──────────────────────────────────────────────────────────────────
@@ -910,5 +914,94 @@ describe('stashCount / clearStashes (integration)', () => {
     assert.equal(stashCount(), 2);
     assert.equal(clearStashes(), true);
     assert.equal(stashCount(), 0);
+  });
+});
+
+function gitOut(args: string[], cwd: string): string {  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);  return result.stdout;}
+// ─── aidev-skills never-commit guard ─────────────────────────────────────────
+
+describe('aidev-skills commit guard (integration)', () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-skills-'));
+    initRepo(tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function committedFiles(): string[] {
+    return gitOut(['show', '--name-only', '--format=', 'HEAD'], tmpDir).split('\n').map((l) => l.trim()).filter(Boolean);
+  }
+
+  it('ensureLocalExclude appends the pattern once to .git/info/exclude', () => {
+    assert.equal(ensureLocalExclude(), true);
+    assert.equal(ensureLocalExclude(), true);
+    const content = fs.readFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), 'utf8');
+    assert.equal(content.split('\n').filter((l) => l.trim() === AIDEV_SKILLS_LINK_NAME).length, 1);
+  });
+
+  it('isAidevSkillsPath matches at any depth, with either separator', () => {
+    assert.equal(isAidevSkillsPath('.agents/skills/aidev-skills/x.md'), true);
+    assert.equal(isAidevSkillsPath('.cursor\\rules\\aidev-skills'), true);
+    assert.equal(isAidevSkillsPath('src/aidev-skills-notes.md'), false);
+  });
+
+  it('addAll + commit drops aidev-skills files even without an exclude entry', () => {
+    // Stage directly, bypassing addAll's exclude handling.
+    fs.mkdirSync(path.join(tmpDir, '.agents', 'skills', 'aidev-skills'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.agents', 'skills', 'aidev-skills', 'x.md'), 'secret\n');
+    fs.writeFileSync(path.join(tmpDir, 'real.txt'), 'real\n');
+    gitCmd(['add', '-f', '-A'], tmpDir);
+
+    assert.equal(commit('guarded'), true);
+    assert.deepEqual(committedFiles(), ['real.txt']);
+  });
+
+  it('addAll leaves aidev-skills untracked and does not report it as a change', () => {
+    fs.mkdirSync(path.join(tmpDir, '.claude', 'skills', 'aidev-skills'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.claude', 'skills', 'aidev-skills', 'a.md'), 'a\n');
+    assert.equal(hasChanges(), false);
+    assert.equal(addAll(), true);
+    assert.equal(gitOut(['diff', '--cached', '--name-only'], tmpDir).trim(), '');
+  });
+
+  it('unstages a tracked-path aidev-skills file the user force-added in the index', () => {
+    fs.mkdirSync(path.join(tmpDir, 'aidev-skills'));
+    fs.writeFileSync(path.join(tmpDir, 'aidev-skills', 'y.md'), 'y\n');
+    fs.writeFileSync(path.join(tmpDir, 'other.txt'), 'o\n');
+    gitCmd(['add', '-f', '-A'], tmpDir);
+    assert.equal(unstageAidevSkills(), true);
+    assert.equal(gitOut(['diff', '--cached', '--name-only'], tmpDir).trim(), 'other.txt');
+    assert.ok(fs.existsSync(path.join(tmpDir, 'aidev-skills', 'y.md')), 'working tree untouched');
+  });
+
+  it('unstages newly staged symlinks that point outside the repo', (t) => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-outside-'));
+    try {
+      try {
+        fs.symlinkSync(outside, path.join(tmpDir, 'escape'), 'junction');
+      } catch {
+        t.skip('symlinks not permitted on this platform');
+        return;
+      }
+      // Junctions are not symlinks to git; only run the git-level check when git saw a symlink.
+      gitCmd(['add', '-f', 'escape'], tmpDir);
+      const mode = gitOut(['ls-files', '-s', 'escape'], tmpDir).split(' ')[0];
+      if (mode !== '120000') {
+        t.skip('git did not record a symlink on this platform');
+        return;
+      }
+      assert.equal(unstageAidevSkills(), true);
+      assert.equal(gitOut(['diff', '--cached', '--name-only'], tmpDir).trim(), '');
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });
