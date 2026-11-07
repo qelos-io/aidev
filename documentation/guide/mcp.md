@@ -61,11 +61,7 @@ Every file aidev generates or manages for MCP is added to `.gitignore` automatic
 
 Set `BETTER_MCP=true` to route every agent through [better-mcp](https://github.com/qelos-io/better-mcp) — a single proxy that namespaces tool names, and can log, redact, and offload responses — instead of connecting each agent directly to every server.
 
-Requires `docker` on PATH. Pull the image once:
-
-```bash
-docker pull ghcr.io/qelos-io/better-mcp:main
-```
+Requires Node.js/npm (which aidev users already have). aidev checks for the `better-mcp` CLI and installs it with `npm install -g @qelos/better-mcp@latest` when missing. On every run it compares the installed version with the latest on npm and upgrades when outdated.
 
 When enabled, aidev:
 
@@ -77,18 +73,16 @@ When enabled, aidev:
 {
   "mcpServers": {
     "better-mcp": {
-      "command": "docker",
-      "args": ["run", "--rm", "-i", "-v", "/abs/path/.aidev/better-mcp.json:/app/mcp.json:ro", "ghcr.io/qelos-io/better-mcp:main"]
+      "command": "better-mcp",
+      "args": ["-c", "/abs/path/.aidev/better-mcp.json"]
     }
   }
 }
 ```
 
-If `docker` isn't found, aidev logs a warning and falls back to injecting your raw servers directly — a missing proxy never blocks a run.
+If the install fails, aidev falls back to `npx -y @qelos/better-mcp@latest`; if neither npm nor npx is usable it logs a warning and injects your raw servers directly — a missing proxy never blocks a run.
 
-### Servers run inside the container
-
-In better-mcp mode, your upstream MCP servers execute **inside the Docker image**, not on the host. Only `node`/`npx` are guaranteed available there — aidev warns (per server) when a command isn't one of those. A server with a relative `command` or a `cwd` pointing at your project won't resolve; a filesystem server aimed at a host path won't see your repo unless you mount it yourself into the container.
+Upstream servers run on the host, so relative commands and project paths resolve normally.
 
 ## Secrets
 

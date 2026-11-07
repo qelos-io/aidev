@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { Config, AgentName } from './types';
 import { resolveEnvPath } from './config';
 import { logger } from './logger';
-import { commandExists, isWindows } from './platform';
+import { ensureBetterMcp, BetterMcpLauncher } from './betterMcpCli';
 
 export interface McpServerDef {
   command?: string;
@@ -30,8 +30,6 @@ export interface McpState {
   /** Project-relative paths materialized this run. */
   written: string[];
 }
-
-const BETTER_MCP_IMAGE = 'ghcr.io/qelos-io/better-mcp:main';
 
 // Patterns aidev-managed MCP files must be covered by. Mirrors the
 // GITIGNORE_RULES shape in src/commands/init.ts: [pattern, existing-match regex].
@@ -120,29 +118,21 @@ export function buildBetterMcpConfig(base: unknown, servers: McpServers): Record
   return { ...baseObj, mcpServers: servers, namespace: true };
 }
 
-/**
- * Converts an absolute path to a Docker-mountable path (POSIX-ish on Windows).
- * `windows` defaults to the real platform check but is overridable so tests
- * can exercise the Windows branch on any host.
- */
-export function toDockerMountPath(absPath: string, windows = isWindows): string {
-  if (!windows) return absPath;
-  const match = /^([A-Za-z]):\\(.*)$/.exec(absPath);
-  if (!match) return absPath.replace(/\\/g, '/');
-  const drive = match[1].toLowerCase();
-  const rest = match[2].replace(/\\/g, '/');
-  return `/${drive}/${rest}`;
-}
-
 /** The single-entry server map every agent gets when better-mcp mode is active. */
-export function betterMcpProxyServers(betterMcpConfigAbsPath: string): McpServers {
-  const mountPath = toDockerMountPath(betterMcpConfigAbsPath);
+export function betterMcpProxyServers(betterMcpConfigAbsPath: string, launcher: BetterMcpLauncher): McpServers {
   return {
     'better-mcp': {
-      command: 'docker',
-      args: ['run', '--rm', '-i', '-v', `${mountPath}:/app/mcp.json:ro`, BETTER_MCP_IMAGE],
+      command: launcher.command,
+      args: [...launcher.args, '-c', betterMcpConfigAbsPath],
     },
   };
+}
+
+let betterMcpResolver: () => BetterMcpLauncher | null = ensureBetterMcp;
+
+/** Test seam — replaces the install/version-check step. */
+export function setBetterMcpResolver(fn: (() => BetterMcpLauncher | null) | null): void {
+  betterMcpResolver = fn ?? ensureBetterMcp;
 }
 
 /** {"mcpServers": {...}} — used by claude, cursor, antigravity. */
@@ -280,19 +270,6 @@ function writeFile(cwd: string, relPath: string, content: string, manifest: Reco
   manifest[relPath] = sha256(content);
 }
 
-const CONTAINER_SAFE_COMMANDS = new Set(['node', 'npx']);
-
-function warnIfNotContainerSafe(servers: McpServers): void {
-  for (const [name, def] of Object.entries(servers)) {
-    if (def.command && !CONTAINER_SAFE_COMMANDS.has(def.command)) {
-      logger.warn(
-        `MCP server "${name}" uses command "${def.command}", which is not guaranteed to exist inside ` +
-        `the better-mcp Docker image (only node/npx are). It may fail to start.`,
-      );
-    }
-  }
-}
-
 /**
  * Resolves the generic mcp.json, applies better-mcp wrapping if configured,
  * writes the per-agent convention files for every agent in config.agents, and
@@ -311,10 +288,10 @@ export function materializeMcp(config: Config, cwd = process.cwd()): McpState | 
   const betterMcp = !!config.betterMcp;
 
   if (betterMcp) {
-    if (!commandExists('docker')) {
-      logger.warn('BETTER_MCP is enabled but docker was not found on PATH — falling back to raw MCP servers.');
+    const launcher = betterMcpResolver();
+    if (!launcher) {
+      logger.warn('BETTER_MCP is enabled but better-mcp could not be installed (needs node/npm) — falling back to raw MCP servers.');
     } else {
-      warnIfNotContainerSafe(rawServers);
       const betterMcpConfigRel = config.betterMcpConfigPath || path.join('.aidev', 'better-mcp.json');
       const betterMcpConfigAbs = resolveEnvPath(betterMcpConfigRel, cwd);
       const existingBase = readJsonIfExists(betterMcpConfigAbs);
@@ -322,7 +299,7 @@ export function materializeMcp(config: Config, cwd = process.cwd()): McpState | 
       fs.mkdirSync(path.dirname(betterMcpConfigAbs), { recursive: true });
       fs.writeFileSync(betterMcpConfigAbs, JSON.stringify(merged, null, 2) + '\n', 'utf8');
       written.push(path.relative(cwd, betterMcpConfigAbs));
-      effectiveServers = betterMcpProxyServers(betterMcpConfigAbs);
+      effectiveServers = betterMcpProxyServers(betterMcpConfigAbs, launcher);
     }
   }
 
