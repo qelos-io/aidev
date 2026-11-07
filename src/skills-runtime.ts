@@ -72,7 +72,7 @@ export function setupSkills(
   const needLink = runnersNeedingSkillsLink(runners);
   if (needLink.length > 0) {
     logger.info(`Linking skills for runners without direct support: ${needLink.map((r) => r.name).join(', ')}`);
-    links = linkSkills(repoDir, source, linkTargetsFor(needLink));
+    links = linkSkills(repoDir, source, linkTargetsFor(runners));
   }
 
   return {

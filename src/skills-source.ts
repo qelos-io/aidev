@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -37,6 +38,8 @@ export function isGitUrl(source: string): boolean {
   if (!s || s.startsWith('-')) return false;
   if (/^(https?|ssh|git|file):\/\//i.test(s)) return true;
   if (/^[\w.-]+@[\w.-]+:/.test(s)) return true;
+  // A local path that exists wins over the `.git` suffix heuristic.
+  if (fs.existsSync(s)) return false;
   return /\.git\/?$/i.test(s);
 }
 
@@ -125,8 +128,9 @@ export function makeCacheReadOnly(dir: string): void {
 
 // ─── lock ────────────────────────────────────────────────────────────────────
 
+/** Cross-platform short sleep via a child process (no `Atomics.wait` hard block in this process). */
 function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  spawnSync(process.execPath, ['-e', `setTimeout(()=>{},${Math.max(0, Math.floor(ms))})`], { stdio: 'ignore' });
 }
 
 function pidAlive(pid: number): boolean {
@@ -207,7 +211,10 @@ function updateCache(url: string, dir: string, wantedBranch: string): void {
   try {
     const branch = pickBranch(dir, wantedBranch);
     if (branch === null) {
-      if (!exists) throw new Error('unreachable'); // just cloned; should not happen
+      if (!exists) {
+        logger.warn(`Skills repository "${url}" became unreachable after clone — using the fresh cache`);
+        return;
+      }
       logger.warn(`Skills repository "${url}" is unreachable — using the existing cache (may be stale)`);
       return;
     }
