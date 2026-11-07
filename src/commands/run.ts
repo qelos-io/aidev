@@ -25,6 +25,7 @@ import {
   ReviewTaskContext,
 } from '../hooks';
 import { buildCompressedContext } from '../sessions';
+import { ProcessTracker } from '../processCleanup';
 import { resolveDoneStatus } from './accepted';
 import { collectSecrets, sanitizeTaskForSafeMode } from '../safeMode';
 import {
@@ -671,11 +672,37 @@ export function formatSubtaskList(plan: ThinkingTaskPlan): string {
     .join('\n');
 }
 
+/**
+ * Wraps runners so the tracker captures leftover child processes after every agent
+ * invocation (also failed ones), since orphans can only be attributed right after the agent exits.
+ */
+export function withProcessCapture(runners: AIRunner[], tracker: Pick<ProcessTracker, 'capture'>): AIRunner[] {
+  return runners.map((runner) => {
+    const wrapped: AIRunner = {
+      name: runner.name,
+      supportsSessions: runner.supportsSessions,
+      isAvailable: () => runner.isAvailable(),
+      run: async (prompt, notes, options) => {
+        try {
+          return await runner.run(prompt, notes, options);
+        } finally {
+          try {
+            tracker.capture();
+          } catch (err) {
+            logger.debug(`Process capture failed: ${err instanceof Error ? err.message : err}`);
+          }
+        }
+      },
+    };
+    return wrapped;
+  });
+}
+
 export async function runCommand(
   filter: RunFilter,
   config: Config,
   provider: TaskProvider,
-  runners: AIRunner[],
+  rawRunners: AIRunner[],
   nonCodeProvider?: TaskProvider,
   consultProvider?: TaskProvider,
   hooks: AidevHooks = {},
@@ -713,6 +740,43 @@ export async function runCommand(
   }
 
   logRunStart();
+
+  // Only the top-level `run` (the one holding the directory lock) cleans up; descendants
+  // that inherited this config never reach here because acquireLock fails for them.
+  let tracker: ProcessTracker | undefined;
+  let runners = rawRunners;
+  if (config.autoShutdown) {
+    try {
+      tracker = new ProcessTracker();
+      tracker.begin();
+      runners = withProcessCapture(rawRunners, tracker);
+    } catch (err) {
+      tracker = undefined;
+      logger.warn(`Auto-shutdown disabled: could not snapshot processes: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  let shutdownPromise: Promise<void> | undefined;
+  const shutdownTracked = (): Promise<void> => {
+    if (!tracker) return Promise.resolve();
+    shutdownPromise ??= tracker.shutdown().then(() => undefined).catch((err) => {
+      logger.warn(`Auto-shutdown failed: ${err instanceof Error ? err.message : err}`);
+    });
+    return shutdownPromise;
+  };
+  const onSignal = (signal: NodeJS.Signals): void => {
+    logger.warn(`Received ${signal} — cleaning up agent processes...`);
+    void shutdownTracked().finally(() => {
+      try { configServer.close(); } catch { /* ignore */ }
+      clearActiveTask(cwd);
+      releaseLock(cwd);
+      process.exit(signal === 'SIGINT' ? 130 : 143);
+    });
+  };
+  if (tracker) {
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
+  }
 
   try {
     const screenAvailable = isScreenAvailable();
@@ -818,6 +882,11 @@ export async function runCommand(
 
     logger.success(`Done. Processed: ${processed}, Skipped: ${skipped}`);
   } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+    // Final capture catches anything started since the last agent call, then stop it all.
+    try { tracker?.capture(); } catch { /* best-effort */ }
+    await shutdownTracked();
     // Close the IPC server before releasing the lock so children can no longer
     // connect once the parent is releasing its directory ownership.
     try {
