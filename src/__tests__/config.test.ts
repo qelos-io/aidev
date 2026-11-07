@@ -362,6 +362,7 @@ describe('loadConfig tag defaults', () => {
     'NON_CODE_TAG', 'JIRA_LABEL', 'PROVIDER',
     'ACCEPTED_TAG', 'AUTO_APPROVE', 'AGENT_REVIEW_TAG', 'AUTO_REVIEW',
     'MCP_JSON_PATH', 'BETTER_MCP', 'BETTER_MCP_CONFIG_PATH',
+    'AIDEV_SKILLS_SOURCE', 'AIDEV_SKILLS_BRANCH', 'AIDEV_SKILLS_SUBDIR',
   ];
   const saved: Record<string, string | undefined> = {};
   let tmpDir: string;
@@ -589,6 +590,28 @@ describe('loadConfig tag defaults', () => {
     } finally {
       delete process.env.BETTER_MCP_CONFIG_PATH;
     }
+  });
+
+  it('defaults skills fields: empty source/subdir and main branch', () => {
+    const config = loadConfig();
+    assert.equal(config.skillsSource, '');
+    assert.equal(config.skillsBranch, 'main');
+    assert.equal(config.skillsSubdir, '');
+  });
+
+  it('reads AIDEV_SKILLS_SOURCE, AIDEV_SKILLS_BRANCH and AIDEV_SKILLS_SUBDIR (trimmed)', () => {
+    process.env.AIDEV_SKILLS_SOURCE = '  git@github.com:org/skills.git ';
+    process.env.AIDEV_SKILLS_BRANCH = ' develop ';
+    process.env.AIDEV_SKILLS_SUBDIR = 'skills';
+    const config = loadConfig();
+    assert.equal(config.skillsSource, 'git@github.com:org/skills.git');
+    assert.equal(config.skillsBranch, 'develop');
+    assert.equal(config.skillsSubdir, 'skills');
+  });
+
+  it('falls back to main when AIDEV_SKILLS_BRANCH is blank', () => {
+    process.env.AIDEV_SKILLS_BRANCH = '   ';
+    assert.equal(loadConfig().skillsBranch, 'main');
   });
 });
 

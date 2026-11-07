@@ -261,6 +261,10 @@ export function loadConfig(customEnvPath?: string): Config {
   const betterMcp = ['true', '1', 'yes'].includes(betterMcpRaw);
   const betterMcpConfigPath = process.env.BETTER_MCP_CONFIG_PATH || '';
 
+  const skillsSource = (process.env.AIDEV_SKILLS_SOURCE || '').trim();
+  const skillsBranch = (process.env.AIDEV_SKILLS_BRANCH || '').trim() || 'main';
+  const skillsSubdir = (process.env.AIDEV_SKILLS_SUBDIR || '').trim();
+
   return {
     provider,
     clickupApiKey: process.env.CLICKUP_API_KEY || '',
@@ -335,6 +339,9 @@ export function loadConfig(customEnvPath?: string): Config {
     mcpJsonPath,
     betterMcp,
     betterMcpConfigPath,
+    skillsSource,
+    skillsBranch,
+    skillsSubdir,
     _envPath: envPath,
   };
 }

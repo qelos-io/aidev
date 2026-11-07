@@ -91,6 +91,9 @@ function makePayload(pid: number): ConfigInheritPayload {
     mcpJsonPath: '',
     betterMcp: false,
     betterMcpConfigPath: '',
+    skillsSource: '',
+    skillsBranch: 'main',
+    skillsSubdir: '',
   };
   return {
     config,

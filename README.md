@@ -71,6 +71,16 @@ Cleanup is conservative: it never stops aidev itself, processes that existed bef
 |----------|---------|-------------|
 | `AIDEV_AUTO_SHUTDOWN` | `true` | Stop processes started by agent clients after the run. Set to `false` / `0` / `no` to disable. |
 
+## Skills source (external skills / rules)
+
+Point aidev at an external skills/rules source — a local folder or a git repo you can access — and `aidev run` exposes it read-only to the AI agents. The source is never committed or modified by aidev.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AIDEV_SKILLS_SOURCE` | _(unset = disabled)_ | Local folder path, or a git URL (`https://…`, `git@…`, `ssh://…`, or anything ending in `.git`). |
+| `AIDEV_SKILLS_BRANCH` | `main` | Branch to track for git sources. |
+| `AIDEV_SKILLS_SUBDIR` | _(repo root)_ | Subfolder of the source where skills/rules live. |
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
