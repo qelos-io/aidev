@@ -81,6 +81,20 @@ Point aidev at an external skills/rules source — a local folder or a git repo 
 | `AIDEV_SKILLS_BRANCH` | `main` | Branch to track for git sources. |
 | `AIDEV_SKILLS_SUBDIR` | _(repo root)_ | Subfolder of the source where skills/rules live. |
 
+`aidev init` asks for the source (optional) and writes it to `.env.aidev`.
+
+**How it works**
+
+- **Resolved once per `aidev run`**, before any task is processed. A missing or unreadable source fails the run early with a clear message. Child `aidev` processes inherit the resolved config and never re-clone.
+- **Layout detection**: `skills/`, `rules/`, `agents/`, `.agents/*`, `.claude/skills`, `.cursor/rules`, or a flat folder containing `SKILL.md` files.
+- **Git sources** are cloned into a user-level cache (`~/.aidev/skills-cache/<hash>`), outside your repo, and forced to the latest `origin/<branch>` on every run. If the network is down, the existing cache is used with a warning.
+- **Passed to agents directly** (CLI flags / prompt hint) for Claude, Cursor, Codex, OpenCode and aider. Only agents with no such option (e.g. antigravity, devin, anthropic-sdk) get a symlink fallback (`.agents/skills/aidev-skills`, plus `.claude/skills` / `.cursor/rules` as needed; a junction on Windows). Links are created at the start of the run and removed when it ends, including on Ctrl+C. aidev never overwrites an existing real file or folder at those paths.
+
+**Guarantees**
+
+- **Read-only**: git caches are made read-only after each update (best-effort on Windows) and agents are told not to modify the source.
+- **Never committed**: `aidev-skills` is added to `.git/info/exclude` (your `.gitignore` is untouched), and aidev's commit steps unstage any `aidev-skills` path or symlink pointing outside the repo, even if the exclude entry is missing.
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
