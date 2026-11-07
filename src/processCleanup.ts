@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { platform } from 'node:os';
+import chalk from 'chalk';
 import { logger } from './logger';
 
 export interface ProcInfo {
@@ -141,6 +142,31 @@ export interface ProcessTrackerOptions {
   selfPid?: number;
   /** Clock used to stamp the beginning of the run. Defaults to Date.now. */
   now?: () => number;
+  /** Sends a signal to a pid. Defaults to process.kill. */
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+  /** Runs an external command with array args; returns true on success. Defaults to spawnSync. */
+  runCommand?: (cmd: string, args: string[]) => boolean;
+  /** Waits for the given ms. Defaults to setTimeout. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Overrides platform detection (true = Windows). */
+  isWindows?: boolean;
+  /** Grace period between SIGTERM and SIGKILL. Defaults to 3000ms. */
+  graceMs?: number;
+}
+
+export interface ShutdownOptions {
+  /** Only log what would be stopped; kill nothing. */
+  dryRun?: boolean;
+}
+
+export interface ShutdownResult {
+  processes: TrackedProcess[];
+  containers: string[];
+}
+
+function defaultRunCommand(cmd: string, args: string[]): boolean {
+  const res = spawnSync(cmd, args, { encoding: 'utf8', windowsHide: true });
+  return !res.error && res.status === 0;
 }
 
 /** Start times from `ps` have 1s resolution; allow slack when comparing. */
@@ -162,6 +188,11 @@ export class ProcessTracker {
   private readonly dockerLister: () => string[];
   private readonly selfPid: number;
   private readonly now: () => number;
+  private readonly killFn: (pid: number, signal: NodeJS.Signals) => void;
+  private readonly runCommand: (cmd: string, args: string[]) => boolean;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly isWindows: boolean;
+  private readonly graceMs: number;
 
   private runStart = 0;
   private begun = false;
@@ -175,6 +206,11 @@ export class ProcessTracker {
     this.dockerLister = opts.listDockerContainers ?? listDockerContainers;
     this.selfPid = opts.selfPid ?? process.pid;
     this.now = opts.now ?? Date.now;
+    this.killFn = opts.kill ?? ((pid, signal) => { process.kill(pid, signal); });
+    this.runCommand = opts.runCommand ?? defaultRunCommand;
+    this.sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.isWindows = opts.isWindows ?? platform() === 'win32';
+    this.graceMs = opts.graceMs ?? 3000;
   }
 
   /** Snapshots the pre-existing processes and containers. */
@@ -203,6 +239,125 @@ export class ProcessTracker {
 
   getTrackedContainers(): string[] {
     return [...this.containers];
+  }
+
+  /**
+   * Stops the tracked processes that are still alive (matching pid + start time) and the
+   * tracked docker containers. Never touches aidev itself, its ancestors, or baseline processes.
+   * Errors are logged per item and never thrown.
+   */
+  async shutdown(opts: ShutdownOptions = {}): Promise<ShutdownResult> {
+    const result: ShutdownResult = { processes: [], containers: [] };
+    if (!this.begun) return result;
+    const dryRun = !!opts.dryRun;
+    const prefix = dryRun ? '[dry-run] Would stop' : 'Stopping';
+
+    try {
+      result.processes = await this.shutdownProcesses(dryRun, prefix);
+    } catch (err) {
+      logger.warn(`Process cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    const ids = [...this.containers].filter((id) => /^[0-9a-f]+$/i.test(id));
+    if (ids.length > 0) {
+      console.log(chalk.cyan(`${prefix} ${ids.length} docker container(s): ${ids.join(', ')}`));
+      if (dryRun) {
+        result.containers = ids;
+      } else {
+        try {
+          if (this.runCommand('docker', ['stop', ...ids])) result.containers = ids;
+          else logger.warn('docker stop failed for one or more containers');
+        } catch (err) {
+          logger.warn(`docker stop failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+
+    if (result.processes.length === 0 && result.containers.length === 0) {
+      logger.debug('Auto-shutdown: nothing to clean up');
+    } else {
+      console.log(
+        chalk.green(
+          `${dryRun ? '[dry-run] ' : ''}Auto-shutdown: ${result.processes.length} process(es), ${result.containers.length} container(s)`,
+        ),
+      );
+    }
+    if (!dryRun) {
+      this.tracked.clear();
+      this.containers.clear();
+    }
+    return result;
+  }
+
+  /** Tracked processes that are still the same live process and safe to kill, deepest first. */
+  private killableNow(): TrackedProcess[] {
+    if (this.tracked.size === 0) return [];
+    const procs = this.lister();
+    if (procs.length === 0) return [];
+    const byPid = new Map<number, ProcInfo>(procs.map((p) => [p.pid, p]));
+
+    const protectedPids = new Set<number>([this.selfPid, process.pid]);
+    for (let cur = byPid.get(this.selfPid); cur && !protectedPids.has(cur.ppid); cur = byPid.get(cur.ppid)) {
+      protectedPids.add(cur.ppid);
+    }
+
+    const depth = (p: ProcInfo): number => {
+      const seen = new Set<number>([p.pid]);
+      let d = 0;
+      for (let cur = byPid.get(p.ppid); cur && !seen.has(cur.pid); cur = byPid.get(cur.ppid)) {
+        seen.add(cur.pid);
+        d++;
+      }
+      return d;
+    };
+
+    const out: { t: TrackedProcess; depth: number }[] = [];
+    for (const t of this.tracked.values()) {
+      const live = byPid.get(t.pid);
+      if (!live || t.pid <= 1 || protectedPids.has(t.pid)) continue;
+      if (isDifferentProcess(t.startTime, live.startTime)) continue;
+      if (this.baseline.has(t.pid) && !isDifferentProcess(this.baseline.get(t.pid), live.startTime)) continue;
+      out.push({ t, depth: depth(live) });
+    }
+    return out.sort((a, b) => b.depth - a.depth).map((x) => x.t);
+  }
+
+  private async shutdownProcesses(dryRun: boolean, prefix: string): Promise<TrackedProcess[]> {
+    const targets = this.killableNow();
+    if (targets.length === 0) return [];
+    console.log(chalk.cyan(`${prefix} ${targets.length} leftover process(es):`));
+    for (const t of targets) console.log(chalk.gray(`  ${t.pid} ${t.name}`));
+    if (dryRun) return targets;
+
+    if (this.isWindows) {
+      for (const t of targets) {
+        try {
+          this.runCommand('taskkill', ['/PID', String(t.pid), '/T', '/F']);
+        } catch (err) {
+          logger.warn(`Failed to kill ${t.pid}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      return targets;
+    }
+
+    for (const t of targets) this.signal(t.pid, 'SIGTERM');
+    await this.sleep(this.graceMs);
+    // Re-verify: only escalate for processes that are still the same live process.
+    const remaining = new Set(this.killableNow().map((t) => t.pid));
+    for (const t of targets) {
+      if (remaining.has(t.pid)) this.signal(t.pid, 'SIGKILL');
+    }
+    return targets;
+  }
+
+  private signal(pid: number, signal: NodeJS.Signals): void {
+    try {
+      this.killFn(pid, signal);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ESRCH') {
+        logger.warn(`Failed to send ${signal} to ${pid}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   private isBaseline(p: ProcInfo): boolean {
