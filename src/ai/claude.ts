@@ -3,6 +3,7 @@ import { logger } from '../logger';
 import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
 import { getMcpState } from '../mcp';
+import { buildSkillsHint, getExtraContextDirs } from './skillsContext';
 
 const DEFAULT_MODEL = 'opusplan';
 
@@ -57,6 +58,7 @@ function logClaudeAuthStatus(): void {
 export class ClaudeRunner implements AIRunner {
   readonly name = 'claude';
   readonly supportsSessions = true;
+  readonly supportsExternalContext = true;
 
   isAvailable(): boolean {
     return commandExists('claude');
@@ -81,7 +83,14 @@ export class ClaudeRunner implements AIRunner {
       ? [session.resume ? '--resume' : '--session-id', session.id]
       : [];
 
-    const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions', ...mcpArgs, ...sessionArgs];
+    // --add-dir is variadic, so each dir gets its own flag and the prompt
+    // stays ahead of it.
+    const contextArgs: string[] = [];
+    for (const dir of getExtraContextDirs(options?.extraContext)) contextArgs.push('--add-dir', dir);
+    const hint = buildSkillsHint(options?.extraContext);
+    if (hint) contextArgs.push('--append-system-prompt', hint);
+
+    const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions', ...mcpArgs, ...sessionArgs, ...contextArgs];
     const attempts: string[][] = [
       [...baseArgs, '--model', model],
       baseArgs,

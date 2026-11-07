@@ -1507,3 +1507,115 @@ describe('createRunners', () => {
     assert.equal(runners[1].name, 'claude');
   });
 });
+
+// ─── extraContext (external skills source) ────────────────────────────────────
+
+describe('AIRunner extraContext – skills source', () => {
+  let tmpDir: string;
+  let rootDir: string;
+  let skillsDir: string;
+  let rulesDir: string;
+
+  beforeEach(() => {
+    mock.restoreAll();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-extractx-'));
+    rootDir = path.join(tmpDir, 'src');
+    skillsDir = path.join(rootDir, 'skills');
+    rulesDir = path.join(rootDir, 'rules');
+    fs.mkdirSync(skillsDir, { recursive: true });
+    fs.mkdirSync(rulesDir, { recursive: true });
+    fs.writeFileSync(path.join(rulesDir, 'style.md'), 'x');
+    fs.writeFileSync(path.join(rulesDir, 'ignored.png'), 'x');
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function captureArgv(): { argv: string[][]; inputs: unknown[] } {
+    const argv: string[][] = [];
+    const inputs: unknown[] = [];
+    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown, opts: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argv.push([...(args as string[])]);
+        inputs.push((opts as { input?: unknown } | undefined)?.input);
+      }
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+    return { argv, inputs };
+  }
+
+  it('ClaudeRunner passes --add-dir and --append-system-prompt naming the paths', async () => {
+    const cap = captureArgv();
+    await new ClaudeRunner().run('task', undefined, { extraContext: { rootDir, skillsDir, rulesDir } });
+
+    const args = cap.argv[0];
+    assert.ok(args.includes('--add-dir'));
+    assert.ok(args.includes(path.resolve(rootDir)));
+    const idx = args.indexOf('--append-system-prompt');
+    assert.ok(idx >= 0);
+    assert.ok(args[idx + 1].includes(skillsDir));
+    assert.ok(args[idx + 1].includes(rulesDir));
+    assert.equal(args[0], '-p');
+    assert.equal(args[1], 'task');
+  });
+
+  it('ClaudeRunner passes no context flags without extraContext', async () => {
+    const cap = captureArgv();
+    await new ClaudeRunner().run('task');
+    assert.ok(!cap.argv[0].includes('--add-dir'));
+    assert.ok(!cap.argv[0].includes('--append-system-prompt'));
+  });
+
+  it('ClaudeRunner skips missing directories', async () => {
+    const cap = captureArgv();
+    const missing = path.join(tmpDir, 'nope');
+    await new ClaudeRunner().run('task', undefined, { extraContext: { rootDir: missing } });
+    assert.ok(!cap.argv[0].includes('--add-dir'));
+  });
+
+  it('CursorRunner passes --add-dir once per distinct dir and hints via stdin', async () => {
+    const cap = captureArgv();
+    const prevCwd = process.cwd();
+    process.chdir(tmpDir);
+    try {
+      await new CursorRunner().run('task', undefined, { extraContext: { rootDir, skillsDir: rootDir } });
+    } finally {
+      process.chdir(prevCwd);
+    }
+    const args = cap.argv[0];
+    assert.equal(args.filter((a) => a === '--add-dir').length, 1);
+    assert.ok(args.includes(path.resolve(rootDir)));
+    assert.ok(String(cap.inputs[0]).includes('external skills/rules library'));
+  });
+
+  it('AiderRunner passes --read for rule files only', async () => {
+    const cap = captureArgv();
+    await new AiderRunner().run('task', undefined, { extraContext: { rootDir, skillsDir, rulesDir } });
+    const args = cap.argv[0];
+    const reads = args.map((a, i) => (a === '--read' ? args[i + 1] : null)).filter(Boolean);
+    assert.deepEqual(reads, [path.resolve(path.join(rulesDir, 'style.md'))]);
+    assert.ok(args[args.indexOf('--message') + 1].includes(skillsDir));
+  });
+
+  it('CodexRunner and OpencodeRunner add the hint to the prompt', async () => {
+    const cap = captureArgv();
+    const ctx = { rootDir, skillsDir };
+    await new CodexRunner().run('task', undefined, { extraContext: ctx });
+    await new OpencodeRunner().run('task', undefined, { extraContext: ctx });
+    assert.ok(cap.argv[0].some((a) => a.includes(skillsDir)));
+    assert.ok(cap.argv[1].some((a) => a.includes(skillsDir)));
+  });
+
+  it('supportsExternalContext flags match runner capabilities', () => {
+    for (const r of [new ClaudeRunner(), new CursorRunner(), new AiderRunner(), new CodexRunner(), new OpencodeRunner()]) {
+      assert.equal(r.supportsExternalContext, true, r.name);
+    }
+    for (const r of [new AntigravityRunner(), new DevinRunner(), new AnthropicSdkRunner()]) {
+      assert.notEqual(r.supportsExternalContext, true, r.name);
+    }
+  });
+});

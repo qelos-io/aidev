@@ -2,6 +2,7 @@ import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
 import { commandExists, getUserShellEnv } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
+import { withSkillsHint } from './skillsContext';
 
 /**
  * OpenAI Codex CLI runner. Uses `codex exec` for non-interactive agent runs.
@@ -10,13 +11,19 @@ import { runSpawnAttempts } from './spawnAttempts';
 export class CodexRunner implements AIRunner {
   readonly name = 'codex';
   readonly supportsSessions = true;
+  // No read-only external-dir flag (`--add-dir` would make it writable); the
+  // workspace-write sandbox can already read outside cwd, so a prompt hint suffices.
+  readonly supportsExternalContext = true;
 
   isAvailable(): boolean {
     return commandExists('codex');
   }
 
   async run(prompt: string, notes?: string, options?: AIRunOptions): Promise<AIRunResult> {
-    const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
+    const fullPrompt = withSkillsHint(
+      notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt,
+      options?.extraContext,
+    );
 
     logger.info('Running Codex CLI (exec)...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);

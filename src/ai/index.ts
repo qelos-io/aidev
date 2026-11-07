@@ -38,3 +38,9 @@ export function createRunners(config: Config): AIRunner[] {
 }
 
 export { AIRunner };
+export type { AIExtraContext, AIRunOptions } from './base';
+
+/** Runners that cannot take the skills source via CLI/prompt and need the symlink fallback. */
+export function runnersNeedingSkillsLink(runners: AIRunner[]): AIRunner[] {
+  return runners.filter((r) => r.supportsExternalContext !== true);
+}

@@ -2,6 +2,7 @@ import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
 import { commandExists, getUserShellEnv } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
+import { withSkillsHint } from './skillsContext';
 
 /**
  * OpenCode CLI runner. Uses `opencode run` for non-interactive agent runs.
@@ -10,13 +11,18 @@ import { runSpawnAttempts } from './spawnAttempts';
 export class OpencodeRunner implements AIRunner {
   readonly name = 'opencode';
   readonly supportsSessions = true;
+  // No external-dir flag; permissions are skipped, so a prompt hint suffices.
+  readonly supportsExternalContext = true;
 
   isAvailable(): boolean {
     return commandExists('opencode');
   }
 
   async run(prompt: string, notes?: string, options?: AIRunOptions): Promise<AIRunResult> {
-    const fullPrompt = notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt;
+    const fullPrompt = withSkillsHint(
+      notes ? `${prompt}\n\nAdditional context:\n${notes}` : prompt,
+      options?.extraContext,
+    );
 
     logger.info('Running OpenCode CLI (run)...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);

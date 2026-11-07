@@ -5,6 +5,7 @@ import { logger } from '../logger';
 import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
 import { getMcpState } from '../mcp';
+import { getExtraContextDirs, withSkillsHint } from './skillsContext';
 
 /**
  * Cursor Agent CLI runner. Uses the `agent` binary on all platforms.
@@ -15,6 +16,7 @@ import { getMcpState } from '../mcp';
 export class CursorRunner implements AIRunner {
   readonly name = 'cursor';
   readonly supportsSessions = true;
+  readonly supportsExternalContext = true;
 
   /** aidev session id -> Cursor chat id created via `agent create-chat`. */
   private readonly chatIds = new Map<string, string>();
@@ -60,6 +62,10 @@ export class CursorRunner implements AIRunner {
       }
     }
 
+    for (const dir of getExtraContextDirs(options?.extraContext)) {
+      if (!baseArgs.includes(dir)) baseArgs.push('--add-dir', dir);
+    }
+
     const session = options?.session;
     if (session) {
       if (session.resume) {
@@ -85,7 +91,7 @@ export class CursorRunner implements AIRunner {
       timeout: 10 * 60 * 1000,
       cwd,
       env: getUserShellEnv(),
-      input: fullPrompt,
+      input: withSkillsHint(fullPrompt, options?.extraContext),
       signal: options?.signal,
     });
 
