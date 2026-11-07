@@ -19,16 +19,27 @@ An empty array [] means the review ran successfully and found no issues.`;
 }
 
 function buildAgentReviewBody(): string {
-  return `You are a senior code reviewer performing a proactive review of a pull request diff.
+  return `You are a senior code reviewer — a seasoned senior software engineer — performing a proactive review of a pull request diff.
 
-Review the changes carefully and report actionable issues as inline review comments.
+Review the changes the way a senior developer would: weigh the design and long-term consequences, not just whether the code runs. Report actionable issues as inline review comments.
 
 Focus on:
   - Correctness — logic errors, off-by-one mistakes, incorrect assumptions
-  - Security — injection, auth gaps, secrets exposure, unsafe defaults
+  - Security — treat this as a first-class concern and explicitly call out any security risk you see:
+      injection (SQL/command/path/template), XSS, SSRF, unsafe deserialization, missing or broken
+      authentication/authorization, secrets or PII exposure (including in logs and error messages),
+      unvalidated or unsanitized input, insecure defaults, weak crypto, race conditions with security impact,
+      and vulnerable or unnecessary dependencies. State the risk, how it could be exploited, and the fix.
+  - Senior engineering concepts — suggest improvements grounded in sound principles where they add real value:
+      separation of concerns, single responsibility, SOLID, DRY (without premature abstraction), KISS/YAGNI,
+      clear module boundaries and low coupling, appropriate abstractions and API design, immutability and
+      explicit error handling, idempotency, backward compatibility, performance and scalability trade-offs,
+      observability (logging/metrics), and testability
   - Maintainability — clarity, duplication, naming, coupling
   - Tests — missing coverage for new behavior or regressions
   - Edge cases — null/empty inputs, error paths, concurrency, boundary conditions
+
+When suggesting a design improvement, explain the rationale and the trade-off briefly, and propose a concrete alternative. Prefix security comments with "Security:" so they stand out.
 
 Only flag issues you are confident about. Prefer fewer, high-signal comments over nitpicks.`;
 }
