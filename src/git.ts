@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { dirname } from 'node:path';
 import { logger } from './logger';
 import { LOCK_FILENAME } from './lockfile';
 import { ACTIVE_TASK_FILENAME } from './activeTask';
@@ -16,10 +17,17 @@ const AIDEV_OWN_FILES = new Set([LOCK_FILENAME, ACTIVE_TASK_FILENAME]);
 // working tree look dirty. Tracked-but-modified files there still count.
 const AIDEV_STATE_DIR_PREFIX = '.aidev/';
 
-function git(args: string[], cwd?: string): { stdout: string; stderr: string; status: number } {
+interface GitOptions {
+  env?: NodeJS.ProcessEnv;
+  timeout?: number;
+}
+
+function git(args: string[], cwd?: string, opts?: GitOptions): { stdout: string; stderr: string; status: number } {
   const result = spawnSync('git', args, {
     cwd: cwd || process.cwd(),
     encoding: 'utf8',
+    ...(opts?.env ? { env: opts.env } : {}),
+    ...(opts?.timeout ? { timeout: opts.timeout } : {}),
   });
   return {
     stdout: result.stdout || '',
@@ -496,6 +504,82 @@ export function commitMerge(message: string): boolean {
     return false;
   }
   return true;
+}
+
+// ─── Helpers for aidev-owned clones (e.g. the skills cache) ──────────────────
+// These all take an explicit directory and never touch process.cwd().
+
+const NETWORK_TIMEOUT_MS = 120_000;
+
+/** Never block on an interactive credential prompt. */
+function noPromptOptions(): GitOptions {
+  return { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, timeout: NETWORK_TIMEOUT_MS };
+}
+
+export interface GitCallResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+function toResult(r: { stdout: string; stderr: string; status: number }): GitCallResult {
+  return { ok: r.status === 0, stdout: r.stdout, stderr: r.stderr.trim() };
+}
+
+/** `git clone -- <url> <dest>` (default branch). `--` stops a hostile URL being read as an option. */
+export function cloneRepo(url: string, dest: string): GitCallResult {
+  logger.debug(`git clone ${url} ${dest}`);
+  return toResult(git(['clone', '--quiet', '--', url, dest], dirname(dest), noPromptOptions()));
+}
+
+/** Fetches a single branch into `refs/remotes/<remote>/<branch>` of the repo at `dir`. */
+export function fetchBranchIn(dir: string, remote: string, branch: string): GitCallResult {
+  logger.debug(`git fetch ${remote} ${branch} (in ${dir})`);
+  return toResult(git(
+    ['fetch', '--quiet', remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`],
+    dir,
+    noPromptOptions(),
+  ));
+}
+
+/** Force-points local `branch` at `ref` and checks it out (`git checkout -f -B`). */
+export function checkoutBranchForce(dir: string, branch: string, ref: string): GitCallResult {
+  logger.debug(`git checkout -f -B ${branch} ${ref} (in ${dir})`);
+  return toResult(git(['checkout', '--quiet', '-f', '-B', branch, ref], dir));
+}
+
+/** `git reset --hard <ref>` in `dir`. */
+export function resetHardTo(dir: string, ref: string): GitCallResult {
+  logger.debug(`git reset --hard ${ref} (in ${dir})`);
+  return toResult(git(['reset', '--quiet', '--hard', ref], dir));
+}
+
+/** Current branch of the repo at `dir`, or null (detached / not a repo). */
+export function currentBranchIn(dir: string): string | null {
+  const r = git(['rev-parse', '--abbrev-ref', 'HEAD'], dir);
+  if (r.status !== 0) return null;
+  const name = r.stdout.trim();
+  return name && name !== 'HEAD' ? name : null;
+}
+
+/**
+ * Whether `branch` exists on the remote. `ok:false` means the remote could not
+ * be reached (network/auth); `ok:true, exists:false` means it was reached but
+ * has no such branch.
+ */
+export function remoteHasBranch(dir: string, remote: string, branch: string):
+  { ok: boolean; exists: boolean; stderr: string } {
+  const r = git(['ls-remote', '--heads', remote, `refs/heads/${branch}`], dir, noPromptOptions());
+  if (r.status !== 0) return { ok: false, exists: false, stderr: r.stderr.trim() };
+  return { ok: true, exists: r.stdout.trim().length > 0, stderr: '' };
+}
+
+/** Default (HEAD) branch of the remote, or null if it cannot be determined. */
+export function remoteDefaultBranch(dir: string, remote: string): string | null {
+  const r = git(['ls-remote', '--symref', remote, 'HEAD'], dir, noPromptOptions());
+  if (r.status !== 0) return null;
+  const match = r.stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m);
+  return match ? match[1] : null;
 }
 
 export function slugify(text: string): string {
