@@ -44,6 +44,16 @@ describe('buildAgentReviewPrompt', () => {
     assert.ok(prompt.includes('Correctness'));
     assert.ok(prompt.includes('empty array []'));
   });
+
+  it('asks for senior developer concepts and security risk comments', () => {
+    const prompt = buildAgentReviewPrompt(stubTask(), sampleDiff);
+
+    assert.ok(prompt.includes('senior software engineer'));
+    assert.ok(prompt.includes('Senior engineering concepts'));
+    assert.ok(prompt.includes('SOLID'));
+    assert.ok(prompt.includes('security risk'));
+    assert.ok(prompt.includes('Security:'));
+  });
 });
 
 describe('composeAgentReviewPrompt', () => {
