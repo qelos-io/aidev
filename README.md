@@ -63,13 +63,13 @@ Because `aidev run` holds the directory lock while running, a child `aidev run` 
 
 ## Auto-shutdown of agent sub-processes
 
-Agent clients (claude, cursor, …) often leave things running: dev servers (node, python, go) and docker containers. With `AUTO_SHUTDOWN` enabled (the default), aidev stops those leftovers once the whole run is finished and every task is done. Processes are left alone between task iterations.
+Agent clients (claude, cursor, …) often leave things running: dev servers (node, python, go) and docker containers. With `AIDEV_AUTO_SHUTDOWN` enabled (the default), aidev stops those leftovers once the whole run is finished and every task is done. Processes are left alone between task iterations.
 
 Cleanup is conservative: it never stops aidev itself, processes that existed before the run started, or unrelated processes.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTO_SHUTDOWN` | `true` | Stop processes started by agent clients after the run. Set to `false` / `0` / `no` to disable. |
+| `AIDEV_AUTO_SHUTDOWN` | `true` | Stop processes started by agent clients after the run. Set to `false` / `0` / `no` to disable. |
 
 ## Contributing
 

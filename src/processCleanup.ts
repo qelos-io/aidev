@@ -402,13 +402,14 @@ export class ProcessTracker {
       }
     };
 
+    // A process is an orphan of the run only when its recorded parent was previously tracked
+    // (i.e. spawned by the run) and is now gone or replaced by a different process (pid reuse).
     const isOrphan = (p: ProcInfo): boolean => {
       if (p.startTime === undefined || p.startTime < this.runStart - START_TIME_TOLERANCE_MS) return false;
-      if (p.ppid <= 1) return true;
+      const trackedParent = this.tracked.get(p.ppid);
+      if (!trackedParent) return false;
       const parent = byPid.get(p.ppid);
-      if (!parent) return true;
-      // Parent pid exists but is younger than the child => original parent died, pid reused.
-      return parent.startTime !== undefined && parent.startTime - p.startTime > START_TIME_TOLERANCE_MS;
+      return !parent || isDifferentProcess(trackedParent.startTime, parent.startTime);
     };
 
     // Iterate until stable so that chains discovered out of order are all picked up.

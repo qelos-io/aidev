@@ -128,15 +128,15 @@ describe('ProcessTracker', () => {
     assert.deepEqual(pids(t), [1001, 1002, 1003]);
   });
 
-  it('tracks orphans started after the run began, but not unrelated live processes', () => {
+  it('does not track unrelated reparented processes with no tracked parent', () => {
     const t = setup(() => [
       ...base,
-      mk(2000, 1, 50, 'devserver'), // orphan reparented to init
-      mk(2001, 99999, 60, 'orphan2'), // parent not in list
+      mk(2000, 1, 50, 'daemon'), // reparented to init, no evidence it came from the run
+      mk(2001, 99999, 60, 'orphan2'), // parent not in list, never tracked
       mk(2002, 500, 70, 'unrelated'), // child of the shell, still has live parent
     ]);
     t.capture();
-    assert.deepEqual(pids(t), [2000, 2001]);
+    assert.deepEqual(pids(t), []);
   });
 
   it('ignores orphans that started before the run', () => {
@@ -182,10 +182,26 @@ describe('ProcessTracker', () => {
   });
 
   it('does not attribute a child to a parent pid that was reused (parent younger than child)', () => {
-    const t = setup(() => [...base, mk(4000, SELF, 500, 'late-parent'), mk(4001, 4000, 10, 'older-child')]);
+    const t = setup(() => [...base, mk(4000, SELF, 5000, 'late-parent'), mk(4001, 4000, 10, 'older-child')]);
     t.capture();
-    // 4001 is older than its "parent" so it is not a descendant; it started after the run => not an orphan either (parent exists but younger => orphan)
-    assert.deepEqual(pids(t), [4000, 4001]);
+    // 4001 is >2s older than its "parent", so the ppid was reused: not a descendant, and not an orphan of a tracked parent.
+    assert.deepEqual(pids(t), [4000]);
+  });
+
+  it('tracks an orphan whose previously tracked parent has exited', () => {
+    let list: ProcInfo[] = base;
+    const t = new ProcessTracker({
+      selfPid: SELF,
+      now: () => T0,
+      listProcesses: () => list,
+      listDockerContainers: () => [],
+    });
+    t.begin();
+    list = [...base, mk(5000, SELF, 10, 'agent')];
+    t.capture();
+    list = [...base, mk(5001, 5000, 20, 'devserver')]; // agent gone, ppid kept (Windows-style)
+    t.capture();
+    assert.deepEqual(pids(t), [5000, 5001]);
   });
 
   it('keeps tracked processes across captures and records their later children', () => {

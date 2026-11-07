@@ -248,7 +248,7 @@ export function loadConfig(customEnvPath?: string): Config {
   const safeMode = !['false', '0', 'no'].includes(safeModeRaw);
   const continueAfterRunRaw = (process.env.AIDEV_CONTINUE_AFTER_RUN || '').trim().toLowerCase();
   const continueAfterRun = !['false', '0', 'no'].includes(continueAfterRunRaw);
-  const autoShutdownRaw = (process.env.AUTO_SHUTDOWN || '').trim().toLowerCase();
+  const autoShutdownRaw = (process.env.AIDEV_AUTO_SHUTDOWN || '').trim().toLowerCase();
   const autoShutdown = !['false', '0', 'no'].includes(autoShutdownRaw);
   const thresholdParsed = parseInt(process.env.AIDEV_COMPRESS_THRESHOLD || '', 10);
   const compressThreshold = Number.isFinite(thresholdParsed) ? thresholdParsed : 12000;

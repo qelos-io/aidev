@@ -768,8 +768,8 @@ export async function runCommand(
     logger.warn(`Received ${signal} — cleaning up agent processes...`);
     void shutdownTracked().finally(() => {
       try { configServer.close(); } catch { /* ignore */ }
-      clearActiveTask(cwd);
-      releaseLock(cwd);
+      try { clearActiveTask(cwd); } catch { /* ignore */ }
+      try { releaseLock(cwd); } catch { /* ignore */ }
       process.exit(signal === 'SIGINT' ? 130 : 143);
     });
   };
