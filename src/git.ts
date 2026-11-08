@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, isAbsolute, posix, resolve } from 'node:path';
 import { logger } from './logger';
 import { LOCK_FILENAME } from './lockfile';
 import { ACTIVE_TASK_FILENAME } from './activeTask';
@@ -16,10 +18,17 @@ const AIDEV_OWN_FILES = new Set([LOCK_FILENAME, ACTIVE_TASK_FILENAME]);
 // working tree look dirty. Tracked-but-modified files there still count.
 const AIDEV_STATE_DIR_PREFIX = '.aidev/';
 
-function git(args: string[], cwd?: string): { stdout: string; stderr: string; status: number } {
+interface GitOptions {
+  env?: NodeJS.ProcessEnv;
+  timeout?: number;
+}
+
+function git(args: string[], cwd?: string, opts?: GitOptions): { stdout: string; stderr: string; status: number } {
   const result = spawnSync('git', args, {
     cwd: cwd || process.cwd(),
     encoding: 'utf8',
+    ...(opts?.env ? { env: opts.env } : {}),
+    ...(opts?.timeout ? { timeout: opts.timeout } : {}),
   });
   return {
     stdout: result.stdout || '',
@@ -221,6 +230,9 @@ export function listWorkingTreeChanges(): string[] {
       path = pathPart.trim();
     }
     if (!path || AIDEV_OWN_FILES.has(path)) continue;
+    // aidev's skills-source links are never user changes (and must not be
+    // stashed/discarded — that would follow or delete the links).
+    if (untracked && isAidevSkillsPath(path)) continue;
     if (untracked && path.startsWith(AIDEV_STATE_DIR_PREFIX)) continue;
     paths.push(path);
   }
@@ -254,9 +266,98 @@ export function hasCommitsAhead(remote: string, baseBranch: string): boolean {
   return count > 0;
 }
 
+/**
+ * Stages everything except aidev's skills-source links. The local exclude is
+ * (re)written first so `git add -A` skips them, and anything that still got
+ * staged (user already tracks such a path, or the exclude is bypassed) is
+ * unstaged afterwards.
+ */
 export function addAll(): boolean {
+  ensureLocalExclude();
   const result = git(['add', '-A']);
-  return result.status === 0;
+  if (result.status !== 0) return false;
+  return unstageAidevSkills();
+}
+
+// ─── aidev-skills never-commit guard ─────────────────────────────────────────
+
+/** Name of the link/dir aidev creates inside the repo to expose the skills source. */
+export const AIDEV_SKILLS_LINK_NAME = 'aidev-skills';
+
+/** True when any segment of the repo-relative path is the aidev-skills link name. */
+export function isAidevSkillsPath(relativePath: string): boolean {
+  return relativePath.split(/[\\/]+/).includes(AIDEV_SKILLS_LINK_NAME);
+}
+
+/**
+ * Appends the aidev-skills pattern to `.git/info/exclude` (local only; the
+ * user's .gitignore is untouched). Idempotent. A slash-less pattern matches at
+ * any depth, for files, directories and symlinks alike.
+ */
+export function ensureLocalExclude(cwd?: string): boolean {
+  const pathResult = git(['rev-parse', '--git-path', 'info/exclude'], cwd);
+  if (pathResult.status !== 0) return false;
+  const rel = pathResult.stdout.trim();
+  if (!rel) return false;
+  const excludePath = isAbsolute(rel) ? rel : resolve(cwd || process.cwd(), rel);
+
+  try {
+    const existing = existsSync(excludePath) ? readFileSync(excludePath, 'utf8') : '';
+    const lines = existing.split(/\r?\n/).map((line) => line.trim());
+    if (lines.includes(AIDEV_SKILLS_LINK_NAME)) return true;
+    mkdirSync(dirname(excludePath), { recursive: true });
+    const prefix = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+    appendFileSync(excludePath, `${prefix}${AIDEV_SKILLS_LINK_NAME}\n`);
+    return true;
+  } catch (err) {
+    logger.warn(`Could not update .git/info/exclude: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
+/** True when a symlink at `linkPath` (repo-relative, posix) with `target` points outside the repo. */
+function symlinkEscapesRepo(linkPath: string, target: string): boolean {
+  if (isAbsolute(target) || /^[a-zA-Z]:/.test(target) || target.startsWith('\\\\')) return true;
+  const resolved = posix.normalize(posix.join(posix.dirname(linkPath), target.replace(/\\/g, '/')));
+  return resolved === '..' || resolved.startsWith('../');
+}
+
+/**
+ * Unstages (index only; working tree untouched) every staged path that is
+ * under an `aidev-skills` name or is a newly staged symlink whose target is
+ * outside the repo. Returns false only if unstaging failed.
+ */
+export function unstageAidevSkills(cwd?: string): boolean {
+  const diff = git(['diff', '--cached', '--raw', '-z', '--no-renames'], cwd);
+  if (diff.status !== 0) return true;
+
+  // Entries: ":<oldmode> <newmode> <oldsha> <newsha> <status>\0<path>\0"
+  const fields = diff.stdout.split('\0');
+  const toUnstage: string[] = [];
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const meta = fields[i].replace(/^:/, '').split(' ');
+    const path = fields[i + 1];
+    if (!path || meta.length < 5) continue;
+    const [, newMode, , newSha] = meta;
+    if (isAidevSkillsPath(path)) {
+      toUnstage.push(path);
+    } else if (newMode === '120000') {
+      const blob = git(['cat-file', 'blob', newSha], cwd);
+      if (blob.status === 0 && symlinkEscapesRepo(path, blob.stdout.trim())) {
+        logger.warn(`Not committing symlink pointing outside the repo: ${path}`);
+        toUnstage.push(path);
+      }
+    }
+  }
+  if (toUnstage.length === 0) return true;
+
+  logger.debug(`git reset -q -- ${toUnstage.join(' ')}`);
+  const reset = git(['--literal-pathspecs', 'reset', '-q', '--', ...toUnstage], cwd);
+  if (reset.status !== 0) {
+    logger.error(`Failed to unstage aidev-skills paths: ${reset.stderr}`);
+    return false;
+  }
+  return true;
 }
 
 /** Returns paths under `prefix` that are present in the git index (tracked or staged). */
@@ -338,6 +439,8 @@ export function commit(message: string, expectedBranch?: string): boolean {
       return false;
     }
   }
+  // Last line of defence: whatever staged the files, never commit skills links.
+  if (!unstageAidevSkills()) return false;
   logger.debug(`git commit -m "${message}"`);
   const result = git(['commit', '-m', message]);
   if (result.status !== 0) {
@@ -485,17 +588,95 @@ export function getConflictDetails(): string {
 
 /** Completes a merge after conflicts have been manually resolved. */
 export function commitMerge(message: string): boolean {
+  ensureLocalExclude();
   const add = git(['add', '-A']);
   if (add.status !== 0) {
     logger.error(`git add failed during merge resolution: ${add.stderr}`);
     return false;
   }
+  if (!unstageAidevSkills()) return false;
   const result = git(['commit', '-m', message]);
   if (result.status !== 0) {
     logger.error(`git merge commit failed: ${result.stderr}`);
     return false;
   }
   return true;
+}
+
+// ─── Helpers for aidev-owned clones (e.g. the skills cache) ──────────────────
+// These all take an explicit directory and never touch process.cwd().
+
+const NETWORK_TIMEOUT_MS = 120_000;
+
+/** Never block on an interactive credential prompt. */
+function noPromptOptions(): GitOptions {
+  return { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, timeout: NETWORK_TIMEOUT_MS };
+}
+
+export interface GitCallResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+function toResult(r: { stdout: string; stderr: string; status: number }): GitCallResult {
+  return { ok: r.status === 0, stdout: r.stdout, stderr: r.stderr.trim() };
+}
+
+/** `git clone -- <url> <dest>` (default branch). `--` stops a hostile URL being read as an option. */
+export function cloneRepo(url: string, dest: string): GitCallResult {
+  logger.debug(`git clone ${url} ${dest}`);
+  return toResult(git(['clone', '--quiet', '--', url, dest], dirname(dest), noPromptOptions()));
+}
+
+/** Fetches a single branch into `refs/remotes/<remote>/<branch>` of the repo at `dir`. */
+export function fetchBranchIn(dir: string, remote: string, branch: string): GitCallResult {
+  logger.debug(`git fetch ${remote} ${branch} (in ${dir})`);
+  return toResult(git(
+    ['fetch', '--quiet', remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`],
+    dir,
+    noPromptOptions(),
+  ));
+}
+
+/** Force-points local `branch` at `ref` and checks it out (`git checkout -f -B`). */
+export function checkoutBranchForce(dir: string, branch: string, ref: string): GitCallResult {
+  logger.debug(`git checkout -f -B ${branch} ${ref} (in ${dir})`);
+  return toResult(git(['checkout', '--quiet', '-f', '-B', branch, ref], dir));
+}
+
+/** `git reset --hard <ref>` in `dir`. */
+export function resetHardTo(dir: string, ref: string): GitCallResult {
+  logger.debug(`git reset --hard ${ref} (in ${dir})`);
+  return toResult(git(['reset', '--quiet', '--hard', ref], dir));
+}
+
+/** Current branch of the repo at `dir`, or null (detached / not a repo). */
+export function currentBranchIn(dir: string): string | null {
+  const r = git(['rev-parse', '--abbrev-ref', 'HEAD'], dir);
+  if (r.status !== 0) return null;
+  const name = r.stdout.trim();
+  return name && name !== 'HEAD' ? name : null;
+}
+
+/**
+ * Whether `branch` exists on the remote. `ok:false` means the remote could not
+ * be reached (network/auth); `ok:true, exists:false` means it was reached but
+ * has no such branch.
+ */
+export function remoteHasBranch(dir: string, remote: string, branch: string):
+  { ok: boolean; exists: boolean; stderr: string } {
+  const r = git(['ls-remote', '--heads', remote, `refs/heads/${branch}`], dir, noPromptOptions());
+  if (r.status !== 0) return { ok: false, exists: false, stderr: r.stderr.trim() };
+  return { ok: true, exists: r.stdout.trim().length > 0, stderr: '' };
+}
+
+/** Default (HEAD) branch of the remote, or null if it cannot be determined. */
+export function remoteDefaultBranch(dir: string, remote: string): string | null {
+  const r = git(['ls-remote', '--symref', remote, 'HEAD'], dir, noPromptOptions());
+  if (r.status !== 0) return null;
+  const match = r.stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m);
+  return match ? match[1] : null;
 }
 
 export function slugify(text: string): string {

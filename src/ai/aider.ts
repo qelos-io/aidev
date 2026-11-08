@@ -4,10 +4,12 @@ import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
 import { commandExists, getUserShellEnv } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
+import { listRuleFiles, withSkillsHint } from './skillsContext';
 
 export class AiderRunner implements AIRunner {
   readonly name = 'aider';
   readonly supportsSessions = true;
+  readonly supportsExternalContext = true;
 
   isAvailable(): boolean {
     return commandExists('aider');
@@ -31,7 +33,10 @@ export class AiderRunner implements AIRunner {
       );
       if (options.session.resume) sessionArgs.push('--restore-chat-history');
     }
-    const args = ['--message', fullPrompt, '--yes-always', ...sessionArgs, ...extraArgs];
+    // `--read` adds files as read-only context, even from outside the repo.
+    const readArgs = listRuleFiles(options?.extraContext).flatMap((file) => ['--read', file]);
+    const message = withSkillsHint(fullPrompt, options?.extraContext);
+    const args = ['--message', message, '--yes-always', ...readArgs, ...sessionArgs, ...extraArgs];
 
     const result = await runSpawnAttempts('aider', [args], {
       encoding: 'utf8',

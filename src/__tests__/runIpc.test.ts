@@ -89,6 +89,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     mcpJsonPath: '',
     betterMcp: false,
     betterMcpConfigPath: '',
+    skillsSource: '',
+    skillsBranch: 'main',
+    skillsSubdir: '',
     ...overrides,
   };
 }

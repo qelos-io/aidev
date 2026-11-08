@@ -26,6 +26,8 @@ import {
 } from '../hooks';
 import { buildCompressedContext } from '../sessions';
 import { ProcessTracker } from '../processCleanup';
+import { setupSkills, type SkillsRuntime } from '../skills-runtime';
+import { unlinkAllSkills } from '../skills-link';
 import { resolveDoneStatus } from './accepted';
 import { collectSecrets, sanitizeTaskForSafeMode } from '../safeMode';
 import {
@@ -681,6 +683,7 @@ export function withProcessCapture(runners: AIRunner[], tracker: Pick<ProcessTra
     const wrapped: AIRunner = {
       name: runner.name,
       supportsSessions: runner.supportsSessions,
+      supportsExternalContext: runner.supportsExternalContext,
       isAvailable: () => runner.isAvailable(),
       run: async (prompt, notes, options) => {
         try {
@@ -749,7 +752,6 @@ export async function runCommand(
     try {
       tracker = new ProcessTracker();
       tracker.begin();
-      runners = withProcessCapture(rawRunners, tracker);
     } catch (err) {
       tracker = undefined;
       logger.warn(`Auto-shutdown disabled: could not snapshot processes: ${err instanceof Error ? err.message : err}`);
@@ -764,8 +766,14 @@ export async function runCommand(
     });
     return shutdownPromise;
   };
+  let skills: SkillsRuntime | undefined;
+  const cleanupSkills = (): void => {
+    try { skills?.cleanup(); } catch { /* best-effort */ }
+    try { unlinkAllSkills(); } catch { /* best-effort */ }
+  };
   const onSignal = (signal: NodeJS.Signals): void => {
-    logger.warn(`Received ${signal} — cleaning up agent processes...`);
+    logger.warn(`Received ${signal} — cleaning up...`);
+    cleanupSkills();
     void shutdownTracked().finally(() => {
       try { configServer.close(); } catch { /* ignore */ }
       try { clearActiveTask(cwd); } catch { /* ignore */ }
@@ -773,12 +781,16 @@ export async function runCommand(
       process.exit(signal === 'SIGINT' ? 130 : 143);
     });
   };
-  if (tracker) {
-    process.once('SIGINT', onSignal);
-    process.once('SIGTERM', onSignal);
-  }
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
 
   try {
+    // Resolve the skills source once for the whole run (this is the only place that
+    // clones/updates a git source; descendant aidev processes inherit the config but
+    // never reach runCommand, so they cannot re-clone). Fails early on a bad source.
+    skills = setupSkills(config, rawRunners, cwd);
+    runners = tracker ? withProcessCapture(skills.runners, tracker) : skills.runners;
+
     const screenAvailable = isScreenAvailable();
     if (!screenAvailable) {
       logger.warn('Screen is locked or display is asleep — AI agents cannot operate');
@@ -884,6 +896,7 @@ export async function runCommand(
   } finally {
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
+    cleanupSkills();
     // Final capture catches anything started since the last agent call, then stop it all.
     try { tracker?.capture(); } catch { /* best-effort */ }
     await shutdownTracked();

@@ -83,6 +83,9 @@ function makeFakeConfig(projectName: string): Config {
     mcpJsonPath: '',
     betterMcp: false,
     betterMcpConfigPath: '',
+    skillsSource: '',
+    skillsBranch: 'main',
+    skillsSubdir: '',
   };
 }
 

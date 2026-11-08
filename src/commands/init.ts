@@ -11,6 +11,7 @@ import { isGhInstalled, isGhAuthenticated, isGitHubRemote } from '../github';
 import { commandExists, isWindows } from '../platform';
 import { generateFullHooksFile } from '../hooksTemplate';
 import { MCP_GITIGNORE_RULES } from '../mcp';
+import { isGitUrl } from '../skills-source';
 import chalk from 'chalk';
 
 const VALID_AGENTS = ['antigravity', 'anthropic-sdk', 'claude', 'codex', 'cursor', 'devin', 'opencode'] as const;
@@ -246,6 +247,10 @@ export interface Answers {
   mcpJsonPath: string;
   betterMcp: boolean;
   betterMcpConfigPath: string;
+  // Skills repository / folder (optional)
+  skillsSource?: string;
+  skillsBranch?: string;
+  skillsSubdir?: string;
 }
 
 function dim(s: string) {
@@ -526,6 +531,18 @@ export function renderEnv(a: Answers): string {
           a.betterMcpConfigPath
             ? `BETTER_MCP_CONFIG_PATH=${envVal(a.betterMcpConfigPath)}`
             : `# BETTER_MCP_CONFIG_PATH=.aidev/better-mcp.json`,
+        ]
+      : []),
+    ``,
+    `# AIDEV_SKILLS_SOURCE: external skills/rules source (local folder or git URL) exposed read-only to the AI`,
+    `# agents and never committed. Git sources are kept up to date with AIDEV_SKILLS_BRANCH on every run.`,
+    a.skillsSource ? `AIDEV_SKILLS_SOURCE=${envVal(a.skillsSource)}` : `# AIDEV_SKILLS_SOURCE=~/team-skills`,
+    ...(a.skillsSource
+      ? [
+          a.skillsBranch && a.skillsBranch !== 'main'
+            ? `AIDEV_SKILLS_BRANCH=${envVal(a.skillsBranch)}`
+            : `# AIDEV_SKILLS_BRANCH=main`,
+          a.skillsSubdir ? `AIDEV_SKILLS_SUBDIR=${envVal(a.skillsSubdir)}` : `# AIDEV_SKILLS_SUBDIR=skills`,
         ]
       : []),
     ``,
@@ -1048,6 +1065,31 @@ export async function initCommand(): Promise<void> {
       }
     }
 
+    // ── Skills source ────────────────────────────────────────
+    section('Skills repository (optional)');
+    console.log(
+      dim(
+        `  A local folder or git repo of skills/rules, exposed read-only to the agents and never committed.`
+      )
+    );
+    const skillsSource = await ask(
+      rl,
+      `Skills source ${hint('folder path or git URL, blank to skip')}`,
+      existing.AIDEV_SKILLS_SOURCE || ''
+    );
+    let skillsBranch = '';
+    let skillsSubdir = '';
+    if (skillsSource) {
+      if (isGitUrl(skillsSource)) {
+        skillsBranch = await ask(rl, 'Skills branch', existing.AIDEV_SKILLS_BRANCH || 'main');
+      }
+      skillsSubdir = await ask(
+        rl,
+        `Skills subfolder ${hint('blank = repo root')}`,
+        existing.AIDEV_SKILLS_SUBDIR || ''
+      );
+    }
+
     // ── Assignee ─────────────────────────────────────────────
     section('Assignee');
     const effectiveClickUpApiKey = clickupApiKey || process.env.CLICKUP_API_KEY || '';
@@ -1131,6 +1173,9 @@ export async function initCommand(): Promise<void> {
       mcpJsonPath,
       betterMcp,
       betterMcpConfigPath,
+      skillsSource,
+      skillsBranch,
+      skillsSubdir,
     };
 
     ensureGitignore();

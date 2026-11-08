@@ -10,7 +10,20 @@ export interface AISessionOptions {
   resume: boolean;
 }
 
+/**
+ * External, read-only skills/rules source (resolved once per `aidev run`).
+ * Runners that can take external paths on their CLI use it directly; the rest
+ * rely on the symlink fallback (see `AIRunner.supportsExternalContext`).
+ */
+export interface AIExtraContext {
+  rootDir: string;
+  skillsDir?: string;
+  rulesDir?: string;
+  agentsDir?: string;
+}
+
 export interface AIRunOptions {
+  extraContext?: AIExtraContext;
   signal?: AbortSignal;
   assetDirs?: string[];
   session?: AISessionOptions;
@@ -27,6 +40,12 @@ export interface AIRunner {
   name: string;
   /** True when the runner honours `AIRunOptions.session` (follow-up prompts in the same conversation). */
   supportsSessions?: boolean;
+  /**
+   * True when the runner exposes `AIRunOptions.extraContext` to the agent
+   * itself (CLI flag and/or prompt hint). When false/undefined, callers must
+   * use the symlink fallback to make the skills source visible.
+   */
+  supportsExternalContext?: boolean;
   isAvailable(): boolean;
   run(prompt: string, notes?: string, options?: AIRunOptions): Promise<AIRunResult>;
 }

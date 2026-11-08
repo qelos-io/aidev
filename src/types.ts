@@ -173,6 +173,13 @@ export interface Config {
   mcpJsonPath: string;
   betterMcp: boolean;
   betterMcpConfigPath: string;
+  // Skills source (external read-only skills/rules folder or git repo)
+  /** Local path or git URL of an external skills/rules source. Empty = disabled. */
+  skillsSource: string;
+  /** Branch to track for git skills sources (default 'main'). */
+  skillsBranch: string;
+  /** Optional subdirectory inside the skills source where skills live. */
+  skillsSubdir: string;
   /** Internal: path to the env file used by loadConfig. Not part of the public config surface. */
   _envPath?: string;
 }
