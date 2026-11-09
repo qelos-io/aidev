@@ -514,6 +514,15 @@ describe('requireCleanWorkingTree (integration)', () => {
     assert.equal(fs.existsSync(path.join(tmpDir, 'untracked.txt')), false);
     assert.equal(stashCount(), 0);
   });
+
+  it('removes a Windows-reserved `nul` file that git cannot stash', { skip: process.platform !== 'win32' }, () => {
+    fs.writeFileSync(`\\\\?\\${path.join(tmpDir, 'nul')}`, '');
+    fs.writeFileSync(path.join(tmpDir, 'other.txt'), 'x');
+    assert.equal(requireCleanWorkingTree('do something'), true);
+    assert.equal(hasChanges(), false);
+    assert.equal(fs.existsSync(path.join(tmpDir, 'other.txt')), false);
+    assert.equal(stashCount(), 0);
+  });
 });
 
 describe('fetchAndCheckout with dirty working tree (integration)', () => {
