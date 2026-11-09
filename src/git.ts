@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute, posix, resolve } from 'node:path';
 import { logger } from './logger';
 import { LOCK_FILENAME } from './lockfile';
@@ -63,16 +63,40 @@ const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
  */
 function removeWindowsReservedFiles(paths: string[]): string[] {
   if (process.platform !== 'win32') return paths;
+
+  const candidates = paths.filter((path) =>
+    WINDOWS_RESERVED_NAME.test(posix.basename(path.replace(/\\/g, '/')))
+  );
+  if (candidates.length === 0) return paths;
+
+  // `git status` paths are relative to the repo root (not necessarily the cwd),
+  // so resolve against the toplevel. Only untracked entries may be deleted —
+  // a modified tracked file such as `aux.js` must go through the normal stash.
+  const top = git(['rev-parse', '--show-toplevel']);
+  if (top.status !== 0 || !top.stdout.trim()) return paths;
+  const root = top.stdout.trim();
+  const untrackedList = git(['ls-files', '--others', '--exclude-standard', '--full-name', '-z']);
+  const untracked = new Set(untrackedList.stdout.split('\0').filter(Boolean));
+
   const remaining: string[] = [];
   for (const path of paths) {
-    const base = posix.basename(path.replace(/\\/g, '/'));
-    if (!WINDOWS_RESERVED_NAME.test(base)) {
+    if (!candidates.includes(path)) {
+      remaining.push(path);
+      continue;
+    }
+    if (!untracked.has(path)) {
       remaining.push(path);
       continue;
     }
     try {
-      const abs = resolve(process.cwd(), path);
-      rmSync(`\\\\?\\${abs}`, { recursive: true, force: true });
+      const abs = `\\\\?\\${resolve(root, path)}`;
+      // Only plain files; never recurse into directories or follow links.
+      if (!lstatSync(abs).isFile()) {
+        logger.warn(`Leaving reserved-name path that is not a regular file: ${path}`);
+        remaining.push(path);
+        continue;
+      }
+      rmSync(abs);
       logger.warn(`Removed Windows-reserved file that git cannot stash: ${path}`);
     } catch (err) {
       logger.warn(`Failed to remove reserved file ${path}: ${err instanceof Error ? err.message : err}`);
