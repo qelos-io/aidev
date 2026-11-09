@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute, posix, resolve } from 'node:path';
 import { logger } from './logger';
 import { LOCK_FILENAME } from './lockfile';
@@ -54,6 +54,34 @@ export function remoteBranchExists(remote: string, branch: string): boolean {
   return result.status === 0 && result.stdout.trim().length > 0;
 }
 
+const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+/**
+ * On Windows, deletes dirty paths whose basename is a reserved device name and
+ * returns the remaining paths. Uses the `\\?\` prefix so the Win32 name
+ * normalisation doesn't redirect the delete to the device. No-op elsewhere.
+ */
+function removeWindowsReservedFiles(paths: string[]): string[] {
+  if (process.platform !== 'win32') return paths;
+  const remaining: string[] = [];
+  for (const path of paths) {
+    const base = posix.basename(path.replace(/\\/g, '/'));
+    if (!WINDOWS_RESERVED_NAME.test(base)) {
+      remaining.push(path);
+      continue;
+    }
+    try {
+      const abs = resolve(process.cwd(), path);
+      rmSync(`\\\\?\\${abs}`, { recursive: true, force: true });
+      logger.warn(`Removed Windows-reserved file that git cannot stash: ${path}`);
+    } catch (err) {
+      logger.warn(`Failed to remove reserved file ${path}: ${err instanceof Error ? err.message : err}`);
+      remaining.push(path);
+    }
+  }
+  return remaining;
+}
+
 /**
  * Verifies the working tree is clean before a branch-switching operation.
  * Leftovers from failed tasks would otherwise block every later checkout, so
@@ -71,8 +99,16 @@ export function requireCleanWorkingTree(actionDescription: string): boolean {
     dirtyFiles.map((file) => `  ${file}`).join('\n')
   );
 
+  // Windows reserved device names (e.g. `nul`, left by agents redirecting to
+  // `> nul`) can't be added by git ("invalid path"), so stash would fail on
+  // them forever. Delete them directly instead of stashing.
+  const stashable = removeWindowsReservedFiles(dirtyFiles);
+  if (stashable.length === 0) {
+    return !hasChanges();
+  }
+
   const countBefore = stashCount();
-  const stash = git(['stash', 'push', '--include-untracked', '--', ...dirtyFiles]);
+  const stash = git(['stash', 'push', '--include-untracked', '--', ...stashable]);
   if (stash.status !== 0) {
     logger.error(`Cannot ${actionDescription}: git stash failed: ${stash.stderr}`);
     return false;
