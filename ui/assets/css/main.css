@@ -1,2 +1,37 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+
+@theme static {
+  --font-sans: 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Workbench surfaces: a cool paper ground with white work surfaces on top. */
+:root {
+  --wb-ground: oklch(97.6% 0.006 200);
+  --wb-sidebar: oklch(99% 0.004 200);
+  --wb-ink-soft: oklch(48% 0.02 220);
+  --wb-wait: oklch(76% 0.15 75);
+  --wb-ok: oklch(62% 0.15 160);
+  --wb-bad: oklch(60% 0.2 25);
+}
+.dark {
+  --wb-ground: oklch(19% 0.012 220);
+  --wb-sidebar: oklch(22% 0.012 220);
+  --wb-ink-soft: oklch(72% 0.02 220);
+  --wb-wait: oklch(80% 0.14 80);
+  --wb-ok: oklch(72% 0.15 160);
+  --wb-bad: oklch(70% 0.18 25);
+}
+
+html, body { background: var(--wb-ground); }
+
+/* Browser surfaces carry the design too. */
+::selection { background: color-mix(in oklch, var(--ui-primary) 28%, transparent); }
+input, textarea { caret-color: var(--ui-primary); }
+.tabular { font-variant-numeric: tabular-nums; }
+* { scrollbar-width: thin; scrollbar-color: color-mix(in oklch, var(--wb-ink-soft) 40%, transparent) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

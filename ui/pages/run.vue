@@ -1,70 +1,54 @@
 <template>
-  <div class="run-page">
-    <UCard>
-      <template #header>
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h1 class="text-lg font-semibold">Run</h1>
-            <p class="text-xs text-gray-500 mt-1">
-              Spawns <code>aidev run &lt;status&gt;</code> in
-              <code>{{ cwd || '—' }}</code> and streams output live below.
-            </p>
-          </div>
-          <UButton
-            v-if="lines.length > 0 && !running"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            @click="lines = []"
-          >
-            Clear output
-          </UButton>
-        </div>
-      </template>
+  <div class="run">
+    <header class="page-head">
+      <div>
+        <h1>Run aidev</h1>
+        <p>Start aidev on <strong>{{ projectName }}</strong> and watch it work.</p>
+      </div>
+    </header>
 
-      <UAlert
-        v-if="error"
-        color="red"
-        variant="soft"
-        :title="error"
-        class="mb-3"
-      />
+    <UAlert v-if="error" color="error" variant="soft" icon="i-lucide-triangle-alert" title="Couldn't start the run" :description="error" class="mb-5" />
 
+    <section class="panel banner" :class="`banner--${banner.tone}`" aria-live="polite">
+      <span class="banner-icon" aria-hidden="true">
+        <UIcon v-if="banner.tone === 'running'" name="i-lucide-loader-circle" class="size-6 animate-spin" />
+        <UIcon v-else-if="banner.tone === 'done'" name="i-lucide-circle-check" class="size-6" />
+        <UIcon v-else-if="banner.tone === 'failed'" name="i-lucide-circle-alert" class="size-6" />
+        <UIcon v-else name="i-lucide-circle-play" class="size-6" />
+      </span>
+      <div class="banner-text">
+        <h2>{{ banner.title }}</h2>
+        <p>{{ banner.detail }}</p>
+      </div>
+      <UButton v-if="running" color="error" variant="soft" icon="i-lucide-square" :loading="cancelling" :disabled="cancelling" @click="cancelRun">
+        Stop
+      </UButton>
+    </section>
+
+    <section class="panel" aria-labelledby="what-h">
+      <h2 id="what-h">What should aidev do?</h2>
       <div class="actions">
-        <UButton
-          v-for="s in statuses"
-          :key="s.value"
-          size="md"
-          :color="s.color"
-          :loading="running && activeStatus === s.value"
-          :disabled="running"
-          class="action-btn"
-          @click="startRun(s.value)"
-        >
-          {{ s.label }}
-        </UButton>
-
-        <UButton
-          size="md"
-          color="red"
-          variant="soft"
-          :disabled="!running || cancelling"
-          :loading="cancelling"
-          class="cancel-btn"
-          @click="cancelRun"
-        >
-          Cancel
-        </UButton>
+        <button v-for="s in statuses" :key="s.value" type="button" class="action" :disabled="running" @click="startRun(s.value)">
+          <UIcon :name="running && activeStatus === s.value ? 'i-lucide-loader-circle' : s.icon" class="action-icon" :class="{ 'animate-spin': running && activeStatus === s.value }" aria-hidden="true" />
+          <span class="action-text">
+            <span class="action-label">{{ s.label }}</span>
+            <span class="action-hint">{{ s.hint }}</span>
+          </span>
+        </button>
       </div>
+    </section>
 
-      <div class="status-bar">
-        <span class="status-dot" :class="`status-dot--${stateKey}`" />
-        <span class="status-text">{{ statusText }}</span>
+    <section class="panel" aria-labelledby="out-h">
+      <div class="out-head">
+        <h2 id="out-h">Live output</h2>
+        <div v-if="lines.length > 0" class="out-actions">
+          <UButton color="neutral" variant="ghost" size="sm" :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'" @click="copyOutput">{{ copied ? 'Copied' : 'Copy' }}</UButton>
+          <UButton v-if="!running" color="neutral" variant="ghost" size="sm" icon="i-lucide-eraser" @click="lines = []">Clear</UButton>
+        </div>
       </div>
-
-      <pre v-if="lines.length > 0" ref="viewer" class="viewer"><code>{{ text }}</code></pre>
-      <p v-else class="empty">No output yet. Click a status above to start a run.</p>
-    </UCard>
+      <pre v-if="lines.length > 0" ref="viewer" class="viewer" tabindex="0" aria-label="Run output"><code>{{ text }}</code></pre>
+      <p v-else class="empty">Nothing yet. What aidev says while it works will show up here.</p>
+    </section>
   </div>
 </template>
 
@@ -85,13 +69,15 @@ const api = useApi();
 const route = useRoute();
 const runtime = useRuntimeConfig();
 const cwd = computed(() => runtime.public.aidevCwd as string);
+const projectName = computed(() => cwd.value.split(/[\\/]/).filter(Boolean).pop() || 'this project');
 
-const statuses: { value: RunStatus; label: string; color: 'primary' | 'sky' | 'amber' | 'neutral' }[] = [
-  { value: 'open', label: 'Open', color: 'primary' },
-  { value: 'pending', label: 'Pending', color: 'sky' },
-  { value: 'review', label: 'Review', color: 'amber' },
-  { value: 'all', label: 'All', color: 'neutral' },
+const statuses: { value: RunStatus; label: string; hint: string; icon: string }[] = [
+  { value: 'open', label: 'Work on new tasks', hint: 'Pick up everything marked open', icon: 'i-lucide-play' },
+  { value: 'pending', label: 'Continue waiting tasks', hint: 'After you have answered aidev', icon: 'i-lucide-message-circle-reply' },
+  { value: 'review', label: 'Handle review feedback', hint: 'Apply comments on finished work', icon: 'i-lucide-git-pull-request' },
+  { value: 'all', label: 'Do all of it', hint: 'New, waiting, and review in one go', icon: 'i-lucide-layers' },
 ];
+const activeLabel = computed(() => statuses.find((s) => s.value === activeStatus.value)?.label ?? 'aidev');
 
 const lines = ref<string[]>([]);
 const running = ref(false);
@@ -114,18 +100,27 @@ const stateKey = computed(() => {
   return 'idle';
 });
 
-const statusText = computed(() => {
-  if (running.value && activeStatus.value) {
-    return `Running aidev run ${activeStatus.value}…`;
+const banner = computed(() => {
+  if (running.value) {
+    return { tone: 'running', title: cancelling.value ? 'Stopping…' : `Running: ${activeLabel.value}`, detail: 'aidev is working. You can leave this page open, output appears below as it happens.' };
   }
   if (lastExit.value) {
     const { code, signal, durationMs } = lastExit.value;
     const dur = formatDuration(durationMs);
-    if (signal) return `Terminated by signal ${signal} after ${dur}`;
-    return `Exited with code ${code ?? 'null'} after ${dur}`;
+    if (signal) return { tone: 'failed', title: 'Stopped before finishing', detail: `The run was stopped (${signal}) after ${dur}.` };
+    if (code === 0) return { tone: 'done', title: 'Finished successfully', detail: `Took ${dur}. Check Tasks to see what changed.` };
+    return { tone: 'failed', title: 'The run hit a problem', detail: `It ended with an error (code ${code ?? 'unknown'}) after ${dur}. The output below usually says why.` };
   }
-  return 'Idle';
+  return { tone: 'idle', title: 'Ready when you are', detail: 'Pick what you want aidev to work on.' };
 });
+const copied = ref(false);
+async function copyOutput() {
+  try {
+    await navigator.clipboard.writeText(text.value);
+    copied.value = true;
+    setTimeout(() => (copied.value = false), 1500);
+  } catch { /* clipboard unavailable */ }
+}
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -310,77 +305,41 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.run-page {
-  display: flex;
-  flex-direction: column;
-}
+.run { padding-bottom: 2rem; display: flex; flex-direction: column; gap: 1.25rem; }
+.page-head { padding: 0.75rem 0 0.25rem; }
+.page-head h1 { margin: 0; font-size: 1.875rem; font-weight: 700; letter-spacing: -0.02em; color: var(--ui-text-highlighted); }
+.page-head p { margin: 0.25rem 0 0; color: var(--wb-ink-soft); }
+.panel { padding: 1.5rem; border-radius: 1rem; background: var(--ui-bg); border: 1px solid var(--ui-border); }
+.panel h2 { margin: 0 0 1rem; font-size: 1.0625rem; font-weight: 700; color: var(--ui-text-highlighted); }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-.action-btn {
-  min-width: 7rem;
-  justify-content: center;
-}
-.cancel-btn {
-  margin-left: auto;
-  min-width: 6rem;
-  justify-content: center;
-}
+.banner { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.banner h2 { margin: 0; font-size: 1.125rem; }
+.banner p { margin: 0.125rem 0 0; font-size: 0.9375rem; color: var(--wb-ink-soft); }
+.banner-text { flex: 1; min-width: 12rem; }
+.banner-icon { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: 0.875rem; background: var(--ui-bg-elevated); color: var(--wb-ink-soft); }
+.banner--running .banner-icon { background: color-mix(in oklch, var(--ui-primary) 16%, transparent); color: var(--ui-primary); }
+.banner--done .banner-icon { background: color-mix(in oklch, var(--wb-ok) 18%, transparent); color: var(--wb-ok); }
+.banner--failed .banner-icon { background: color-mix(in oklch, var(--wb-bad) 16%, transparent); color: var(--wb-bad); }
 
-.status-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8rem;
-  color: #475569;
-  margin-bottom: 0.5rem;
-}
-.status-dot {
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 50%;
-  background: #94a3b8;
-  flex-shrink: 0;
-}
-.status-dot--running {
-  background: #38bdf8;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
-  animation: pulse 1.4s ease-in-out infinite;
-}
-.status-dot--done { background: #10b981; }
-.status-dot--failed { background: #ef4444; }
-.status-dot--error { background: #ef4444; }
+.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+.action { display: flex; align-items: center; gap: 0.875rem; min-height: 4rem; padding: 0.75rem 1rem; border-radius: 0.75rem; border: 1px solid var(--ui-border); background: var(--ui-bg); text-align: left; cursor: pointer; transition: border-color 0.15s, background-color 0.15s; }
+.action:hover:not(:disabled) { border-color: var(--ui-primary); background: color-mix(in oklch, var(--ui-primary) 6%, transparent); }
+.action:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+.action:disabled { opacity: 0.55; cursor: not-allowed; }
+.action-icon { width: 1.375rem; height: 1.375rem; color: var(--ui-primary); flex-shrink: 0; }
+.action-text { display: flex; flex-direction: column; }
+.action-label { font-weight: 600; color: var(--ui-text-highlighted); }
+.action-hint { font-size: 0.8125rem; color: var(--wb-ink-soft); }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
+.out-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.out-head h2 { margin: 0; }
+.out-actions { display: flex; gap: 0.25rem; }
+.viewer { margin: 0; padding: 1rem; max-height: 30rem; overflow: auto; border-radius: 0.75rem; background: oklch(21% 0.02 250); color: oklch(92% 0.01 250); font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; white-space: pre; }
+.viewer:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+.empty { margin: 0; padding: 2rem 1rem; text-align: center; border: 1px dashed var(--ui-border-accented); border-radius: 0.75rem; color: var(--wb-ink-soft); font-size: 0.9375rem; }
 
-.viewer {
-  background: #0f172a;
-  color: #e2e8f0;
-  border-radius: 0.375rem;
-  padding: 0.6rem 0.85rem;
-  max-height: 28rem;
-  overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.75rem;
-  line-height: 1.45;
-  white-space: pre;
-  margin: 0;
-}
-
-.empty {
-  border: 1px dashed #cbd5e1;
-  border-radius: 0.375rem;
-  padding: 1.25rem;
-  text-align: center;
-  color: #64748b;
-  font-size: 0.85rem;
-  margin: 0;
+@media (max-width: 700px) {
+  .actions { grid-template-columns: 1fr; }
+  .panel { padding: 1.125rem; }
 }
 </style>

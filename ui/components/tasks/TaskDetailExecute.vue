@@ -12,7 +12,7 @@
       <UButton
         v-if="running"
         size="sm"
-        color="red"
+        color="error"
         variant="soft"
         @click="emit('stop')"
       >
@@ -65,13 +65,12 @@ watch(
 <style scoped>
 .drawer-section { margin-top: 1rem; }
 .section-title {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #475569;
-  margin-bottom: 0.4rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--ui-text-highlighted);
+  margin-bottom: 0.5rem;
 }
-.muted { font-size: 0.85rem; color: #64748b; }
+.muted { font-size: 0.85rem; color: var(--wb-ink-soft); }
 .exec-row {
   display: flex;
   gap: 0.5rem;
@@ -79,13 +78,13 @@ watch(
   margin: 0.5rem 0;
 }
 .exec-viewer {
-  background: #0f172a;
-  color: #e2e8f0;
-  border-radius: 0.375rem;
+  background: oklch(21% 0.02 250);
+  color: oklch(92% 0.01 250);
+  border-radius: 0.75rem;
   padding: 0.6rem 0.85rem;
   max-height: 18rem;
   overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.45;
   white-space: pre;

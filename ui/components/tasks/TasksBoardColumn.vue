@@ -1,11 +1,17 @@
 <template>
-  <div class="column">
+  <section class="column" :aria-labelledby="`col-${column.key}`">
     <header class="col-head">
-      <span class="col-title" :class="`col-title--${column.key}`">{{ column.title }}</span>
-      <span class="col-count">{{ column.tasks.length }}</span>
+      <span class="dot" :class="`dot--${column.key}`" aria-hidden="true" />
+      <div class="col-titles">
+        <h2 :id="`col-${column.key}`" class="col-title">{{ column.title }}</h2>
+        <p v-if="HINTS[column.key]" class="col-hint">{{ HINTS[column.key] }}</p>
+      </div>
+      <span class="col-count tabular" :aria-label="`${column.tasks.length} tasks`">{{ column.tasks.length }}</span>
     </header>
     <div class="col-body">
-      <p v-if="loading && !loaded" class="col-empty">Loading…</p>
+      <template v-if="loading && !loaded">
+        <USkeleton v-for="n in 2" :key="n" class="h-20 w-full rounded-xl" />
+      </template>
       <template v-else>
         <TasksTaskCard
           v-for="task in column.tasks"
@@ -15,10 +21,10 @@
           :running="runningTaskId === task.id"
           @select="emit('select', task)"
         />
-        <p v-if="column.tasks.length === 0" class="col-empty">empty</p>
+        <p v-if="column.tasks.length === 0" class="col-empty">Nothing here</p>
       </template>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -35,49 +41,39 @@ defineProps<{
 const emit = defineEmits<{
   select: [task: UiTask];
 }>();
+
+const HINTS: Record<string, string> = {
+  open: 'Ready for aidev',
+  pending: 'Waiting on you',
+  inprogress: 'Being worked on',
+  review: 'Ready to review',
+  done: 'Finished',
+};
 </script>
 
 <style scoped>
 .column {
-  flex: 0 0 220px;
-  width: 220px;
-  background: #f1f5f9;
-  border-radius: 0.5rem;
-  padding: 0.5rem;
+  flex: 0 0 17rem;
+  width: 17rem;
   display: flex;
   flex-direction: column;
   min-height: 14rem;
+  padding: 0.75rem;
+  border-radius: 1rem;
+  background: var(--ui-bg-elevated);
+  scroll-snap-align: start;
 }
-.col-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.35rem;
-  padding: 0.25rem 0.5rem 0.5rem;
-  white-space: nowrap;
-}
-.col-title {
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: #334155;
-  flex-shrink: 0;
-}
-.col-title--pending { color: #ca8a04; }
-.col-title--inprogress { color: #2563eb; }
-.col-title--review { color: #7c3aed; }
-.col-title--done { color: #16a34a; }
-.col-count {
-  font-size: 0.7rem;
-  background: #e2e8f0;
-  color: #475569;
-  border-radius: 9999px;
-  padding: 0.1rem 0.5rem;
-}
-.col-body { display: flex; flex-direction: column; gap: 0.4rem; }
-.col-empty {
-  font-size: 0.75rem;
-  color: #94a3b8;
-  text-align: center;
-  padding: 1rem 0;
-}
+.col-head { display: flex; align-items: center; gap: 0.625rem; padding: 0.25rem 0.375rem 0.75rem; }
+.col-titles { flex: 1; min-width: 0; }
+.col-title { margin: 0; font-size: 0.9375rem; font-weight: 700; color: var(--ui-text-highlighted); }
+.col-hint { margin: 0; font-size: 0.75rem; color: var(--wb-ink-soft); }
+.dot { width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--wb-ink-soft); flex-shrink: 0; }
+.dot--open { background: var(--ui-primary); }
+.dot--pending { background: var(--wb-wait); }
+.dot--inprogress { background: oklch(65% 0.14 235); }
+.dot--review { background: oklch(64% 0.14 290); }
+.dot--done { background: var(--wb-ok); }
+.col-count { font-size: 0.8125rem; font-weight: 600; min-width: 1.75rem; text-align: center; padding: 0.125rem 0.5rem; border-radius: 999px; background: var(--ui-bg); color: var(--wb-ink-soft); }
+.col-body { display: flex; flex-direction: column; gap: 0.5rem; }
+.col-empty { margin: 0; padding: 1.25rem 0; text-align: center; font-size: 0.8125rem; color: var(--wb-ink-soft); }
 </style>

@@ -10,7 +10,7 @@
     <template #body>
       <UAlert
         v-if="error"
-        color="red"
+        color="error"
         variant="soft"
         :title="error"
         class="mb-4"
@@ -152,13 +152,11 @@ function submit() {
   gap: 0.35rem;
 }
 .field-label {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--ui-text-highlighted);
 }
-.required { color: #ef4444; }
+.required { color: var(--ui-error); }
 
 .actions {
   display: flex;

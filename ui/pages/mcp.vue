@@ -1,145 +1,87 @@
 <template>
-  <div class="mcp-page">
-    <UCard>
-      <template #header>
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h1 class="text-lg font-semibold">MCP servers</h1>
-            <p class="text-xs text-gray-500 mt-1">
-              <code>{{ filePath || '—' }}</code>
-              <span v-if="fileExists === false" class="ml-2 text-amber-600">not found</span>
-              <span v-else-if="fileExists" class="ml-2 text-emerald-600">loaded</span>
-            </p>
-          </div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <UButton size="sm" color="neutral" variant="soft" @click="rawMode = !rawMode">
-              {{ rawMode ? 'Form view' : 'Raw JSON' }}
-            </UButton>
-            <UButton color="neutral" variant="ghost" size="sm" :loading="loading" :disabled="loading" @click="reload">
-              Reload
-            </UButton>
-            <UButton color="primary" size="sm" :loading="saving" :disabled="saving || !dirty" @click="save">
-              Save changes
-            </UButton>
-          </div>
-        </div>
-      </template>
-
-      <UAlert v-if="loadError" color="red" variant="soft" :title="loadError" class="mb-4" />
-      <UAlert v-if="saved" color="green" variant="soft" title="Saved" class="mb-4" />
-
-      <p class="text-sm text-gray-500">
-        Translated into every configured agent's own MCP convention before each run — see
-        <a href="https://qelos-io.github.io/aidev/guide/mcp" target="_blank" rel="noopener" class="underline">the MCP guide</a>.
-        Set <code>MCP_JSON_PATH</code> on the <NuxtLink to="/config" class="underline">Config</NuxtLink> page to change where this file lives.
-      </p>
-    </UCard>
-
-    <!-- Raw JSON escape hatch -->
-    <UCard v-if="rawMode" class="mt-4">
-      <template #header>
-        <h2 class="text-base font-semibold">Raw mcpServers JSON</h2>
-      </template>
-      <textarea
-        v-model="rawText"
-        class="raw-json-editor"
-        spellcheck="false"
-        @input="rawError = ''"
-      />
-      <p v-if="rawError" class="text-sm text-red-500 mt-2">{{ rawError }}</p>
-      <div class="mt-3">
-        <UButton size="sm" color="neutral" variant="soft" @click="applyRawText">
-          Apply to form
-        </UButton>
+  <div class="mcp">
+    <header class="page-head">
+      <div>
+        <h1>Connected tools</h1>
+        <p>
+          Give your AI extra abilities, like reading files, using GitHub or driving a browser.
+          These are called MCP servers. aidev passes them to every AI assistant you use.
+          <a href="https://qelos-io.github.io/aidev/guide/mcp" target="_blank" rel="noopener">Learn more</a>
+        </p>
+        <p class="file-line">
+          <UIcon name="i-lucide-file-json" class="size-3.5" aria-hidden="true" />
+          <code>{{ fileName }}</code>
+          <span v-if="fileExists === false" class="state state--warn">Not created yet. It will be when you save.</span>
+          <span v-else-if="fileExists" class="state">Loaded</span>
+          <span class="muted">· Change where it lives under <NuxtLink to="/config#files">Settings → Files</NuxtLink>.</span>
+        </p>
       </div>
-    </UCard>
+      <div class="head-actions">
+        <UButton color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :loading="loading" :disabled="loading || dirty" @click="reload">Reload</UButton>
+      </div>
+    </header>
 
-    <!-- Form view -->
-    <UCard v-else class="mt-4">
-      <template #header>
-        <div class="flex items-center justify-between gap-3">
-          <h2 class="text-base font-semibold">Servers</h2>
-          <UButton size="sm" color="neutral" variant="soft" icon="i-heroicons-plus" @click="addServer">
-            Add server
-          </UButton>
-        </div>
-      </template>
+    <UAlert v-if="loadError" color="error" variant="soft" icon="i-lucide-triangle-alert" title="Something went wrong" :description="loadError" class="mb-5" />
 
-      <p v-if="servers.length === 0" class="text-sm text-gray-500">
-        No servers configured. Use "Add server" to introduce one.
-      </p>
+    <div class="tabs" role="tablist" aria-label="Edit mode">
+      <button type="button" role="tab" class="tab" :class="{ 'tab--on': !rawMode }" :aria-selected="!rawMode" @click="leaveRaw">
+        <UIcon name="i-lucide-layout-list" class="size-4" aria-hidden="true" /> Guided
+      </button>
+      <button type="button" role="tab" class="tab" :class="{ 'tab--on': rawMode }" :aria-selected="rawMode" @click="rawMode = true">
+        <UIcon name="i-lucide-braces" class="size-4" aria-hidden="true" /> JSON
+      </button>
+    </div>
 
-      <div class="space-y-3">
-        <div
-          v-for="server in servers"
-          :key="server.uid"
-          class="server-block rounded-lg border border-gray-200 dark:border-gray-700 p-4"
-        >
-          <div class="flex items-center justify-between gap-3 mb-3">
-            <UFormField label="Name" class="flex-1 max-w-xs">
-              <UInput v-model="server.name" placeholder="fs" />
-            </UFormField>
-            <UButton
-              size="xs"
-              color="red"
-              variant="ghost"
-              icon="i-heroicons-trash"
-              aria-label="Remove server"
-              @click="removeServer(server.uid)"
-            />
-          </div>
+    <!-- JSON -->
+    <section v-if="rawMode" class="panel" aria-labelledby="raw-h">
+      <h2 id="raw-h">Edit as JSON</h2>
+      <p class="sub">For people who already have a config to paste in. “Apply to guided view” checks it and switches back.</p>
+      <label for="raw-json" class="sr-only">mcpServers JSON</label>
+      <textarea id="raw-json" v-model="rawText" class="code-area raw" spellcheck="false" @input="rawError = ''" />
+      <p v-if="rawError" class="err" role="alert">That JSON isn't valid: {{ rawError }}</p>
+      <UButton color="neutral" variant="soft" icon="i-lucide-arrow-left-right" class="mt-3" @click="applyRawText">Apply to guided view</UButton>
+    </section>
 
-          <div class="grid gap-4 md:grid-cols-2">
-            <UFormField label="URL" help="Set for a remote server instead of command/args.">
-              <UInput v-model="server.url" placeholder="https://mcp.example.com" />
-            </UFormField>
-            <UFormField label="Command" help="Local server executable, e.g. npx.">
-              <UInput v-model="server.command" placeholder="npx" :disabled="!!server.url" />
-            </UFormField>
-            <UFormField label="Args" help="Space-separated." class="md:col-span-2">
-              <UInput v-model="server.argsText" placeholder="-y @modelcontextprotocol/server-filesystem ." :disabled="!!server.url" />
-            </UFormField>
-            <UFormField label="Env" help="One KEY=VALUE per line." class="md:col-span-2">
-              <textarea v-model="server.envText" class="env-editor" spellcheck="false" placeholder="TOKEN=..." />
-            </UFormField>
-          </div>
+    <!-- Guided -->
+    <section v-else class="panel" aria-labelledby="srv-h">
+      <div class="panel-head">
+        <h2 id="srv-h">Your tools <span class="count">{{ servers.length }}</span></h2>
+        <div class="add-row">
+          <UDropdownMenu :items="quickAddItems" :content="{ align: 'end' }">
+            <UButton color="neutral" variant="soft" icon="i-lucide-sparkles" trailing-icon="i-lucide-chevron-down">Quick add</UButton>
+          </UDropdownMenu>
+          <UButton icon="i-lucide-plus" @click="addServer()">Add a tool</UButton>
         </div>
       </div>
-    </UCard>
+
+      <div v-if="servers.length === 0" class="empty">
+        <UIcon name="i-lucide-plug" class="size-8" aria-hidden="true" />
+        <p><strong>No tools connected yet.</strong></p>
+        <p>Try “Quick add” to connect a popular one in a click.</p>
+      </div>
+
+      <ul v-else class="servers">
+        <li v-for="server in servers" :key="server.uid">
+          <McpServerCard :server="server" @remove="removeServer(server.uid)" />
+        </li>
+      </ul>
+    </section>
+
+    <SaveBar :dirty="dirty" :saving="saving" :saved="saved" saved-text="Saved. Your tools will be used on the next run." @save="save" @discard="discard" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { useApi } from '~/composables/useApi';
 
-interface McpServerDef {
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  enabled?: boolean;
-}
-
-interface McpFileResult {
-  path: string;
-  exists: boolean;
-  servers: Record<string, McpServerDef>;
-  betterMcp: boolean;
-  betterMcpConfigPath: string;
-}
-
-interface ServerRow {
-  uid: number;
-  name: string;
-  command: string;
-  argsText: string;
-  envText: string;
-  url: string;
-}
+interface McpServerDef { command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled?: boolean }
+interface McpFileResult { path: string; exists: boolean; servers: Record<string, McpServerDef>; betterMcp: boolean; betterMcpConfigPath: string }
+interface ServerRow { uid: number; name: string; command: string; argsText: string; envText: string; url: string; remote?: boolean }
 
 const api = useApi();
 
 const filePath = ref('');
+const fileName = computed(() => filePath.value.split(/[\\/]/).pop() || 'mcp.json');
 const fileExists = ref<boolean | null>(null);
 const loading = ref(false);
 const loadError = ref('');
@@ -155,15 +97,28 @@ const servers = ref<ServerRow[]>([]);
 // Snapshots as last loaded/saved — used to detect dirty state in each view.
 const original = ref('');
 const originalRaw = ref('');
+let savedTimer: ReturnType<typeof setTimeout> | null = null;
 
+const QUICK_ADD: { label: string; hint: string; icon: string; row: Omit<ServerRow, 'uid'> }[] = [
+  { label: 'Files', hint: 'Read and edit files in this folder', icon: 'i-lucide-folder', row: { name: 'files', command: 'npx', argsText: '-y @modelcontextprotocol/server-filesystem .', envText: '', url: '' } },
+  { label: 'GitHub', hint: 'Work with repos, issues and pull requests', icon: 'i-simple-icons-github', row: { name: 'github', command: 'npx', argsText: '-y @modelcontextprotocol/server-github', envText: 'GITHUB_PERSONAL_ACCESS_TOKEN=', url: '' } },
+  { label: 'Browser', hint: 'Let the AI open and test web pages', icon: 'i-simple-icons-playwright', row: { name: 'browser', command: 'npx', argsText: '@playwright/mcp@latest', envText: '', url: '' } },
+];
+const quickAddItems = computed(() => [
+  QUICK_ADD.map((q) => ({ label: q.label, description: q.hint, icon: q.icon, onSelect: () => addServer(q.row) })),
+]);
+
+function isRemote(s: ServerRow): boolean {
+  return s.remote ?? !!s.url.trim();
+}
 function rowsToServers(rows: ServerRow[]): Record<string, McpServerDef> {
   const out: Record<string, McpServerDef> = {};
   for (const row of rows) {
     if (!row.name.trim()) continue;
     const def: McpServerDef = {};
-    if (row.url.trim()) {
+    if (isRemote(row) && row.url.trim()) {
       def.url = row.url.trim();
-    } else {
+    } else if (!isRemote(row)) {
       if (row.command.trim()) def.command = row.command.trim();
       const args = row.argsText.trim().split(/\s+/).filter(Boolean);
       if (args.length) def.args = args;
@@ -197,9 +152,7 @@ function serialize(data: Record<string, McpServerDef>): string {
 }
 
 const dirty = computed(() =>
-  rawMode.value
-    ? rawText.value !== originalRaw.value
-    : serialize(rowsToServers(servers.value)) !== original.value,
+  rawMode.value ? rawText.value !== originalRaw.value : serialize(rowsToServers(servers.value)) !== original.value,
 );
 
 function applyData(data: McpFileResult) {
@@ -212,10 +165,12 @@ function applyData(data: McpFileResult) {
   rawError.value = '';
 }
 
-function addServer() {
-  servers.value.push({ uid: nextUid++, name: '', command: 'npx', argsText: '', envText: '', url: '' });
+function addServer(preset?: Omit<ServerRow, 'uid'>) {
+  const base = preset ?? { name: '', command: 'npx', argsText: '', envText: '', url: '' };
+  let name = base.name;
+  if (name && servers.value.some((s) => s.name === name)) name = `${name}-${servers.value.length + 1}`;
+  servers.value.push({ ...base, name, uid: nextUid++ });
 }
-
 function removeServer(uid: number) {
   servers.value = servers.value.filter((s) => s.uid !== uid);
 }
@@ -232,13 +187,23 @@ function applyRawText() {
     rawError.value = err instanceof Error ? err.message : String(err);
   }
 }
+function leaveRaw() {
+  if (!rawMode.value) return;
+  if (rawText.value === originalRaw.value) rawMode.value = false;
+  else applyRawText();
+}
+
+function discard() {
+  servers.value = serversToRows(JSON.parse(originalRaw.value).mcpServers ?? {});
+  rawText.value = originalRaw.value;
+  rawError.value = '';
+}
 
 async function reload() {
   loading.value = true;
   loadError.value = '';
   try {
-    const data = await api<McpFileResult>('/api/mcp');
-    applyData(data);
+    applyData(await api<McpFileResult>('/api/mcp'));
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -251,18 +216,14 @@ async function save() {
     applyRawText();
     if (rawError.value) return;
   }
-
   saving.value = true;
   saved.value = false;
   loadError.value = '';
   try {
-    const data = await api<McpFileResult>('/api/mcp', {
-      method: 'PUT',
-      body: { servers: rowsToServers(servers.value) },
-    });
-    applyData(data);
+    applyData(await api<McpFileResult>('/api/mcp', { method: 'PUT', body: { servers: rowsToServers(servers.value) } }));
     saved.value = true;
-    setTimeout(() => (saved.value = false), 3000);
+    if (savedTimer) clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => (saved.value = false), 3000);
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -270,45 +231,48 @@ async function save() {
   }
 }
 
+onBeforeRouteLeave(() => (dirty.value ? window.confirm('You have unsaved changes. Leave without saving?') : true));
 onMounted(reload);
+onBeforeUnmount(() => { if (savedTimer) clearTimeout(savedTimer); });
 </script>
 
 <style scoped>
-.mcp-page {
-  display: flex;
-  flex-direction: column;
-}
+.mcp { padding-bottom: 2rem; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.75rem 0 1.25rem; }
+.page-head h1 { margin: 0; font-size: 1.875rem; font-weight: 700; letter-spacing: -0.02em; color: var(--ui-text-highlighted); }
+.page-head p { margin: 0.25rem 0 0; color: var(--wb-ink-soft); max-width: 46rem; }
+.page-head a { color: var(--ui-primary); font-weight: 600; text-underline-offset: 2px; }
+.file-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.375rem; font-size: 0.8125rem; }
+.file-line code { font-family: var(--font-mono); }
+.state { color: var(--wb-ok); font-weight: 600; }
+.state--warn { color: var(--wb-wait); }
+.muted { color: var(--wb-ink-soft); }
 
-.server-block {
-  background: rgb(var(--color-gray-50) / 0.5);
-}
+.tabs { display: flex; gap: 0.25rem; padding: 0.25rem; margin-bottom: 1rem; width: fit-content; border-radius: 0.875rem; background: var(--ui-bg-elevated); }
+.tab { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: 0.625rem; background: transparent; color: var(--wb-ink-soft); font-size: 0.9375rem; font-weight: 600; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
+.tab:hover { color: var(--ui-text-highlighted); }
+.tab:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+.tab--on { background: var(--ui-bg); color: var(--ui-text-highlighted); box-shadow: 0 1px 2px rgb(0 0 0 / 0.1); }
 
-:root.dark .server-block {
-  background: rgb(var(--color-gray-900) / 0.35);
-}
+.panel { padding: 1.5rem; border-radius: 1rem; background: var(--ui-bg); border: 1px solid var(--ui-border); }
+.panel h2 { margin: 0; font-size: 1.0625rem; font-weight: 700; color: var(--ui-text-highlighted); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.add-row { display: flex; gap: 0.5rem; }
+.count { margin-left: 0.375rem; font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 999px; background: var(--ui-bg-elevated); color: var(--wb-ink-soft); vertical-align: middle; }
+.sub { margin: 0.25rem 0 1rem; font-size: 0.9375rem; color: var(--wb-ink-soft); }
 
-.raw-json-editor,
-.env-editor {
-  width: 100%;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
-  border: 1px solid rgb(var(--color-gray-200));
-  border-radius: 0.375rem;
-  padding: 0.5rem;
-  background: transparent;
-  resize: vertical;
-}
+.empty { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 2.5rem 1rem; text-align: center; color: var(--wb-ink-soft); }
+.empty p { margin: 0; }
+.empty strong { color: var(--ui-text-highlighted); }
 
-.raw-json-editor {
-  min-height: 320px;
-}
+.servers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
+.code-area { width: 100%; padding: 0.75rem; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; resize: vertical; border: 1px solid var(--ui-border-accented); border-radius: 0.625rem; background: var(--ui-bg); color: var(--ui-text); }
+.code-area:focus { outline: 2px solid var(--ui-primary); outline-offset: 1px; }
+.code-area.raw { min-height: 22rem; }
+.err { margin: 0.5rem 0 0; font-size: 0.875rem; color: var(--ui-error); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-.env-editor {
-  min-height: 60px;
-}
-
-:root.dark .raw-json-editor,
-:root.dark .env-editor {
-  border-color: rgb(var(--color-gray-700));
+@media (max-width: 700px) {
+  .panel { padding: 1rem; }
 }
 </style>

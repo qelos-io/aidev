@@ -3,11 +3,11 @@
     <template v-if="detail" #header>
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="text-xs text-gray-500"><code>{{ detail.task.id }}</code></p>
+          <p class="text-xs text-muted"><code>{{ detail.task.id }}</code></p>
           <h2 class="text-base font-semibold truncate" :title="detail.task.name">
             {{ detail.task.name }}
           </h2>
-          <p class="text-xs text-gray-500 mt-0.5">
+          <p class="text-xs text-muted mt-0.5">
             <a
               v-if="detail.task.url"
               :href="detail.task.url"
@@ -26,7 +26,7 @@
     <template v-if="detail" #body>
       <UAlert
         v-if="error"
-        color="red"
+        color="error"
         variant="soft"
         :title="error"
         class="mb-3"
@@ -237,7 +237,7 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   max-height: 65vh;
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid var(--ui-border);
   padding-left: 1.25rem;
 }
 
@@ -245,7 +245,7 @@ const emit = defineEmits<{
   .right-col {
     border-left: none;
     padding-left: 0;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--ui-border);
     padding-top: 1rem;
     max-height: none;
   }
@@ -269,46 +269,45 @@ const emit = defineEmits<{
   flex-direction: column;
   gap: 0.5rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--ui-border);
 }
 
 /* Shared */
 .section-title {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #475569;
-  margin-bottom: 0.4rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--ui-text-highlighted);
+  margin-bottom: 0.5rem;
 }
 .desc {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.375rem;
+  background: var(--ui-bg-muted);
+  border: 1px solid var(--ui-border);
+  border-radius: 0.75rem;
   padding: 0.6rem 0.75rem;
   max-height: 16rem;
   overflow: auto;
 }
-.muted { font-size: 0.85rem; color: #64748b; }
+.muted { font-size: 0.9375rem; color: var(--wb-ink-soft); }
 .status-row {
   display: flex;
   gap: 0.5rem;
   align-items: center;
 }
 .comment {
-  border: 1px solid #e2e8f0;
-  border-radius: 0.375rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 0.75rem;
   padding: 0.5rem 0.65rem;
-  background: #f8fafc;
+  background: var(--ui-bg-muted);
   flex-shrink: 0;
 }
 .comment-head {
   display: flex;
   justify-content: space-between;
-  font-size: 0.7rem;
-  color: #64748b;
+  font-size: 0.75rem;
+  color: var(--wb-ink-soft);
   margin-bottom: 0.25rem;
 }
-.comment-author { font-weight: 600; color: #334155; }
+.comment-author { font-weight: 600; color: var(--ui-text-highlighted); }
 .comment-body { margin: 0; }
 .comment-actions {
   display: flex;
@@ -326,19 +325,18 @@ const emit = defineEmits<{
 .tags-header .section-title { margin-bottom: 0; }
 .tags-count {
   font-size: 0.7rem;
-  color: #94a3b8;
+  color: var(--wb-ink-soft);
   flex-shrink: 0;
 }
 .tags-panel {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.375rem;
+  background: var(--ui-bg-muted);
+  border: 1px solid var(--ui-border);
+  border-radius: 0.75rem;
   padding: 0.4rem 0.5rem;
 }
 .tags-panel--saving {
   opacity: 0.65;
   pointer-events: none;
 }
-.link { color: #2563eb; text-decoration: underline; }
-.link:hover { color: #1d4ed8; }
+.link { color: var(--ui-primary); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 </style>

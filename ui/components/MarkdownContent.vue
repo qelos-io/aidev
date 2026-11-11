@@ -14,9 +14,9 @@ const html = computed(() => renderMarkdown(props.content));
 
 <style scoped>
 .md-content {
-  font-size: 0.8rem;
-  line-height: 1.45;
-  color: #0f172a;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--ui-text);
   word-break: break-word;
 }
 
@@ -33,7 +33,7 @@ const html = computed(() => renderMarkdown(props.content));
 .md-content :deep(h3),
 .md-content :deep(h4) {
   font-weight: 600;
-  color: #0f172a;
+  color: var(--ui-text-highlighted);
   margin: 0.75em 0 0.35em;
   line-height: 1.25;
 }
@@ -55,23 +55,24 @@ const html = computed(() => renderMarkdown(props.content));
 .md-content :deep(blockquote) {
   margin: 0 0 0.5em;
   padding-left: 0.65em;
-  border-left: 3px solid #cbd5e1;
-  color: #475569;
+  border-left: 3px solid var(--ui-border-accented);
+  color: var(--wb-ink-soft);
 }
 
 .md-content :deep(a) {
-  color: #2563eb;
+  color: var(--ui-primary);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .md-content :deep(a:hover) {
-  color: #1d4ed8;
+  color: color-mix(in oklch, var(--ui-primary) 80%, black);
 }
 
 .md-content :deep(code) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.9em;
-  background: #e2e8f0;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--ui-bg-elevated);
   padding: 0.1em 0.3em;
   border-radius: 0.2rem;
 }
@@ -79,8 +80,8 @@ const html = computed(() => renderMarkdown(props.content));
 .md-content :deep(pre) {
   margin: 0 0 0.5em;
   padding: 0.55rem 0.65rem;
-  background: #e2e8f0;
-  border-radius: 0.375rem;
+  background: var(--ui-bg-elevated);
+  border-radius: 0.625rem;
   overflow-x: auto;
   white-space: pre-wrap;
 }
@@ -92,7 +93,7 @@ const html = computed(() => renderMarkdown(props.content));
 
 .md-content :deep(hr) {
   border: none;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--ui-border);
   margin: 0.65em 0;
 }
 
@@ -100,12 +101,12 @@ const html = computed(() => renderMarkdown(props.content));
   border-collapse: collapse;
   width: 100%;
   margin: 0 0 0.5em;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .md-content :deep(th),
 .md-content :deep(td) {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--ui-border);
   padding: 0.25rem 0.4rem;
   text-align: left;
 }

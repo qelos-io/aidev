@@ -43,7 +43,7 @@
           :aria-label="`Remove tag ${tag}`"
           @click="emit('removeOther', tag)"
         >
-          <UIcon name="i-heroicons-x-mark" />
+          <UIcon name="i-lucide-x" />
         </button>
       </span>
     </template>
@@ -135,7 +135,7 @@ function toggle(tag: string, label: string) {
 }
 .muted-empty {
   font-size: 0.78rem;
-  color: #94a3b8;
+  color: var(--wb-ink-soft);
 }
 
 .btn-group { display: inline-flex; }
@@ -147,9 +147,9 @@ function toggle(tag: string, label: string) {
   line-height: 1;
   padding: 0.25rem 0.55rem;
   white-space: nowrap;
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #64748b;
+  border: 1px solid var(--ui-border-accented);
+  background: var(--ui-bg);
+  color: var(--wb-ink-soft);
   cursor: pointer;
   transition: background 0.1s, border-color 0.1s, color 0.1s;
 }
@@ -158,22 +158,22 @@ function toggle(tag: string, label: string) {
 .btn-seg + .btn-seg  { margin-left: -1px; }
 .btn-seg:hover:not(:disabled) {
   background: #f1f5f9;
-  border-color: #94a3b8;
+  border-color: var(--wb-ink-soft);
   color: #334155;
   z-index: 1;
   position: relative;
 }
 .btn-seg:disabled { cursor: default; opacity: 0.5; }
 .btn-seg--on {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
+  background: var(--ui-primary);
+  border-color: var(--ui-primary);
+  color: var(--ui-bg);
   z-index: 1;
   position: relative;
 }
 .btn-seg--on:hover:not(:disabled) {
-  background: #1d4ed8;
-  border-color: #1d4ed8;
+  background: color-mix(in oklch, var(--ui-primary) 85%, black);
+  border-color: color-mix(in oklch, var(--ui-primary) 85%, black);
 }
 
 .tag-chip {
@@ -186,26 +186,26 @@ function toggle(tag: string, label: string) {
   border-radius: 0.3rem;
   padding: 0.25rem 0.55rem;
   white-space: nowrap;
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #64748b;
+  border: 1px solid var(--ui-border-accented);
+  background: var(--ui-bg);
+  color: var(--wb-ink-soft);
   cursor: pointer;
   transition: background 0.1s, border-color 0.1s, color 0.1s;
 }
 .tag-chip:hover:not(:disabled) {
-  border-color: #94a3b8;
+  border-color: var(--wb-ink-soft);
   background: #f1f5f9;
   color: #334155;
 }
 .tag-chip:disabled { cursor: default; opacity: 0.5; }
 .tag-chip--on {
-  background: #dbeafe;
-  border-color: #93c5fd;
-  color: #1e40af;
+  background: color-mix(in oklch, var(--ui-primary) 14%, transparent);
+  border-color: color-mix(in oklch, var(--ui-primary) 40%, transparent);
+  color: var(--ui-text-highlighted);
 }
 .tag-chip--on:hover:not(:disabled) {
-  background: #bfdbfe;
-  border-color: #60a5fa;
+  background: color-mix(in oklch, var(--ui-primary) 22%, transparent);
+  border-color: var(--ui-primary);
 }
 .tag-chip--other {
   cursor: default;
@@ -222,14 +222,14 @@ function toggle(tag: string, label: string) {
   border: none;
   border-radius: 0.2rem;
   background: transparent;
-  color: #1e40af;
+  color: var(--ui-text-highlighted);
   cursor: pointer;
   opacity: 0.6;
   transition: opacity 0.1s, background 0.1s;
 }
 .tag-chip-remove:hover:not(:disabled) {
   opacity: 1;
-  background: rgba(30, 64, 175, 0.1);
+  background: color-mix(in oklch, var(--ui-primary) 15%, transparent);
 }
 .tag-chip-remove:disabled { cursor: default; opacity: 0.3; }
 .tag-chip-remove :deep(svg) { width: 0.65rem; height: 0.65rem; }

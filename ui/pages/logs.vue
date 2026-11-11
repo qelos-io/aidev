@@ -1,118 +1,62 @@
 <template>
-  <div class="logs-page">
-    <UCard>
-      <template #header>
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h1 class="text-lg font-semibold">Logs</h1>
-            <p class="text-xs text-gray-500 mt-1">
-              <code>{{ data?.path || '—' }}</code>
-              <span v-if="data && !data.exists" class="ml-2 text-amber-600">not found</span>
-              <span v-else-if="data" class="ml-2 text-gray-500">
-                {{ data.total.toLocaleString() }} line(s) total<span v-if="data.truncated">, tailing last {{ data.limit.toLocaleString() }}</span>
-              </span>
-            </p>
-            <p class="text-xs text-gray-400 mt-0.5">
-              <span v-if="ttlDays > 0">Auto-pruned: lines older than {{ ttlDays }} day{{ ttlDays === 1 ? '' : 's' }} are removed on each run.</span>
-              <span v-else>Auto-pruning disabled (<code>AIDEV_LOG_TTL_DAYS=0</code>).</span>
-            </p>
-          </div>
-          <div class="flex items-center gap-2">
-            <UButton
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              :loading="refreshing"
-              :disabled="refreshing"
-              @click="reload({ explicit: true })"
-            >
-              Refresh
-            </UButton>
-            <UButton
-              color="red"
-              variant="soft"
-              size="sm"
-              :disabled="!data?.exists || data?.total === 0 || clearing"
-              @click="confirmClear = true"
-            >
-              Clear log
-            </UButton>
-          </div>
-        </div>
-      </template>
+  <div class="logs">
+    <header class="page-head">
+      <div>
+        <h1>Activity log</h1>
+        <p>A record of everything aidev did and why. Open this when something didn't go as expected.</p>
+        <p v-if="data" class="file-line">
+          <UIcon name="i-lucide-file-text" class="size-3.5" aria-hidden="true" />
+          <code :title="data.path">{{ logName }}</code>
+          <span v-if="!data.exists" class="state state--warn">Not created yet</span>
+          <span v-else class="muted">· {{ data.total.toLocaleString() }} lines<template v-if="data.truncated">, showing the latest {{ data.limit.toLocaleString() }}</template></span>
+          <span class="muted">· {{ ttlDays > 0 ? `lines older than ${ttlDays} day${ttlDays === 1 ? '' : 's'} are removed automatically` : 'old lines are never removed automatically' }}</span>
+        </p>
+      </div>
+      <div class="head-actions">
+        <UButton color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :loading="refreshing" :disabled="refreshing" @click="reload({ explicit: true })">Refresh</UButton>
+        <UButton color="error" variant="soft" icon="i-lucide-trash-2" :disabled="!data?.exists || data?.total === 0 || clearing" @click="confirmClear = true">Clear log</UButton>
+      </div>
+    </header>
 
-      <UAlert
-        v-if="loadError"
-        color="red"
-        variant="soft"
-        :title="loadError"
-        class="mb-3"
-      />
+    <UAlert v-if="loadError" color="error" variant="soft" icon="i-lucide-triangle-alert" title="Couldn't read the log" :description="loadError" class="mb-5" />
 
+    <section class="panel">
       <div class="controls">
-        <UFormField label="Search" class="search-group">
-          <UInput
-            v-model="searchInput"
-            placeholder="Case-insensitive substring filter…"
-            icon="i-heroicons-magnifying-glass"
-            :loading="searchInput !== query"
-          />
-        </UFormField>
-        <UFormField label="Tail lines" class="tail-group">
-          <USelect v-model.number="limit" :items="limitOptions" />
-        </UFormField>
-        <div class="autopoll">
-          <UCheckbox v-model="autoPoll" label="Auto-refresh (5s)" />
+        <div class="chips" role="group" aria-label="Quick filters">
+          <button v-for="f in quickFilters" :key="f.label" type="button" class="chip" :class="{ 'chip--on': query === f.q }" :aria-pressed="query === f.q" @click="applyFilter(f.q)">{{ f.label }}</button>
         </div>
+        <UInput v-model="searchInput" placeholder="Search the log…" aria-label="Search the log" icon="i-lucide-search" :loading="searchInput !== query" class="search" />
+        <USelect v-model.number="limit" :items="limitOptions" aria-label="How many recent lines to load" class="w-32" />
+        <USwitch v-model="autoPoll" label="Live" description="" aria-label="Refresh automatically every 5 seconds" />
       </div>
 
-      <div v-if="data" class="meta">
-        <span v-if="query">
-          Showing {{ data.shown.toLocaleString() }} match(es) in last
-          {{ Math.min(data.total, data.limit).toLocaleString() }} line(s)
-        </span>
-        <span v-else>
-          Showing last {{ data.shown.toLocaleString() }} line(s)
-        </span>
-      </div>
+      <p v-if="data && data.exists && data.lines.length" class="meta" aria-live="polite">
+        <template v-if="query">{{ data.shown.toLocaleString() }} matching “{{ query }}” in the latest {{ Math.min(data.total, data.limit).toLocaleString() }} lines</template>
+        <template v-else>Showing the latest {{ data.shown.toLocaleString() }} lines</template>
+      </p>
 
       <div v-if="data && !data.exists" class="empty">
-        <p class="empty-title">Log file does not exist yet</p>
-        <p class="empty-sub">
-          aidev creates it on first run. Once <code>{{ data.path }}</code>
-          exists, lines will appear here.
-        </p>
+        <strong>No log yet</strong>
+        <span>aidev creates it the first time it runs. After that, what it does shows up here.</span>
       </div>
       <div v-else-if="data && data.lines.length === 0" class="empty">
-        <p class="empty-title">No matching lines</p>
-        <p class="empty-sub" v-if="query">
-          Nothing in the last {{ data.limit.toLocaleString() }} lines matches “{{ query }}”.
-        </p>
-        <p class="empty-sub" v-else>
-          The log file is empty.
-        </p>
+        <strong>{{ query ? 'Nothing matches' : 'The log is empty' }}</strong>
+        <span v-if="query">Nothing in the latest {{ data.limit.toLocaleString() }} lines mentions “{{ query }}”.</span>
+        <span v-else>Once aidev does something, it will be recorded here.</span>
       </div>
-      <pre v-else-if="data" ref="viewer" class="viewer"><code>{{ data.lines.join('\n') }}</code></pre>
-    </UCard>
+      <div v-else-if="data" ref="viewer" class="viewer" role="log" tabindex="0" aria-label="Activity log lines">
+        <div v-for="l in rendered" :key="l.i" class="ln" :class="`ln--${l.level}`">{{ l.text }}</div>
+      </div>
+    </section>
 
-    <UModal v-model:open="confirmClear">
-      <template #header>
-        <h3 class="text-base font-semibold">Clear log file?</h3>
-      </template>
+    <UModal v-model:open="confirmClear" title="Clear the activity log?" description="This empties the log file. It can't be undone.">
       <template #body>
-        <p class="text-sm text-gray-600">
-          This truncates <code>{{ data?.path }}</code> to zero bytes. The file
-          itself stays in place. This cannot be undone.
-        </p>
+        <p class="text-sm">All recorded history in <code>{{ logName }}</code> will be erased. The file itself stays and aidev keeps writing to it.</p>
       </template>
       <template #footer>
-        <div class="flex justify-end gap-2">
-          <UButton variant="ghost" color="neutral" :disabled="clearing" @click="confirmClear = false">
-            Cancel
-          </UButton>
-          <UButton color="red" :loading="clearing" @click="clearLog">
-            Clear log
-          </UButton>
+        <div class="flex justify-end gap-2 w-full">
+          <UButton variant="ghost" color="neutral" :disabled="clearing" @click="confirmClear = false">Keep it</UButton>
+          <UButton color="error" :loading="clearing" @click="clearLog">Clear log</UButton>
         </div>
       </template>
     </UModal>
@@ -161,7 +105,25 @@ const autoPoll = ref(true);
 const confirmClear = ref(false);
 const clearing = ref(false);
 
-const viewer = ref<HTMLPreElement | null>(null);
+const viewer = ref<HTMLElement | null>(null);
+
+const quickFilters = [
+  { label: 'Everything', q: '' },
+  { label: 'Problems', q: 'error' },
+  { label: 'Warnings', q: 'warn' },
+];
+function applyFilter(q: string) {
+  searchInput.value = q;
+  query.value = q;
+  if (debounceHandle) clearTimeout(debounceHandle);
+}
+function levelOf(line: string): 'error' | 'warn' | 'plain' {
+  if (/\[error\]|\berror\b|\bfailed\b|\bexception\b/i.test(line)) return 'error';
+  if (/\[warn(ing)?\]|\bwarn(ing)?\b/i.test(line)) return 'warn';
+  return 'plain';
+}
+const rendered = computed(() => (data.value?.lines ?? []).map((text, i) => ({ i, text, level: levelOf(text) })));
+const logName = computed(() => (data.value?.path ?? '').split(/[\\/]/).pop() || 'aidev.log');
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let debounceHandle: ReturnType<typeof setTimeout> | null = null;
 
@@ -250,53 +212,32 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.logs-page {
-  display: flex;
-  flex-direction: column;
-}
+.logs { padding-bottom: 2rem; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: 0.75rem 0 1.25rem; }
+.page-head h1 { margin: 0; font-size: 1.875rem; font-weight: 700; letter-spacing: -0.02em; color: var(--ui-text-highlighted); }
+.page-head p { margin: 0.25rem 0 0; color: var(--wb-ink-soft); max-width: 46rem; }
+.file-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.375rem; font-size: 0.8125rem; }
+.file-line code { font-family: var(--font-mono); }
+.state--warn { color: var(--wb-wait); font-weight: 600; }
+.muted { color: var(--wb-ink-soft); }
+.head-actions { display: flex; gap: 0.5rem; }
 
-.controls {
-  display: grid;
-  grid-template-columns: 1fr 12rem auto;
-  gap: 0.75rem;
-  align-items: end;
-  margin-bottom: 0.75rem;
-}
+.panel { padding: 1.25rem; border-radius: 1rem; background: var(--ui-bg); border: 1px solid var(--ui-border); }
+.controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.search { flex: 1; min-width: 12rem; }
+.chips { display: inline-flex; gap: 0.25rem; padding: 0.25rem; border-radius: 0.75rem; background: var(--ui-bg-elevated); }
+.chip { min-height: 2.25rem; padding: 0 0.875rem; border: 0; border-radius: 0.5rem; background: transparent; color: var(--wb-ink-soft); font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
+.chip:hover { color: var(--ui-text-highlighted); }
+.chip:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+.chip--on { background: var(--ui-bg); color: var(--ui-text-highlighted); box-shadow: 0 1px 2px rgb(0 0 0 / 0.1); }
+.meta { margin: 0.875rem 0 0.5rem; font-size: 0.8125rem; color: var(--wb-ink-soft); }
 
-.search-group { min-width: 0; }
-.tail-group { min-width: 0; }
-.autopoll {
-  padding-bottom: 0.45rem;
-  white-space: nowrap;
-}
+.viewer { margin-top: 0.75rem; padding: 0.75rem 0; max-height: 65vh; overflow: auto; border-radius: 0.75rem; background: oklch(21% 0.02 250); color: oklch(92% 0.01 250); font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; }
+.viewer:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+.ln { padding: 0 1rem; white-space: pre; width: max-content; min-width: 100%; }
+.ln--error { background: oklch(40% 0.12 25 / 0.35); color: oklch(88% 0.08 25); }
+.ln--warn { background: oklch(45% 0.1 80 / 0.25); color: oklch(90% 0.08 85); }
 
-.meta {
-  font-size: 0.75rem;
-  color: #6b7280;
-  margin-bottom: 0.5rem;
-}
-
-.viewer {
-  background: #0f172a;
-  color: #e2e8f0;
-  border-radius: 0.375rem;
-  padding: 0.75rem 1rem;
-  max-height: 65vh;
-  overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.78rem;
-  line-height: 1.45;
-  white-space: pre;
-  margin: 0;
-}
-
-.empty {
-  border: 1px dashed #cbd5e1;
-  border-radius: 0.375rem;
-  padding: 1.5rem;
-  text-align: center;
-  color: #475569;
-}
-.empty-title { font-weight: 600; margin-bottom: 0.25rem; }
-.empty-sub { font-size: 0.85rem; color: #64748b; }
+.empty { display: flex; flex-direction: column; gap: 0.25rem; align-items: center; padding: 2.5rem 1rem; margin-top: 0.75rem; text-align: center; border: 1px dashed var(--ui-border-accented); border-radius: 0.75rem; color: var(--wb-ink-soft); }
+.empty strong { color: var(--ui-text-highlighted); }
 </style>

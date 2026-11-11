@@ -36,11 +36,13 @@ const emit = defineEmits<{
   overflow-x: auto;
   overflow-y: visible;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.5rem;
+  scroll-snap-type: x proximity;
 }
 .board {
   display: flex;
   flex-wrap: nowrap;
-  gap: 0.75rem;
+  gap: 1rem;
   width: max-content;
   min-width: 100%;
 }
