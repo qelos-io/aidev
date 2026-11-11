@@ -134,8 +134,16 @@ export function requireCleanWorkingTree(actionDescription: string): boolean {
   const countBefore = stashCount();
   const stash = git(['stash', 'push', '--include-untracked', '--', ...stashable]);
   if (stash.status !== 0) {
-    logger.error(`Cannot ${actionDescription}: git stash failed: ${stash.stderr}`);
-    return false;
+    // Stash can fail on odd paths (quoting, partially-staged states, ...).
+    // Fall back to a hard discard of just the dirty paths.
+    logger.warn(`git stash failed (${stash.stderr.trim()}) — falling back to hard discard`);
+    git(['reset', '--hard', 'HEAD']);
+    git(['clean', '-fd', '--', ...stashable]);
+    if (hasChanges()) {
+      logger.error(`Cannot ${actionDescription}: working tree is still dirty after discard`);
+      return false;
+    }
+    return true;
   }
 
   // "No local changes to save" exits 0 without creating an entry; only drop ours.
@@ -275,20 +283,20 @@ export function hasChanges(): boolean {
 export function listWorkingTreeChanges(): string[] {
   // -uall lists untracked files individually instead of collapsing a whole
   // untracked directory (e.g. `.aidev/`) into one entry.
-  const result = git(['status', '--porcelain', '-uall']);
+  // -z gives NUL-separated, unquoted paths (git otherwise quotes names with
+  // spaces/non-ASCII characters, which breaks later pathspec use). In -z mode
+  // a rename/copy entry is followed by an extra entry holding the old path.
+  const result = git(['status', '--porcelain', '-z', '-uall']);
   if (result.status !== 0) return [];
 
   const paths: string[] = [];
-  for (const line of result.stdout.split('\n').filter((entry) => entry.length > 0)) {
-    const untracked = line.startsWith('??');
-    const pathPart = line.slice(3);
-    let path: string;
-    if (pathPart.includes(' -> ')) {
-      const destination = pathPart.split(' -> ').pop();
-      path = destination ? destination.trim() : '';
-    } else {
-      path = pathPart.trim();
-    }
+  const entries = result.stdout.split('\0');
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.length < 4) continue;
+    const untracked = entry.startsWith('??');
+    const path = entry.slice(3);
+    if (entry[0] === 'R' || entry[0] === 'C' || entry[1] === 'R' || entry[1] === 'C') i++;
     if (!path || AIDEV_OWN_FILES.has(path)) continue;
     // aidev's skills-source links are never user changes (and must not be
     // stashed/discarded — that would follow or delete the links).
