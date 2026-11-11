@@ -515,6 +515,14 @@ describe('requireCleanWorkingTree (integration)', () => {
     assert.equal(stashCount(), 0);
   });
 
+  it('discards untracked files whose names git quotes in status output', () => {
+    fs.writeFileSync(path.join(tmpDir, 'with space.txt'), 'x');
+    fs.writeFileSync(path.join(tmpDir, 'ünï.txt'), 'x');
+    assert.equal(requireCleanWorkingTree('do something'), true);
+    assert.equal(hasChanges(), false);
+    assert.equal(stashCount(), 0);
+  });
+
   it('removes a Windows-reserved `nul` file that git cannot stash', { skip: process.platform !== 'win32' }, () => {
     fs.writeFileSync(`\\\\?\\${path.join(tmpDir, 'nul')}`, '');
     fs.writeFileSync(path.join(tmpDir, 'other.txt'), 'x');
