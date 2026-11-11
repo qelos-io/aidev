@@ -8,7 +8,13 @@ import { MondayProvider } from './monday';
 import { NotionProvider } from './notion';
 import { TrelloProvider } from './trello';
 
-export function createProvider(config: Config, mode?: TaskMode): TaskProvider {
+/**
+ * `baseDir` is where the `local` provider keeps its `.aidev/tasks` folders. It
+ * defaults to the process working directory, which is right for the CLI. The
+ * dashboard server runs from its own package folder, so it passes the project
+ * directory explicitly.
+ */
+export function createProvider(config: Config, mode?: TaskMode, baseDir: string = process.cwd()): TaskProvider {
   switch (config.provider.toLowerCase()) {
     case 'clickup':
       return new ClickUpProvider(config);
@@ -24,7 +30,7 @@ export function createProvider(config: Config, mode?: TaskMode): TaskProvider {
           : resolvedMode === 'non-code'
             ? config.nonCodeTag
             : config.clickupTag;
-      return new LocalProvider(process.cwd(), resolvedMode, tagFilter);
+      return new LocalProvider(baseDir, resolvedMode, tagFilter);
     }
     case 'monday':
       return new MondayProvider(config);

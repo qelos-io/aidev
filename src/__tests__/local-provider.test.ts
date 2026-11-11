@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { createProvider } from '../providers';
+import type { Config } from '../types';
 import {
   LocalProvider,
   ensureTaskFolders,
@@ -885,5 +887,44 @@ describe('LocalProvider full lifecycle', () => {
 
     const allComments = await provider.getComments(id);
     assert.equal(allComments.length, 2);
+  });
+});
+
+// ─── createProvider baseDir ──────────────────────────────────────────────────
+// The dashboard server runs from its own package folder, so it must be able to
+// point the local provider at the project directory instead of process.cwd().
+
+describe('createProvider (local) baseDir', () => {
+  it('reads tasks from the given baseDir, not process.cwd()', async () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-local-project-'));
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-local-cwd-'));
+    const origCwd = process.cwd();
+    try {
+      ensureTaskFolders(project);
+      writeTask(project, 'open', 'abc123-hello.md', '---\ntitle: Hello\n---\nBody');
+      process.chdir(elsewhere);
+      const provider = createProvider({ provider: 'local' } as Config, undefined, project);
+      const tasks = await provider.fetchTasks();
+      assert.deepEqual(tasks.map((t) => t.name), ['Hello']);
+      // And it must not scaffold task folders in the unrelated working directory.
+      assert.equal(fs.existsSync(path.join(elsewhere, '.aidev')), false);
+    } finally {
+      process.chdir(origCwd);
+      fs.rmSync(project, { recursive: true, force: true });
+      fs.rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('still defaults to process.cwd() when no baseDir is given', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-local-default-'));
+    const origCwd = process.cwd();
+    try {
+      process.chdir(dir);
+      createProvider({ provider: 'local' } as Config);
+      assert.equal(fs.existsSync(path.join(fs.realpathSync(dir), '.aidev', 'tasks', 'open')), true);
+    } finally {
+      process.chdir(origCwd);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -161,7 +161,7 @@ export function getProvider(event: H3Event): ProviderBundle {
     clearEnvFiles: (localPath: string) => void;
   };
   const providersMod = load(pkgDir, dist, 'providers') as {
-    createProvider: (config: UiConfig, mode?: string) => UiProvider;
+    createProvider: (config: UiConfig, mode?: string, baseDir?: string) => UiProvider;
   };
   const providerViewsMod = load(pkgDir, dist, 'providerViews') as {
     buildNonCodeProviderConfig: (config: UiConfig) => UiConfig;
@@ -174,7 +174,7 @@ export function getProvider(event: H3Event): ProviderBundle {
   configMod.clearEnvFiles(env.path);
 
   const config = configMod.loadConfig(env.path);
-  const provider = providersMod.createProvider(config);
+  const provider = providersMod.createProvider(config, undefined, cwd);
 
   // Mirror the CLI's non-code provider: same config but with nonCodeTag as the
   // tag filter (and optionally a different team/project). Only created when
@@ -185,6 +185,7 @@ export function getProvider(event: H3Event): ProviderBundle {
     nonCodeProvider = providersMod.createProvider(
       providerViewsMod.buildNonCodeProviderConfig(config),
       'non-code',
+      cwd,
     );
   }
 
@@ -194,6 +195,7 @@ export function getProvider(event: H3Event): ProviderBundle {
     consultProvider = providersMod.createProvider(
       providerViewsMod.buildConsultProviderConfig(config),
       'consult',
+      cwd,
     );
   }
 
