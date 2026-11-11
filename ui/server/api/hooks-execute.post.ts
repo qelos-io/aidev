@@ -58,17 +58,12 @@ export default defineEventHandler(async (event) => {
       ? hooksPath
       : path.resolve(process.cwd(), hooksPath);
 
-    if (resolved.endsWith('.ts')) {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { createJiti } = require('jiti') as typeof import('jiti');
-      const jiti = createJiti(__filename, { interopDefault: true });
-      mod = jiti(resolved) as Record<string, unknown>;
-    } else {
-      // Bust require cache so edits to the hooks file take effect each execution
-      delete require.cache[require.resolve(resolved)];
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      mod = require(resolved);
-    }
+    // The Nitro server runs as ESM, where `require` and `__filename` don't exist.
+    // jiti loads both .ts and .js hooks files (CJS or ESM); moduleCache is off so
+    // edits to the hooks file take effect on every execution.
+    const { createJiti } = await import('jiti');
+    const jiti = createJiti(import.meta.url, { interopDefault: true, moduleCache: false, fsCache: false });
+    mod = (await jiti.import(resolved)) as Record<string, unknown>;
 
     const hooks = (mod.default || mod) as Record<string, unknown>;
     const fn = hooks[hookName];

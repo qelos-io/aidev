@@ -13,18 +13,25 @@
     "typecheck": "nuxi typecheck"
   },
   "dependencies": {
+    "@iconify-json/lucide": "^1.2.153",
+    "@iconify-json/simple-icons": "^1.2.102",
     "@monaco-editor/loader": "^1.7.0",
-    "@nuxt/ui": "^4.11.0",
-    "dotenv": "^17.4.2",
-    "isomorphic-dompurify": "^3.19.0",
-    "marked": "^18.0.11",
-    "nuxt": "^4.5.2",
-    "tailwindcss": "^4.3.3",
-    "vue": "^3.5.42",
-    "vue-router": "^5.3.1"
+    "@nuxt/ui": "^4.12.0",
+    "dotenv": "^18.0.10",
+    "isomorphic-dompurify": "^4.7.0",
+    "jiti": "^2.7.0",
+    "marked": "^18.2.0",
+    "nuxt": "^4.6.4",
+    "tailwindcss": "^4.3.5",
+    "vue": "^3.5.45",
+    "vue-router": "^5.5.0"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
-    "vue-tsc": "^3.3.11"
+    "vue-tsc": "^3.3.14"
+  },
+  "overrides": {
+    "minimatch": "^11.0.8",
+    "glob": "^14.0.5"
   }
 }

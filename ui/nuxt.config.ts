@@ -41,15 +41,23 @@ export default defineNuxtConfig({
       // misses 'entities' because it's only referenced via a subpath export from
       // an already-externalised package, so we copy it explicitly after the build.
       compiled(nitro) {
-        const src = join(nitro.options.rootDir, 'node_modules', 'entities');
-        const dest = join(nitro.options.output.serverDir, 'node_modules', 'entities');
-        if (!existsSync(src)) return;
-        // Nitro may leave a symlink here; npm does not follow symlinks when
-        // packaging, so replace it with real files.
-        try {
-          if (lstatSync(dest).isSymbolicLink()) rmSync(dest);
-        } catch {}
-        if (!existsSync(dest)) cpSync(src, dest, { recursive: true });
+        // Nitro's tracer ships these packages incompletely, so copy them whole:
+        //  - entities: required at runtime by @vue/compiler-core via a subpath export.
+        //  - jiti: loads the user's hooks file (server/api/hooks-execute); the traced
+        //    copy is missing dist/babel.cjs.
+        for (const pkg of ['entities', 'jiti']) {
+          const src = join(nitro.options.rootDir, 'node_modules', pkg);
+          const dest = join(nitro.options.output.serverDir, 'node_modules', pkg);
+          if (!existsSync(src)) continue;
+          // Nitro may leave a symlink here; npm does not follow symlinks when
+          // packaging, so replace it with real files.
+          try {
+            if (lstatSync(dest).isSymbolicLink()) rmSync(dest);
+          } catch {}
+          // Replace a partial traced copy with the complete package.
+          rmSync(dest, { recursive: true, force: true });
+          cpSync(src, dest, { recursive: true });
+        }
       },
     },
   },
