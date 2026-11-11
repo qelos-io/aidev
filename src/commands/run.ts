@@ -2470,7 +2470,7 @@ async function buildConversationContext(
   return finalContext;
 }
 
-async function processNonCodeTask(
+export async function processNonCodeTask(
   task: Task,
   filter: RunFilter,
   config: Config,
@@ -2489,6 +2489,12 @@ async function processNonCodeTask(
 
   if (skipReason) {
     logger.info(`[${task.id}] "${task.name}" skipped — ${skipReason}`);
+    return 'skipped';
+  }
+
+  const blockedReason = await getBlockedBySkipReason(task, provider);
+  if (blockedReason) {
+    logger.info(`[${task.id}] "${task.name}" skipped — ${blockedReason}`);
     return 'skipped';
   }
 
@@ -2675,7 +2681,7 @@ async function implementNonCodeTask(
   logger.success(`Non-code task complete: ${task.name}`);
 }
 
-async function processConsultTask(
+export async function processConsultTask(
   task: Task,
   filter: RunFilter,
   config: Config,
@@ -2693,6 +2699,12 @@ async function processConsultTask(
 
   if (skipReason) {
     logger.info(`[${task.id}] "${task.name}" skipped — ${skipReason}`);
+    return 'skipped';
+  }
+
+  const blockedReason = await getBlockedBySkipReason(task, provider);
+  if (blockedReason) {
+    logger.info(`[${task.id}] "${task.name}" skipped — ${blockedReason}`);
     return 'skipped';
   }
 

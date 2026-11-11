@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNoChangesCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, applyAutoApproveTag, applyAutoReviewTag, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNoChangesCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, processNonCodeTask, processConsultTask, applyAutoApproveTag, applyAutoReviewTag, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
@@ -1512,4 +1512,28 @@ describe('buildAssetRunOptions', () => {
     assert.ok(options.assetDirs!.includes(taskDir));
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+});
+
+describe('blocked-by check for non-code and consult tasks', () => {
+  const blocker: Task = { id: 'blocker1', name: 'Code blocker', description: '', status: 'open', url: '', tags: [] };
+  const cfg = { ...baseConfig, clickupPendingStatus: 'pending', clickupOpenStatus: 'open' } as Config;
+
+  for (const [label, fn, status] of [
+    ['processNonCodeTask', processNonCodeTask, 'open'],
+    ['processConsultTask', processConsultTask, 'pending'],
+  ] as const) {
+    it(`${label} skips a task blocked by an open task`, async () => {
+      let touched = false;
+      const provider = {
+        ...makeProviderWithFetchById(blocker),
+        getComments: async () => { touched = true; return []; },
+        updateStatus: async () => { touched = true; },
+        postComment: async () => { touched = true; },
+      } as unknown as TaskProvider;
+      const task = { ...makeBlockedTask(['blocker1']), status };
+      const result = await fn(task, 'all', cfg, provider, [], true);
+      assert.equal(result, 'skipped');
+      assert.equal(touched, false);
+    });
+  }
 });
