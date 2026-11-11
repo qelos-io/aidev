@@ -38,7 +38,7 @@ import { isGhInstalled, isGhAuthenticated } from './github';
 import { isScreenAvailable } from './platform';
 import { hooksGenerateCommand, hooksUpdateCommand } from './commands/hooks';
 import { healLegacyCleanupState } from './cleanupState';
-import { maybeRunWeeklyCleanup } from './commands/cleanup';
+import { maybeRunWeeklyCleanup, cleanCommand } from './commands/cleanup';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { version } = require('../package.json') as { version: string };
@@ -158,6 +158,24 @@ program
     // commander positional parsing. Explicit positional wins if both are given.
     const effectiveFilter = filter ?? opts.status;
     await runWithFilter(effectiveFilter, opts.task);
+  });
+
+program
+  .command('clean')
+  .description('Remove stale local branches (not tied to an active task) and clear stashes, after confirmation')
+  .option('--dry-run', 'only describe what would be done; change nothing')
+  .option('-y, --yes', 'skip the confirmation prompt')
+  .option('--y', 'alias for --yes')
+  .action(async (opts: { dryRun?: boolean; yes?: boolean; y?: boolean }) => {
+    try {
+      const { env } = program.opts<{ env?: string }>();
+      const config = await loadConfigWithInheritance(env);
+      const provider = createProvider(config);
+      await cleanCommand(config, provider, { dryRun: opts.dryRun, yes: opts.yes || opts.y });
+    } catch (err) {
+      logger.error(String(err));
+      process.exit(1);
+    }
   });
 
 program

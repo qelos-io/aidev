@@ -62,6 +62,7 @@ ${b('COMMANDS')}
   ${c('tasks push')}                  Publish all queued tasks now (same as ${c('run tasks')})
   ${c('schedule set')} ${d('<cron>')}         Set cron schedule for this directory
   ${c('schedule get')}                Show current cron schedule
+  ${c('clean')} ${d('[--dry-run] [--y]')}     Delete stale local branches + clear stashes (asks y/N first)
   ${c('help')}                        Show this help message
 
 ${b('TRIGGER WORD')}
