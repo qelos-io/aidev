@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as readline from 'node:readline/promises';
 import { Config } from '../types';
 import { TaskProvider } from '../providers';
 import * as git from '../git';
@@ -17,18 +18,27 @@ export interface CleanupSummary {
  * don't accumulate forever. Never touches remote branches — this is local
  * housekeeping only.
  */
+async function fetchActiveTaskIds(provider: TaskProvider): Promise<Set<string>> {
+  // fetchBoardTasks covers all active statuses (open/pending/in progress/in
+  // review); fetchTasks only returns open/pending for some providers, which
+  // would wrongly delete branches for in-review and in-progress tasks.
+  const activeTasks = provider.fetchBoardTasks
+    ? await provider.fetchBoardTasks({ skipAttachments: true, omitDescription: true })
+    : await provider.fetchTasks();
+  return new Set(activeTasks.map((t) => t.id));
+}
+
+function isStaleBranch(branch: string, baseBranch: string, activeTaskIds: Set<string>): boolean {
+  if (branch === baseBranch || git.isProtectedBranch(branch)) return false;
+  return !activeTaskIds.has(branch.split('/')[0]);
+}
+
 export async function weeklyCleanupCommand(config: Config, provider: TaskProvider): Promise<CleanupSummary | null> {
   logger.info('Running weekly cleanup...');
 
   let activeTaskIds: Set<string>;
   try {
-    // fetchBoardTasks covers all active statuses (open/pending/in progress/in
-    // review); fetchTasks only returns open/pending for some providers, which
-    // would wrongly delete branches for in-review and in-progress tasks.
-    const activeTasks = provider.fetchBoardTasks
-      ? await provider.fetchBoardTasks({ skipAttachments: true, omitDescription: true })
-      : await provider.fetchTasks();
-    activeTaskIds = new Set(activeTasks.map((t) => t.id));
+    activeTaskIds = await fetchActiveTaskIds(provider);
   } catch (err) {
     logger.warn(
       `Weekly cleanup: failed to fetch active tasks (${err instanceof Error ? err.message : err}) — skipping to avoid deleting in-progress work`
@@ -70,10 +80,7 @@ export async function weeklyCleanupCommand(config: Config, provider: TaskProvide
 
   const branchesDeleted: string[] = [];
   for (const branch of git.listLocalBranches()) {
-    if (branch === config.githubBaseBranch || git.isProtectedBranch(branch)) continue;
-
-    const taskId = branch.split('/')[0];
-    if (activeTaskIds.has(taskId)) continue;
+    if (!isStaleBranch(branch, config.githubBaseBranch, activeTaskIds)) continue;
 
     if (git.forceDeleteBranch(branch)) branchesDeleted.push(branch);
   }
@@ -88,6 +95,72 @@ export async function weeklyCleanupCommand(config: Config, provider: TaskProvide
 
   logger.success('Weekly cleanup complete');
   return { branchesDeleted, stashesCleared };
+}
+
+export interface CleanCommandOptions {
+  dryRun?: boolean;
+  yes?: boolean;
+}
+
+/**
+ * `aidev clean`: manual entry point for the weekly cleanup. Describes what will
+ * happen, then asks for y/N approval (skipped with --yes). --dry-run only prints
+ * the plan and changes nothing.
+ */
+export async function cleanCommand(config: Config, provider: TaskProvider, opts: CleanCommandOptions = {}): Promise<void> {
+  let activeTaskIds: Set<string>;
+  try {
+    activeTaskIds = await fetchActiveTaskIds(provider);
+  } catch (err) {
+    logger.error(
+      `Failed to fetch active tasks (${err instanceof Error ? err.message : err}) — aborting to avoid deleting in-progress work`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const base = config.githubBaseBranch;
+  const staleBranches = git.listLocalBranches().filter((b) => isStaleBranch(b, base, activeTaskIds));
+  const stashes = git.stashCount();
+
+  console.log('aidev clean will:');
+  console.log(`  - fetch and check out "${base}" from "${config.gitRemote}" (updating it to match the remote)`);
+  if (staleBranches.length > 0) {
+    console.log(`  - force-delete ${staleBranches.length} local branch(es) not belonging to an active task:`);
+    for (const b of staleBranches) console.log(`      ${b}`);
+  } else {
+    console.log('  - delete no local branches (none are stale)');
+  }
+  console.log(stashes > 0 ? `  - clear ${stashes} git stash(es)` : '  - clear no stashes (none found)');
+  console.log('Remote branches are never touched.');
+
+  if (opts.dryRun) {
+    logger.info('Dry run — no changes made.');
+    return;
+  }
+
+  if (!opts.yes) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    let answer = '';
+    try {
+      answer = await rl.question('Proceed? [y/N] ');
+    } finally {
+      rl.close();
+    }
+    if (!['y', 'yes'].includes(answer.trim().toLowerCase())) {
+      logger.info('Aborted — no changes made.');
+      return;
+    }
+  }
+
+  const result = await weeklyCleanupCommand(config, provider);
+  if (!result) {
+    process.exitCode = 1;
+    return;
+  }
+  writeLastCleanupAt(Date.now());
+  const stateRelPath = cleanupStateRelPath();
+  if (git.listIndexedPaths(stateRelPath).length > 0) git.restoreFile(stateRelPath);
 }
 
 /**

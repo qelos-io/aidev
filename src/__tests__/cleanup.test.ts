@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { weeklyCleanupCommand } from '../commands/cleanup';
+import { weeklyCleanupCommand, cleanCommand } from '../commands/cleanup';
 import type { Config, Task } from '../types';
 import type { TaskProvider } from '../providers/base';
 
@@ -110,6 +110,19 @@ describe('weeklyCleanupCommand (integration)', () => {
 
     const remaining = localBranches(tmpDir).sort();
     assert.deepEqual(remaining, ['develop', 'main', 'task2/still-active']);
+  });
+
+  it('cleanCommand --dry-run changes nothing', async () => {
+    gitCmd(['branch', 'task1/done-task'], tmpDir);
+    await cleanCommand(baseConfig, providerWithTasks([]), { dryRun: true, yes: true });
+    assert.ok(localBranches(tmpDir).includes('task1/done-task'));
+  });
+
+  it('cleanCommand --yes deletes stale branches without prompting', async () => {
+    gitCmd(['branch', 'task1/done-task'], tmpDir);
+    gitCmd(['branch', 'task2/active'], tmpDir);
+    await cleanCommand(baseConfig, providerWithTasks(['task2']), { yes: true });
+    assert.deepEqual(localBranches(tmpDir).sort(), ['main', 'task2/active']);
   });
 
   it('clears stash entries', async () => {
