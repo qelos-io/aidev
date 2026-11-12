@@ -9,6 +9,7 @@ export default defineConfig({
   ],
   themeConfig: {
     logo: '/icons/aidev-nav.png',
+    search: { provider: 'local' },
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Providers', link: '/guide/providers' },
