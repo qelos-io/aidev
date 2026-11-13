@@ -130,7 +130,16 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
     const runners = createRunners(config);
     const hooks = loadHooks(config.hooksPath);
     const hookVM = createHookVM(provider, runners);
-    await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, consultProvider, hooks, hookVM, taskId);
+    // A failure while working on tasks must not starve the review/merge phases below: tasks
+    // already sitting in Review (tagged agent-review / accepted) would otherwise never be
+    // reviewed or merged for as long as some other task keeps failing.
+    let taskPhaseError: unknown;
+    try {
+      await runCommand(resolvedFilter, config, provider, runners, nonCodeProvider, consultProvider, hooks, hookVM, taskId);
+    } catch (err) {
+      taskPhaseError = err;
+      logger.error(`Task phase failed: ${String(err)} — still running agent review / accepted-merge for tasks already in review`);
+    }
 
     if (!taskId && config.agentReviewTag && isGhInstalled() && isGhAuthenticated()) {
       const screenAvailable = isScreenAvailable();
@@ -141,6 +150,8 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
     if (!taskId && config.acceptedTag && isGhInstalled()) {
       await acceptedCommand(config, provider);
     }
+
+    if (taskPhaseError !== undefined) throw taskPhaseError;
   } catch (err) {
     logger.error(String(err));
     process.exit(1);

@@ -94,7 +94,19 @@ To merge the PR, tag the task with `accepted` (see [Auto-merge](/guide/auto-merg
 3. Human reviewers leave comments if needed; [code review resolution](/guide/code-review) addresses unresolved threads on subsequent runs
 4. When satisfied, tag the task `accepted` to squash-merge the PR
 
-Agent review and auto-merge are independent features — agent review does not apply the `accepted` tag or merge the PR.
+Agent review does not apply the `accepted` tag or merge the PR by itself. If a task carries **both** tags, the review runs first; once it succeeds and the agent review tag is removed, the PR is merged in that same run. While the agent review tag is still on the task, the merge is deferred.
+
+### When GitHub rejects inline comments
+
+GitHub answers HTTP 422 (`Line could not be resolved`) when a review comment points at a line that is not part of the PR diff, and it rejects the whole review. In that case aidev retries once as a regular review whose body lists every finding (`path:line — comment`), so the review still lands and the agent review tag is removed. If that retry fails too, the tag stays and the next run tries again.
+
+### Long prompts
+
+The review prompt includes the full PR diff. When it is longer than 20,000 characters, aidev passes it to `claude` through stdin instead of the command line, which avoids the `ENAMETOOLONG` error on Windows.
+
+### The review phase always runs
+
+Agent review and auto-merge run after the task phase of `aidev run`. If processing tasks fails with an error, aidev still runs both before exiting with a non-zero status, so a failing task cannot keep reviewed or accepted tasks from being handled. A runner that exceeds its time limit (10 minutes) is stopped together with every process it started (for example test runners launched by the agent), so leftovers can no longer keep a run open.
 
 ## Related
 

@@ -408,6 +408,25 @@ export interface PostAgentReviewResult {
   success: boolean;
   error: string;
   commentsPosted: number;
+  /** True when inline comments were rejected and the findings were posted in the review body instead. */
+  inlineFallback?: boolean;
+}
+
+/** GitHub rejects a review whose inline comments point at lines outside the PR diff (HTTP 422). */
+export function isUnresolvableInlineCommentError(message: string): boolean {
+  return /could not be resolved|unprocessable|\b422\b|pull_request_review_thread|diff hunk|position .*(invalid|could not)/i.test(message);
+}
+
+/** Review body that carries the inline comments as a list, for when GitHub won't accept them inline. */
+export function buildInlineFallbackBody(summary: string, comments: AgentReviewComment[]): string {
+  const items = comments.map((c) => `- \`${c.path}:${c.line}\` — ${c.body.trim().replace(/\n+/g, '\n  ')}`);
+  return [
+    summary,
+    '',
+    '_GitHub could not attach these comments inline (the lines are not part of the PR diff), so they are listed here:_',
+    '',
+    ...items,
+  ].join('\n');
 }
 
 export function postAgentPullRequestReview(options: {
@@ -440,6 +459,22 @@ export function postAgentPullRequestReview(options: {
       event: 'COMMENT',
     };
     result = gh(['api', endpoint, '--input', '-'], JSON.stringify(fallback));
+  }
+
+  // One bad line anchor (HTTP 422 "Line could not be resolved") rejects the whole review. Retry
+  // as a plain review whose body lists the findings, so the review still lands and the task's
+  // agent-review tag can be cleared instead of failing identically on every run.
+  if (result.status !== 0 && options.comments.length > 0 && isUnresolvableInlineCommentError(formatGhError(result))) {
+    const fallback: AgentReviewPayload = {
+      commit_id: payload.commit_id,
+      body: buildInlineFallbackBody(options.summary, options.comments),
+      event: 'COMMENT',
+    };
+    const retry = gh(['api', endpoint, '--input', '-'], JSON.stringify(fallback));
+    if (retry.status === 0) {
+      return { success: true, error: '', commentsPosted: options.comments.length, inlineFallback: true };
+    }
+    result = retry;
   }
 
   if (result.status !== 0) {

@@ -1,5 +1,5 @@
-import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:child_process';
-import { shouldRetryAgentCliAttempt, spawnCommand, spawnCommandAsync, type SpawnAsyncOptions } from '../platform';
+import type { SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
+import { shouldRetryAgentCliAttempt, spawnCommandAsync, type SpawnAsyncOptions } from '../platform';
 
 export interface SpawnAttemptResult {
   status: number | null;
@@ -10,15 +10,6 @@ export interface SpawnAttemptResult {
 }
 
 type SpawnOptions = SpawnAsyncOptions & Pick<SpawnSyncOptionsWithStringEncoding, 'cwd' | 'env' | 'input' | 'timeout' | 'encoding'>;
-
-function fromSyncResult(result: SpawnSyncReturns<string>): SpawnAttemptResult {
-  return {
-    status: result.status,
-    stdout: result.stdout || '',
-    stderr: result.stderr || '',
-    error: result.error,
-  };
-}
 
 export async function runSpawnAttempts(
   command: string,
@@ -31,9 +22,10 @@ export async function runSpawnAttempts(
       return { status: null, stdout: '', stderr: 'aborted', aborted: true };
     }
 
-    const result = options.signal
-      ? await spawnCommandAsync(command, attempts[i], options)
-      : fromSyncResult(spawnCommand(command, attempts[i], options));
+    // Always async: spawnSync only kills the direct child on timeout and then waits
+    // for the output pipes to close, which never happens if a grandchild (e.g. a jest
+    // run started by the agent) is still alive — that hung whole runs for hours.
+    const result = await spawnCommandAsync(command, attempts[i], options);
 
     if (result.aborted) {
       return result;

@@ -207,17 +207,68 @@ export interface SpawnAsyncResult {
   error?: Error;
 }
 
-function killSpawnedProcess(child: ChildProcess): void {
-  if (!child.pid) return;
+/**
+ * Pids of every descendant of `rootPid` (children first is NOT guaranteed; callers
+ * should signal all of them). POSIX only — Windows uses `taskkill /t`.
+ */
+export function listDescendantPids(rootPid: number): number[] {
+  const ps = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', timeout: 5000 });
+  if (ps.status !== 0 || !ps.stdout) return [];
+  const childrenOf = new Map<number, number[]>();
+  for (const line of ps.stdout.split('\n')) {
+    const [pidStr, ppidStr] = line.trim().split(/\s+/);
+    const pid = Number(pidStr);
+    const ppid = Number(ppidStr);
+    if (!Number.isInteger(pid) || !Number.isInteger(ppid)) continue;
+    const list = childrenOf.get(ppid);
+    if (list) list.push(pid);
+    else childrenOf.set(ppid, [pid]);
+  }
+  const result: number[] = [];
+  const queue = [rootPid];
+  while (queue.length > 0) {
+    const current = queue.shift() as number;
+    for (const child of childrenOf.get(current) ?? []) {
+      result.push(child);
+      queue.push(child);
+    }
+  }
+  return result;
+}
+
+/**
+ * Kills a spawned process AND everything it started (e.g. jest workers launched by
+ * an agent). Killing only the direct child leaves grandchildren running, and they
+ * keep the agent's stdout pipe open so the run can hang forever.
+ */
+export function killProcessTree(pid: number): void {
   try {
     if (isWindows) {
-      spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore' });
-    } else {
-      child.kill('SIGTERM');
+      spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore' });
+      return;
     }
+    // Snapshot descendants first: once the parent dies they are re-parented to init.
+    const pids = [pid, ...listDescendantPids(pid)];
+    const signalAll = (signal: NodeJS.Signals): void => {
+      for (const target of pids) {
+        try {
+          process.kill(target, signal);
+        } catch {
+          // already gone
+        }
+      }
+    };
+    signalAll('SIGTERM');
+    // Whatever ignored SIGTERM gets SIGKILL shortly after; never keeps aidev alive for it.
+    setTimeout(() => signalAll('SIGKILL'), 2000).unref();
   } catch {
     // ignore
   }
+}
+
+function killSpawnedProcess(child: ChildProcess): void {
+  if (!child.pid) return;
+  killProcessTree(child.pid);
 }
 
 export function spawnCommandAsync(
@@ -256,6 +307,8 @@ export function spawnCommandAsync(
     });
 
     if (input && child.stdin) {
+      // The child may exit before reading everything (EPIPE); the close event reports the outcome.
+      child.stdin.on('error', () => {});
       child.stdin.write(input);
       child.stdin.end();
     }
@@ -270,6 +323,10 @@ export function spawnCommandAsync(
     if (timeout) {
       timer = setTimeout(() => {
         killSpawnedProcess(child);
+        // Orphaned descendants may still hold the pipes open; release them so neither
+        // the promise nor the event loop waits on them.
+        child.stdout?.destroy();
+        child.stderr?.destroy();
         finish({
           status: null,
           stdout,

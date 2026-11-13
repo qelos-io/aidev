@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, it, beforeEach, afterEach, mock } from 'node:test';
+import { mockSpawnBoth } from './helpers/mockSpawn';
 import assert from 'node:assert/strict';
 import { logger } from '../logger';
 import { AiderRunner } from '../ai/aider';
@@ -38,7 +39,7 @@ function isLookup(cmd: unknown): boolean {
 
 function captureSpawns(bin: string, stdout = 'ok'): Call[] {
   const calls: Call[] = [];
-  mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+  mockSpawnBoth((cmd: unknown, args: unknown) => {
     if (isLookup(cmd)) return NOT_FOUND;
     const command = String(cmd);
     const base = path.basename(command).replace(/\.(exe|cmd)$/i, '');
@@ -189,7 +190,7 @@ describe('session support — cursor', () => {
   it('creates a chat on the first run and resumes it on the follow-up', async () => {
     const chatId = '11111111-2222-4333-8444-555555555555';
     const calls: Call[] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       if (isLookup(cmd)) return NOT_FOUND;
       const a = [...(args as string[])];
       if (path.basename(String(cmd)).replace(/\.(exe|cmd)$/i, '') === 'agent') {
@@ -215,7 +216,7 @@ describe('session support — cursor', () => {
 
   it('runs without a session when create-chat fails, and falls back to --continue on resume', async () => {
     const calls: Call[] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       if (isLookup(cmd)) return NOT_FOUND;
       const a = [...(args as string[])];
       if (path.basename(String(cmd)).replace(/\.(exe|cmd)$/i, '') === 'agent') {

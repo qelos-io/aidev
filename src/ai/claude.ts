@@ -7,6 +7,11 @@ import { buildSkillsHint, getExtraContextDirs } from './skillsContext';
 
 const DEFAULT_MODEL = 'opusplan';
 
+// Windows caps a whole command line at ~32K characters (ENAMETOOLONG / E2BIG elsewhere), and
+// agent-review prompts embed the full PR diff. Longer prompts are piped through stdin instead
+// (`claude -p` reads the prompt from stdin when no prompt argument is given).
+export const MAX_PROMPT_ARG_LENGTH = 20_000;
+
 // Claude prints most user-facing errors (auth, rate limits, model errors) to
 // stdout rather than stderr. These patterns identify failures that may be
 // credential/auth related so we can run `claude auth status` for diagnostics.
@@ -90,7 +95,8 @@ export class ClaudeRunner implements AIRunner {
     const hint = buildSkillsHint(options?.extraContext);
     if (hint) contextArgs.push('--append-system-prompt', hint);
 
-    const baseArgs = ['-p', fullPrompt, '--dangerously-skip-permissions', ...mcpArgs, ...sessionArgs, ...contextArgs];
+    const promptViaStdin = fullPrompt.length > MAX_PROMPT_ARG_LENGTH;
+    const baseArgs = [...(promptViaStdin ? ['-p'] : ['-p', fullPrompt]), '--dangerously-skip-permissions', ...mcpArgs, ...sessionArgs, ...contextArgs];
     const attempts: string[][] = [
       [...baseArgs, '--model', model],
       baseArgs,
@@ -104,6 +110,7 @@ export class ClaudeRunner implements AIRunner {
       cwd: process.cwd(),
       env: getUserShellEnv(),
       signal: options?.signal,
+      ...(promptViaStdin ? { input: fullPrompt } : {}),
     });
 
     if (result.aborted) {

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
+import { mockSpawnBoth } from './helpers/mockSpawn';
 import { logger } from '../logger';
 import { AiderRunner } from '../ai/aider';
 import { AntigravityRunner } from '../ai/antigravity';
@@ -25,7 +26,7 @@ const childProcess = require('node:child_process');
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function mockSpawnSync(overrides: Record<string, unknown>) {
-  return mock.method(childProcess, 'spawnSync', () => ({
+  return mockSpawnBoth(() => ({
     pid: 1,
     output: [],
     stdout: '',
@@ -142,7 +143,7 @@ describe('AiderRunner – successful tasks', () => {
 
   it('appends notes to the prompt as "Additional context"', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -162,7 +163,7 @@ describe('AiderRunner – successful tasks', () => {
 
   it('always passes --yes-always to aider', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -183,7 +184,7 @@ describe('AiderRunner – AIDER_ARGS', () => {
 
   it('passes extra args from AIDER_ARGS env var to aider', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -209,7 +210,7 @@ describe('AiderRunner – AIDER_ARGS', () => {
 
   it('passes no extra args when AIDER_ARGS is unset', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -324,7 +325,7 @@ describe('ClaudeRunner – failure diagnostics', () => {
 
   it('runs `claude auth status` when the failure looks auth-related', async () => {
     const calls: { cmd: string; args: string[] }[] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       const argv = args as string[];
       calls.push({ cmd: command, args: [...argv] });
@@ -363,7 +364,7 @@ describe('ClaudeRunner – failure diagnostics', () => {
 
   it('does not run `claude auth status` for non-auth failures', async () => {
     const calls: { cmd: string; args: string[] }[] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       calls.push({ cmd: cmd as string, args: [...(args as string[])] });
       return {
         pid: 1,
@@ -385,7 +386,7 @@ describe('ClaudeRunner – failure diagnostics', () => {
   });
 
   it('logs auth status exit code when auth status itself fails', async () => {
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const argv = args as string[];
       const isAuthStatus = argv.includes('auth') && argv.includes('status');
       return {
@@ -423,7 +424,7 @@ describe('ClaudeRunner – argv order', () => {
 
   it('first attempt passes --model opusplan (the default CLAUDE_MODEL)', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       // On Windows, spawnCommand calls findBin which may invoke where.exe —
       // skip those helper calls and only capture the real CLI invocations.
       const command = cmd as string;
@@ -464,7 +465,7 @@ describe('ClaudeRunner – argv order', () => {
 
   it('uses CLAUDE_MODEL from env when set', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe')) {
         argvSnapshots.push([...(args as string[])]);
@@ -506,7 +507,7 @@ describe('ClaudeRunner – MCP', () => {
   it('adds --mcp-config and --strict-mcp-config when MCP is active, and no --allowedTools', async () => {
     setMcpState(fakeMcpState());
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       if (!(cmd as string).endsWith('where.exe')) argvSnapshots.push([...(args as string[])]);
       return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
     });
@@ -525,7 +526,7 @@ describe('ClaudeRunner – MCP', () => {
   it('omits --mcp-config when MCP is inactive', async () => {
     setMcpState(null);
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       if (!(cmd as string).endsWith('where.exe')) argvSnapshots.push([...(args as string[])]);
       return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
     });
@@ -682,7 +683,7 @@ describe('OpencodeRunner – successful tasks', () => {
 
   it('invokes opencode run with --dangerously-skip-permissions and --dir', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -705,7 +706,7 @@ describe('OpencodeRunner – successful tasks', () => {
 
   it('passes --model when OPENCODE_MODEL is set', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -730,7 +731,7 @@ describe('OpencodeRunner – successful tasks', () => {
 
   it('appends notes to the prompt as "Additional context"', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -766,7 +767,7 @@ describe('CursorRunner – MCP', () => {
   it('adds --approve-mcps when MCP is active', async () => {
     setMcpState(fakeMcpState());
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -783,7 +784,7 @@ describe('CursorRunner – MCP', () => {
   it('omits --approve-mcps when MCP is inactive', async () => {
     setMcpState(null);
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -818,7 +819,7 @@ describe('CursorRunner – assetDirs', () => {
     fs.mkdirSync(assetDir2, { recursive: true });
 
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -849,7 +850,7 @@ describe('CursorRunner – assetDirs', () => {
     fs.mkdirSync(existingDir, { recursive: true });
 
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -950,7 +951,7 @@ describe('DevinRunner – successful tasks', () => {
 
   it('passes --respect-workspace-trust false for non-interactive print mode', async () => {
     const argvSnapshots: string[][] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argvSnapshots.push([...(args as string[])]);
@@ -1536,7 +1537,7 @@ describe('AIRunner extraContext – skills source', () => {
   function captureArgv(): { argv: string[][]; inputs: unknown[] } {
     const argv: string[][] = [];
     const inputs: unknown[] = [];
-    mock.method(childProcess, 'spawnSync', (cmd: unknown, args: unknown, opts: unknown) => {
+    mockSpawnBoth((cmd: unknown, args: unknown, opts: unknown) => {
       const command = cmd as string;
       if (!command.endsWith('where.exe') && !command.endsWith('where')) {
         argv.push([...(args as string[])]);
@@ -1617,5 +1618,42 @@ describe('AIRunner extraContext – skills source', () => {
     for (const r of [new AntigravityRunner(), new DevinRunner(), new AnthropicSdkRunner()]) {
       assert.notEqual(r.supportsExternalContext, true, r.name);
     }
+  });
+});
+
+describe('ClaudeRunner – long prompts', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  function capture() {
+    const argv: string[][] = [];
+    const inputs: unknown[] = [];
+    mockSpawnBoth((cmd: unknown, args: unknown, opts: unknown) => {
+      const command = cmd as string;
+      if (!command.endsWith('where.exe') && !command.endsWith('where')) {
+        argv.push([...(args as string[])]);
+        inputs.push((opts as { input?: unknown } | undefined)?.input);
+      }
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+    return { argv, inputs };
+  }
+
+  it('passes short prompts as an argument', async () => {
+    const cap = capture();
+    await new ClaudeRunner().run('short prompt');
+    assert.equal(cap.argv[0][0], '-p');
+    assert.equal(cap.argv[0][1], 'short prompt');
+    assert.equal(cap.inputs[0], undefined);
+  });
+
+  it('pipes long prompts through stdin instead of the command line (ENAMETOOLONG on Windows)', async () => {
+    const cap = capture();
+    const longPrompt = 'x'.repeat(50_000);
+    await new ClaudeRunner().run(longPrompt);
+    assert.equal(cap.argv[0][0], '-p');
+    assert.ok(!cap.argv[0].some((a) => a.length > 10_000), 'no huge argument on the command line');
+    assert.equal(cap.inputs[0], longPrompt);
   });
 });

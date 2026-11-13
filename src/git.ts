@@ -352,6 +352,22 @@ export function addAll(): boolean {
 /** Name of the link/dir aidev creates inside the repo to expose the skills source. */
 export const AIDEV_SKILLS_LINK_NAME = 'aidev-skills';
 
+/**
+ * `.aidev/` is aidev's own scratch/state directory (assets, MCP config, caches, and whatever an
+ * agent decides to dump there, e.g. `.aidev/tmp-verify/*.txt` test logs). Newly added files in
+ * it must never land in a task's commit. Exempt: the user's hooks file, the local-provider task
+ * folders (legitimately versioned) and the cleanup-state files handled by prepareForTaskCommit().
+ */
+export function isAidevScratchPath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, '/');
+  if (!normalized.startsWith('.aidev/')) return false;
+  if (normalized === '.aidev/aidev.hooks.ts') return false;
+  if (normalized.startsWith('.aidev/tasks/')) return false;
+  // Bookkeeping that prepareForTaskCommit() already untracks on its own; leave that flow untouched.
+  if (normalized === '.aidev/last-cleanup.log' || normalized === '.aidev/last-cleanup.json') return false;
+  return true;
+}
+
 /** True when any segment of the repo-relative path is the aidev-skills link name. */
 export function isAidevSkillsPath(relativePath: string): boolean {
   return relativePath.split(/[\\/]+/).includes(AIDEV_SKILLS_LINK_NAME);
@@ -406,8 +422,12 @@ export function unstageAidevSkills(cwd?: string): boolean {
     const meta = fields[i].replace(/^:/, '').split(' ');
     const path = fields[i + 1];
     if (!path || meta.length < 5) continue;
-    const [, newMode, , newSha] = meta;
+    const [, newMode, , newSha, status] = meta;
     if (isAidevSkillsPath(path)) {
+      toUnstage.push(path);
+    } else if (status === 'A' && isAidevScratchPath(path)) {
+      // Only *new* files: anything already tracked there keeps being committed as before.
+      logger.warn(`Not committing new file inside aidev's .aidev/ directory: ${path}`);
       toUnstage.push(path);
     } else if (newMode === '120000') {
       const blob = git(['cat-file', 'blob', newSha], cwd);

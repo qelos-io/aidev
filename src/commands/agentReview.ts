@@ -321,7 +321,12 @@ export async function agentReviewCommand(
       continue;
     }
 
-    logger.success(`[${task.id}] Agent review posted (${ghResult.commentsPosted} inline comment(s))`);
+    if (ghResult.inlineFallback) {
+      logger.warn(`[${task.id}] GitHub rejected the inline comments — posted them in the review body instead`);
+      logger.success(`[${task.id}] Agent review posted (${ghResult.commentsPosted} comment(s) in the review body)`);
+    } else {
+      logger.success(`[${task.id}] Agent review posted (${ghResult.commentsPosted} inline comment(s))`);
+    }
 
     if (provider.removeTag) {
       try {

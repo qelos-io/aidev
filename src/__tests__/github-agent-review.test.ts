@@ -224,3 +224,66 @@ describe('postAgentPullRequestReview', () => {
     assert.equal(result.error, 'validation failed');
   });
 });
+
+describe('postAgentPullRequestReview – unresolvable inline comments', () => {
+  beforeEach(() => mock.restoreAll());
+  afterEach(() => mock.restoreAll());
+
+  const comments: AgentReviewComment[] = [
+    { path: 'src/a.ts', line: 10, body: 'Use const' },
+    { path: 'src/b.ts', line: 99, body: 'Line is outside the diff' },
+  ];
+
+  it('retries as a summary review listing the comments when GitHub answers 422', () => {
+    const payloads: Array<Record<string, unknown>> = [];
+    mockGhSpawnSync((args, input) => {
+      if (!isReviewApiCall(args)) return { status: 1, stdout: '', stderr: 'unexpected' };
+      payloads.push(JSON.parse(input ?? '{}'));
+      if (payloads.length === 1) {
+        return { status: 1, stdout: '', stderr: 'gh: Unprocessable Entity (HTTP 422) Line could not be resolved' };
+      }
+      return { status: 0, stdout: '{}', stderr: '' };
+    });
+
+    const result = postAgentPullRequestReview({
+      owner: 'acme', repo: 'widgets', prNumber: 42, headSha: 'abc123', comments, summary: 'Found 2 issues',
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.inlineFallback, true);
+    assert.equal(result.commentsPosted, 2);
+    assert.equal(payloads.length, 2);
+    assert.equal(payloads[1].event, 'COMMENT');
+    assert.equal(payloads[1].comments, undefined);
+    const body = String(payloads[1].body);
+    assert.ok(body.includes('Found 2 issues'));
+    assert.ok(body.includes('src/a.ts:10'));
+    assert.ok(body.includes('Line is outside the diff'));
+  });
+
+  it('still fails when the fallback is rejected too', () => {
+    mockGhSpawnSync((args) =>
+      isReviewApiCall(args)
+        ? { status: 1, stdout: '', stderr: 'HTTP 422 Line could not be resolved' }
+        : { status: 1, stdout: '', stderr: 'unexpected' }
+    );
+    const result = postAgentPullRequestReview({
+      owner: 'acme', repo: 'widgets', prNumber: 42, headSha: 'abc123', comments, summary: 's',
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.commentsPosted, 0);
+  });
+
+  it('does not retry on unrelated failures', () => {
+    let calls = 0;
+    mockGhSpawnSync((args) => {
+      if (isReviewApiCall(args)) calls++;
+      return { status: 1, stdout: '', stderr: 'HTTP 500 server error' };
+    });
+    const result = postAgentPullRequestReview({
+      owner: 'acme', repo: 'widgets', prNumber: 42, headSha: 'abc123', comments, summary: 's',
+    });
+    assert.equal(result.success, false);
+    assert.equal(calls, 1);
+  });
+});

@@ -27,6 +27,7 @@ import {
   clearStashes,
   ensureLocalExclude,
   unstageAidevSkills,
+  isAidevScratchPath,
   isAidevSkillsPath,
   AIDEV_SKILLS_LINK_NAME,
 } from '../git';
@@ -1020,5 +1021,58 @@ describe('aidev-skills commit guard (integration)', () => {
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
     }
+  });
+});
+
+describe('never committing new files under .aidev/', () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-scratch-test-'));
+    initRepo(tmpDir);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('classifies scratch paths', () => {
+    assert.equal(isAidevScratchPath('.aidev/tmp-verify/jest.txt'), true);
+    assert.equal(isAidevScratchPath('.aidev/anything.json'), true);
+    assert.equal(isAidevScratchPath('.aidev/aidev.hooks.ts'), false);
+    assert.equal(isAidevScratchPath('.aidev/tasks/open/a.json'), false);
+    assert.equal(isAidevScratchPath('.aidev/last-cleanup.json'), false);
+    assert.equal(isAidevScratchPath('src/.aidev/x.txt'), false);
+    assert.equal(isAidevScratchPath('.aidev.lock'), false);
+  });
+
+  it('commits the real change but not agent scratch files', () => {
+    gitCmd(['checkout', '-b', 'task1/fix'], tmpDir);
+    fs.mkdirSync(path.join(tmpDir, '.aidev', 'tmp-verify'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aidev', 'tmp-verify', 'jest.txt'), 'log');
+    fs.writeFileSync(path.join(tmpDir, 'feature.txt'), 'real work');
+    assert.equal(addAll(), true);
+    assert.equal(commit('task commit', 'task1/fix'), true);
+    const files = spawnSync('git', ['show', '--name-only', '--pretty=format:', 'HEAD'], { cwd: tmpDir, encoding: 'utf8' }).stdout.trim().split('\n');
+    assert.deepEqual(files, ['feature.txt']);
+    assert.ok(fs.existsSync(path.join(tmpDir, '.aidev', 'tmp-verify', 'jest.txt')), 'working tree file is left alone');
+  });
+
+  it('still commits the hooks file and files that are already tracked', () => {
+    fs.mkdirSync(path.join(tmpDir, '.aidev'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aidev', 'tracked.txt'), 'v1');
+    gitCmd(['add', '-f', '.aidev/tracked.txt'], tmpDir);
+    gitCmd(['commit', '-m', 'track it'], tmpDir);
+    gitCmd(['checkout', '-b', 'task1/fix'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, '.aidev', 'tracked.txt'), 'v2');
+    fs.writeFileSync(path.join(tmpDir, '.aidev', 'aidev.hooks.ts'), 'export default {};');
+    assert.equal(addAll(), true);
+    assert.equal(commit('task commit', 'task1/fix'), true);
+    const files = spawnSync('git', ['show', '--name-only', '--pretty=format:', 'HEAD'], { cwd: tmpDir, encoding: 'utf8' }).stdout.trim().split('\n').sort();
+    assert.deepEqual(files, ['.aidev/aidev.hooks.ts', '.aidev/tracked.txt']);
   });
 });

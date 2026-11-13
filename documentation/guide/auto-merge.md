@@ -15,6 +15,10 @@ When a task has been reviewed and is ready to merge, tag it with `accepted` (the
 3. Updates the task status to `DONE_STATUS` (auto-detected when omitted)
 4. Checks out the base branch and pulls the latest changes
 
+::: tip Tasks with both `accepted` and `agent-review`
+If a task has both tags, the [agent review](/guide/agent-review) runs first and the merge waits until the agent review tag has been removed. Both happen in the same `aidev run` when the review succeeds.
+:::
+
 ## Run manually
 
 ```bash
