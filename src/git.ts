@@ -109,12 +109,19 @@ function removeWindowsReservedFiles(paths: string[]): string[] {
 // A git command normally holds index.lock for well under a second. A lock older
 // than this is left over from a crashed/killed git process and blocks every
 // later git operation forever.
-const STALE_INDEX_LOCK_MS = 5 * 60 * 1000;
+export const STALE_INDEX_LOCK_MS = 5 * 60 * 1000;
 
 /**
  * Removes `.git/index.lock` if it is older than STALE_INDEX_LOCK_MS. aidev holds
  * its own per-repo lock while running, so an old lock file is almost certainly
- * a crash leftover. Returns true if a stale lock was removed.
+ * a crash leftover.
+ *
+ * Assumption: the repo is aidev-owned, so no concurrent interactive git/IDE
+ * operation is expected to hold the lock for more than the threshold. Staleness
+ * is judged by mtime only (no portable "is a git process running" check); a
+ * lock younger than the threshold is left alone and logged. Called once at run
+ * startup and again before branch-switching operations.
+ * Returns true if a stale lock was removed.
  */
 export function removeStaleIndexLock(cwd?: string): boolean {
   const pathResult = git(['rev-parse', '--git-path', 'index.lock'], cwd);
@@ -124,7 +131,10 @@ export function removeStaleIndexLock(cwd?: string): boolean {
     const stat = lstatSync(lockPath);
     if (!stat.isFile()) return false;
     const ageMs = Date.now() - stat.mtimeMs;
-    if (ageMs < STALE_INDEX_LOCK_MS) return false;
+    if (ageMs < STALE_INDEX_LOCK_MS) {
+      logger.warn(`Git index lock is recent (${Math.round(ageMs / 1000)}s old) — not removing: ${lockPath}`);
+      return false;
+    }
     rmSync(lockPath, { force: true });
     logger.warn(`Removed stale git index lock (${Math.round(ageMs / 60000)} min old): ${lockPath}`);
     return true;

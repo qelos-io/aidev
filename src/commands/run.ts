@@ -719,6 +719,10 @@ export async function runCommand(
     process.exit(1);
   }
 
+  // Clear a crash-leftover index.lock up front so every later git operation
+  // (fetch, checkout, commit, ...) works, not just the clean-tree check.
+  git.removeStaleIndexLock(cwd);
+
   // Publish the resolved config + env vars over a local IPC socket so descendant
   // `aidev` processes (spawned by AI agents) can adopt the same config. Failure
   // to start the server is non-fatal — `run` must still proceed.

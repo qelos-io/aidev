@@ -17,6 +17,7 @@ import {
   listWorkingTreeChanges,
   requireCleanWorkingTree,
   removeStaleIndexLock,
+  STALE_INDEX_LOCK_MS,
   fetchAndCheckout,
   checkConflictsWithBase,
   mergeBaseBranch,
@@ -541,6 +542,37 @@ describe('requireCleanWorkingTree (integration)', () => {
     fs.writeFileSync(lock, '');
     assert.equal(removeStaleIndexLock(), false);
     assert.equal(fs.existsSync(lock), true);
+  });
+
+  it('respects the staleness threshold boundary', () => {
+    const lock = path.join(tmpDir, '.git', 'index.lock');
+    fs.writeFileSync(lock, '');
+    const justUnder = new Date(Date.now() - (STALE_INDEX_LOCK_MS - 30_000));
+    fs.utimesSync(lock, justUnder, justUnder);
+    assert.equal(removeStaleIndexLock(), false);
+    assert.equal(fs.existsSync(lock), true);
+    const justOver = new Date(Date.now() - (STALE_INDEX_LOCK_MS + 30_000));
+    fs.utimesSync(lock, justOver, justOver);
+    assert.equal(removeStaleIndexLock(), true);
+    assert.equal(fs.existsSync(lock), false);
+  });
+
+  it('does not remove an index.lock that is a directory', () => {
+    const lock = path.join(tmpDir, '.git', 'index.lock');
+    fs.mkdirSync(lock);
+    const old = new Date(Date.now() - 60 * 60 * 1000);
+    fs.utimesSync(lock, old, old);
+    assert.equal(removeStaleIndexLock(), false);
+    assert.equal(fs.existsSync(lock), true);
+  });
+
+  it('returns false outside a git repository', () => {
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-nogit-'));
+    try {
+      assert.equal(removeStaleIndexLock(plain), false);
+    } finally {
+      fs.rmSync(plain, { recursive: true, force: true });
+    }
   });
 
   it('removes a Windows-reserved `nul` file that git cannot stash', { skip: process.platform !== 'win32' }, () => {
