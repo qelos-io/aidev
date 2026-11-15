@@ -106,6 +106,36 @@ function removeWindowsReservedFiles(paths: string[]): string[] {
   return remaining;
 }
 
+// A git command normally holds index.lock for well under a second. A lock older
+// than this is left over from a crashed/killed git process and blocks every
+// later git operation forever.
+const STALE_INDEX_LOCK_MS = 5 * 60 * 1000;
+
+/**
+ * Removes `.git/index.lock` if it is older than STALE_INDEX_LOCK_MS. aidev holds
+ * its own per-repo lock while running, so an old lock file is almost certainly
+ * a crash leftover. Returns true if a stale lock was removed.
+ */
+export function removeStaleIndexLock(cwd?: string): boolean {
+  const pathResult = git(['rev-parse', '--git-path', 'index.lock'], cwd);
+  if (pathResult.status !== 0 || !pathResult.stdout.trim()) return false;
+  const lockPath = resolve(cwd || process.cwd(), pathResult.stdout.trim());
+  try {
+    const stat = lstatSync(lockPath);
+    if (!stat.isFile()) return false;
+    const ageMs = Date.now() - stat.mtimeMs;
+    if (ageMs < STALE_INDEX_LOCK_MS) return false;
+    rmSync(lockPath, { force: true });
+    logger.warn(`Removed stale git index lock (${Math.round(ageMs / 60000)} min old): ${lockPath}`);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logger.warn(`Failed to remove stale index.lock: ${err instanceof Error ? err.message : err}`);
+    }
+    return false;
+  }
+}
+
 /**
  * Verifies the working tree is clean before a branch-switching operation.
  * Leftovers from failed tasks would otherwise block every later checkout, so
@@ -115,6 +145,7 @@ function removeWindowsReservedFiles(paths: string[]): string[] {
  * changes could not be removed.
  */
 export function requireCleanWorkingTree(actionDescription: string): boolean {
+  removeStaleIndexLock();
   if (!hasChanges()) return true;
 
   const dirtyFiles = listWorkingTreeChanges();

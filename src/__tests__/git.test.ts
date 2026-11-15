@@ -16,6 +16,7 @@ import {
   hasChanges,
   listWorkingTreeChanges,
   requireCleanWorkingTree,
+  removeStaleIndexLock,
   fetchAndCheckout,
   checkConflictsWithBase,
   mergeBaseBranch,
@@ -522,6 +523,24 @@ describe('requireCleanWorkingTree (integration)', () => {
     assert.equal(requireCleanWorkingTree('do something'), true);
     assert.equal(hasChanges(), false);
     assert.equal(stashCount(), 0);
+  });
+
+  it('removes a stale index.lock so the dirty tree can be discarded', () => {
+    const lock = path.join(tmpDir, '.git', 'index.lock');
+    fs.writeFileSync(lock, '');
+    const old = new Date(Date.now() - 60 * 60 * 1000);
+    fs.utimesSync(lock, old, old);
+    fs.writeFileSync(path.join(tmpDir, 'dirty.txt'), 'x');
+    assert.equal(requireCleanWorkingTree('do something'), true);
+    assert.equal(fs.existsSync(lock), false);
+    assert.equal(hasChanges(), false);
+  });
+
+  it('leaves a fresh index.lock alone', () => {
+    const lock = path.join(tmpDir, '.git', 'index.lock');
+    fs.writeFileSync(lock, '');
+    assert.equal(removeStaleIndexLock(), false);
+    assert.equal(fs.existsSync(lock), true);
   });
 
   it('removes a Windows-reserved `nul` file that git cannot stash', { skip: process.platform !== 'win32' }, () => {
