@@ -1643,3 +1643,23 @@ describe('tailOfLog / buildAllAgentsFailedComment', () => {
     assert.ok(c.endsWith('Should I try again?'));
   });
 });
+
+describe('buildAllAgentsFailedComment safety', () => {
+  it('posts a repo-relative diff path, not the absolute one', () => {
+    const cwd = path.join(os.tmpdir(), 'repo-x');
+    const abs = path.join(cwd, '.aidev', 'assets', 't', 'uncommitted.diff');
+    const c = buildAllAgentsFailedComment({ commentPrefix: '[aidev]' } as Config, 'boom', abs, undefined, cwd);
+    assert.ok(c.includes('.aidev/assets/t/uncommitted.diff'));
+    assert.ok(!c.includes(cwd.split(path.sep).join('/')) && !c.includes(cwd));
+  });
+
+  it('masks secret assignments and uses a longer fence than any backtick run', () => {
+    const c = buildAllAgentsFailedComment(
+      { commentPrefix: '[aidev]' } as Config,
+      'GITHUB_TOKEN=abcd1234efgh\n```\nbreak out\n```',
+      null,
+    );
+    assert.ok(!c.includes('abcd1234efgh'));
+    assert.ok(c.includes('````'));
+  });
+});

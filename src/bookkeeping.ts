@@ -48,15 +48,44 @@ export interface CleanupRegistration {
  */
 export function registerBookkeepingCleanup(
   cwd: string,
-  opts: { signals?: NodeJS.Signals[] } = {}
+  opts: {
+    signals?: NodeJS.Signals[];
+    /** Async teardown (child processes, servers, ...) run before the lock is released on fatal errors / signals. */
+    onShutdown?: () => Promise<void> | void;
+    /** Max time to wait for onShutdown before exiting anyway. */
+    shutdownTimeoutMs?: number;
+  } = {}
 ): CleanupRegistration {
   const onExit = (): void => cleanupBookkeeping(cwd);
+  let exiting = false;
+  const finish = (code: number): void => {
+    if (exiting) return;
+    exiting = true;
+    let done = false;
+    const exit = (): void => {
+      if (done) return;
+      done = true;
+      cleanupBookkeeping(cwd);
+      process.exit(code);
+    };
+    // Teardown first so orphans are gone before the lock is released.
+    const timer = setTimeout(exit, opts.shutdownTimeoutMs ?? 15000);
+    timer.unref?.();
+    try {
+      Promise.resolve(opts.onShutdown?.()).catch(() => undefined).finally(() => {
+        clearTimeout(timer);
+        exit();
+      });
+    } catch {
+      clearTimeout(timer);
+      exit();
+    }
+  };
   const onFatal = (label: string) => (err: unknown): void => {
     try {
       logger.error(`${label}: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
     } catch { /* ignore */ }
-    cleanupBookkeeping(cwd);
-    process.exit(1);
+    finish(1);
   };
   const onException = onFatal('Uncaught exception');
   const onRejection = onFatal('Unhandled rejection');
@@ -65,8 +94,7 @@ export function registerBookkeepingCleanup(
   for (const sig of opts.signals ?? []) {
     const handler = (): void => {
       logger.warn(`Received ${sig} — cleaning up...`);
-      cleanupBookkeeping(cwd);
-      process.exit(signalCodes[sig] ?? 1);
+      finish(signalCodes[sig] ?? 1);
     };
     signalHandlers.set(sig, handler);
     process.on(sig, handler);

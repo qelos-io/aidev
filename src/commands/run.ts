@@ -198,19 +198,43 @@ export function tailOfLog(log: string, max = FAILURE_LOG_TAIL_MAX): string {
   return `…${newline >= 0 && newline < cut.length - 1 ? cut.slice(newline + 1) : cut}`;
 }
 
+/** Mask known secret values and `SECRET_KEY=value` style assignments before posting externally. */
+export function redactForComment(text: string, cwd = process.cwd()): string {
+  let result = text;
+  try {
+    const values = [...new Set(collectSecrets(cwd).values())].sort((a, b) => b.length - a.length);
+    for (const value of values) result = result.split(value).join('[REDACTED]');
+  } catch { /* best-effort */ }
+  return result.replace(
+    /\b([A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Za-z0-9_]*)(\s*[=:]\s*)(["']?)[^\s"']{4,}\3/gi,
+    '$1$2[REDACTED]',
+  );
+}
+
+/** A backtick fence longer than any backtick run in `text` (min 3). */
+function fenceFor(text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((m) => m.length));
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
 export function buildAllAgentsFailedComment(
   config: Config,
   errorLog: string,
   diffPath: string | null,
   headline = 'All AI runners failed.',
+  cwd = process.cwd(),
 ): string {
   const lines = [`${config.commentPrefix} ${headline}`];
-  const tail = tailOfLog(errorLog);
-  if (tail) lines.push('', 'Error log (tail):', '```', tail, '```');
+  const tail = tailOfLog(redactForComment(errorLog, cwd));
+  if (tail) {
+    const fence = fenceFor(tail);
+    lines.push('', 'Error log (tail):', fence, tail, fence);
+  }
   if (diffPath) {
+    const rel = path.isAbsolute(diffPath) ? path.relative(cwd, diffPath) : diffPath;
     lines.push(
       '',
-      `The uncommitted changes from this attempt were saved to \`${diffPath.split(path.sep).join('/')}\` and will be re-applied if the task continues.`,
+      `The uncommitted changes from this attempt were saved to \`${rel.split(path.sep).join('/')}\` and will be re-applied if the task continues.`,
     );
   }
   lines.push('', RETRY_QUESTION);
@@ -251,7 +275,7 @@ export async function handleAllAgentsFailed(
   try {
     await postCommentWithHooks(
       task,
-      buildAllAgentsFailedComment(config, errorLog, diffPath, options.headline),
+      buildAllAgentsFailedComment(config, errorLog, diffPath, options.headline, cwd),
       config, provider, hooks, vm,
     );
     commented = true;
@@ -835,7 +859,13 @@ export async function runCommand(
 
   // From here on we own the bookkeeping files: remove them on exit, SIGHUP and fatal
   // errors (SIGINT/SIGTERM are handled below, after async teardown).
-  const cleanupRegistration = registerBookkeepingCleanup(cwd, { signals: ['SIGHUP'] });
+  // Async teardown (agents/dev servers/containers, config server, skills) is wired in
+  // below once those exist; fatal errors and SIGHUP run it before the lock is released.
+  let teardown: () => Promise<void> = async () => {};
+  const cleanupRegistration = registerBookkeepingCleanup(cwd, {
+    signals: ['SIGHUP'],
+    onShutdown: () => teardown(),
+  });
 
   // Clear a crash-leftover index.lock up front so every later git operation
   // (fetch, checkout, commit, ...) works, not just the clean-tree check.
@@ -892,6 +922,11 @@ export async function runCommand(
   const cleanupSkills = (): void => {
     try { skills?.cleanup(); } catch { /* best-effort */ }
     try { unlinkAllSkills(); } catch { /* best-effort */ }
+  };
+  teardown = async (): Promise<void> => {
+    cleanupSkills();
+    await shutdownTracked();
+    try { configServer.close(); } catch { /* ignore */ }
   };
   const onSignal = (signal: NodeJS.Signals): void => {
     logger.warn(`Received ${signal} — cleaning up...`);

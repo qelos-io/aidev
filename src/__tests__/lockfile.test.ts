@@ -175,3 +175,23 @@ describe('stopProcess', () => {
   // Note: we cannot test 'killed' safely in a unit test without spawning a
   // real child process, so the live-kill path is exercised by integration tests.
 });
+
+describe('acquireLock atomicity', () => {
+  it('does not overwrite a lock created by a live process (wx semantics)', () => {
+    writeLock(tmpDir, process.ppid || 1);
+    // Another live owner: must refuse and leave the file untouched.
+    if (isProcessAlive(process.ppid || 1)) {
+      assert.equal(acquireLock(tmpDir), false);
+      assert.equal(readLock(tmpDir), process.ppid || 1);
+    }
+  });
+
+  it('replaces a stale lock and a second acquire in the same dir then fails', () => {
+    writeLock(tmpDir, 999999999);
+    assert.equal(acquireLock(tmpDir), true);
+    assert.equal(readLock(tmpDir), process.pid);
+    // The lock is now held by a live process (us) — a racing acquirer must lose.
+    assert.equal(acquireLock(tmpDir), false);
+    assert.equal(readLock(tmpDir), process.pid);
+  });
+});

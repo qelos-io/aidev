@@ -28,8 +28,12 @@ export function isProcessAlive(pid: number): boolean {
  */
 export function readLock(cwd: string): number | null {
   const p = lockfilePath(cwd);
-  if (!fs.existsSync(p)) return null;
-  const raw = fs.readFileSync(p, 'utf8').trim();
+  let raw: string;
+  try {
+    raw = fs.readFileSync(p, 'utf8').trim();
+  } catch {
+    return null; // absent (or removed concurrently)
+  }
   const pid = parseInt(raw, 10);
   return isNaN(pid) ? null : pid;
 }
@@ -44,22 +48,28 @@ export function readLockPid(cwd: string): number | null {
  * Returns true on success, false if another live process already holds it.
  */
 export function acquireLock(cwd: string): boolean {
-  const existing = readLock(cwd);
-  if (existing !== null && isProcessAlive(existing)) {
-    return false;
-  }
-  if (existing !== null || fs.existsSync(lockfilePath(cwd))) {
-    // Lock file present but its owner is dead (or the content is unparsable): stale.
+  // Atomic create (`wx` = O_EXCL): only one process can ever create the file. On EEXIST
+  // we inspect the owner; a stale lock is removed and creation retried once.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      fs.writeFileSync(lockfilePath(cwd), String(process.pid), { encoding: 'utf8', flag: 'wx' });
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
+    }
+    const existing = readLock(cwd);
+    if (existing !== null && isProcessAlive(existing)) return false;
+    if (attempt === 1) return false;
     logger.warn(
       existing !== null
         ? `Removing stale ${LOCK_FILENAME} (PID ${existing} is not running).`
         : `Removing stale ${LOCK_FILENAME} (no valid PID recorded).`
     );
-    releaseLock(cwd);
+    // Re-check right before removing so we don't delete a lock another process just
+    // took over from the same stale one.
+    if (readLock(cwd) === existing) releaseLock(cwd);
   }
-  // Write our PID
-  fs.writeFileSync(lockfilePath(cwd), String(process.pid), 'utf8');
-  return true;
+  return false;
 }
 
 /** Remove the lock file for `cwd`. Safe to call even if file is absent. */
