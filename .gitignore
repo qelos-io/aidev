@@ -25,3 +25,4 @@ opencode.json
 *.aidev-backup
 .aidev.lock
 .aidev.active
+.aidev/worktrees/
