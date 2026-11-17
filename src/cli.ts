@@ -176,7 +176,7 @@ program
 
 program
   .command('clean')
-  .description('Remove stale local branches (not tied to an active task) and clear stashes, after confirmation')
+  .description('Remove stale local branches (not tied to an active task), stale git worktrees and clear stashes, after confirmation')
   .option('--dry-run', 'only describe what would be done; change nothing')
   .option('-y, --yes', 'skip the confirmation prompt')
   .option('--y', 'alias for --yes')

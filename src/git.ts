@@ -977,6 +977,11 @@ export function findWorktreeForBranch(branch: string, cwd?: string): WorktreeInf
   return listWorktrees(cwd).find((w) => w.branch === branch) ?? null;
 }
 
+/** True when `branch`'s tip is an ancestor of (already merged into) `base`. */
+export function isBranchMerged(branch: string, base: string, cwd?: string): boolean {
+  return git(['merge-base', '--is-ancestor', `refs/heads/${branch}`, base], cwd).status === 0;
+}
+
 /** Removes registrations of worktrees whose directory is gone (`git worktree prune`). */
 export function pruneWorktrees(cwd?: string): boolean {
   const result = git(['worktree', 'prune'], cwd);
