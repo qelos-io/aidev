@@ -174,31 +174,61 @@ export function repairCorruptHead(remote: string, baseBranch: string, cwd?: stri
     if (!packed && (!refPath || !existsSync(refPath))) return 'ok';
   }
 
-  logger.warn(`Git HEAD is corrupted${ref ? ` (${ref})` : ''} — attempting repair`);
-
-  const branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : baseBranch;
-  ref = `refs/heads/${branch}`;
-
-  // Remove the broken loose ref (an empty/garbled file would make update-ref -d fail).
-  const refPathResult = git(['rev-parse', '--git-path', ref], dir);
-  if (refPathResult.status === 0) {
-    try {
-      rmSync(resolve(dir, refPathResult.stdout.trim()), { force: true });
-    } catch (err) {
-      logger.warn(`Failed to remove broken ref ${ref}: ${err instanceof Error ? err.message : err}`);
+  // Only repair genuine ref/object corruption. A non-repo cwd, a lock, or a
+  // permissions error must not cause any mutation.
+  if (git(['rev-parse', '--git-dir'], dir).status !== 0) {
+    logger.error('Cannot check git HEAD: not a git repository');
+    return 'failed';
+  }
+  if (!ref) {
+    const probe = git(['rev-parse', '--verify', 'HEAD'], dir);
+    if (/lock|permission denied|not a git repository/i.test(probe.stderr || '')) {
+      logger.error(`Cannot check git HEAD (${(probe.stderr || '').trim()}) — not repairing`);
+      return 'failed';
     }
   }
 
-  git(['fetch', remote], dir);
+  logger.warn(`Git HEAD is corrupted${ref ? ` (${ref})` : ''} — attempting repair`);
 
-  for (const candidate of [branch, baseBranch]) {
+  const branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : baseBranch;
+
+  const fetch = git(['fetch', remote], dir);
+  if (fetch.status !== 0) {
+    logger.warn(`git fetch ${remote} failed (${(fetch.stderr || '').trim()}) — repair may use a stale remote-tracking ref`);
+  }
+
+  const removeLooseRef = (fullRef: string) => {
+    const pathResult = git(['rev-parse', '--git-path', fullRef], dir);
+    if (pathResult.status !== 0) return;
+    try {
+      rmSync(resolve(dir, pathResult.stdout.trim()), { force: true });
+    } catch (err) {
+      logger.warn(`Failed to remove broken ref ${fullRef}: ${err instanceof Error ? err.message : err}`);
+    }
+  };
+
+  const candidates = branch === baseBranch ? [branch] : [branch, baseBranch];
+  for (const candidate of candidates) {
     const target = `refs/remotes/${remote}/${candidate}`;
+    // Skip this candidate before touching anything if the remote ref is unusable.
     if (git(['rev-parse', '--verify', '-q', `${target}^{commit}`], dir).status !== 0) continue;
-    git(['symbolic-ref', 'HEAD', `refs/heads/${candidate}`], dir);
-    if (git(['update-ref', `refs/heads/${candidate}`, target], dir).status !== 0) continue;
+    const localRef = `refs/heads/${candidate}`;
+    const isBrokenBranch = candidate === branch && ref.startsWith('refs/heads/');
+    const localHealthy = !isBrokenBranch &&
+      git(['rev-parse', '--verify', '-q', `${localRef}^{commit}`], dir).status === 0;
+
+    // Only touch the ref if it is broken or missing; never overwrite a healthy local branch.
+    if (!localHealthy) {
+      removeLooseRef(localRef);
+      if (git(['update-ref', localRef, target], dir).status !== 0) continue;
+    }
+    // Only switch HEAD after the branch ref is known good.
+    if (git(['symbolic-ref', 'HEAD', localRef], dir).status !== 0) continue;
     git(['reset', '-q'], dir);
     if (healthy()) {
-      logger.warn(`Repaired git HEAD: ${candidate} reset to ${remote}/${candidate}`);
+      logger.warn(localHealthy
+        ? `Repaired git HEAD: switched to existing healthy branch ${candidate}`
+        : `Repaired git HEAD: ${candidate} reset to ${remote}/${candidate}`);
       return 'repaired';
     }
   }
