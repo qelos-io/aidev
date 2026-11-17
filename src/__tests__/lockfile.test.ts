@@ -8,6 +8,7 @@ import {
   LOCK_FILENAME,
   isProcessAlive,
   readLock,
+  readLockPid,
   acquireLock,
   releaseLock,
   stopProcess,
@@ -57,6 +58,36 @@ describe('isProcessAlive', () => {
     // so use a very high number that is almost certainly unused.
     // We rely on errno ESRCH (no such process).
     assert.equal(isProcessAlive(999999999), false);
+  });
+
+  it('returns false for invalid pids (0, negative, NaN)', () => {
+    assert.equal(isProcessAlive(0), false);
+    assert.equal(isProcessAlive(-5), false);
+    assert.equal(isProcessAlive(NaN), false);
+  });
+
+  it('treats EPERM as alive and ESRCH as dead', (t) => {
+    t.mock.method(process, 'kill', () => {
+      throw Object.assign(new Error('eperm'), { code: 'EPERM' });
+    });
+    assert.equal(isProcessAlive(4242), true);
+    t.mock.restoreAll();
+    t.mock.method(process, 'kill', () => {
+      throw Object.assign(new Error('esrch'), { code: 'ESRCH' });
+    });
+    assert.equal(isProcessAlive(4242), false);
+  });
+});
+
+// ─── readLockPid ──────────────────────────────────────────────────────────────
+
+describe('readLockPid', () => {
+  it('returns null when absent, the pid when present, null when unparsable', () => {
+    assert.equal(readLockPid(tmpDir), null);
+    writeLock(tmpDir, 4321);
+    assert.equal(readLockPid(tmpDir), 4321);
+    fs.writeFileSync(lockfilePath(tmpDir), 'garbage', 'utf8');
+    assert.equal(readLockPid(tmpDir), null);
   });
 });
 

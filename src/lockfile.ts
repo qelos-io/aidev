@@ -9,11 +9,15 @@ export function lockfilePath(cwd: string): string {
 
 /** Returns true if the given PID corresponds to a running process. */
 export function isProcessAlive(pid: number): boolean {
+  // pid 0 / negative values would signal a process group, not a single process.
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    // EPERM: the process exists but we may not signal it → alive.
+    // ESRCH (and anything else): no such process → dead.
+    return (err as NodeJS.ErrnoException)?.code === 'EPERM';
   }
 }
 
@@ -27,6 +31,11 @@ export function readLock(cwd: string): number | null {
   const raw = fs.readFileSync(p, 'utf8').trim();
   const pid = parseInt(raw, 10);
   return isNaN(pid) ? null : pid;
+}
+
+/** Alias of {@link readLock}: the PID recorded in the lock file, or null. */
+export function readLockPid(cwd: string): number | null {
+  return readLock(cwd);
 }
 
 /**

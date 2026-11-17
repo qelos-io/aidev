@@ -8,6 +8,7 @@ import {
   ACTIVE_TASK_FILENAME,
   writeActiveTask,
   readActiveTaskFile,
+  readActivePid,
   readActiveTask,
   clearActiveTask,
 } from '../activeTask';
@@ -43,6 +44,41 @@ describe('writeActiveTask / readActiveTaskFile', () => {
   it('trims whitespace on write', () => {
     writeActiveTask(tmpDir, '  CU-456  ');
     assert.equal(readActiveTaskFile(tmpDir), 'CU-456');
+  });
+});
+
+describe('active file PID format', () => {
+  it('writes the current pid alongside the task id', () => {
+    writeActiveTask(tmpDir, 'CU-9');
+    assert.equal(readActivePid(tmpDir), process.pid);
+    assert.equal(readActiveTaskFile(tmpDir), 'CU-9');
+  });
+
+  it('accepts an explicit pid', () => {
+    writeActiveTask(tmpDir, 'CU-9', 777);
+    assert.equal(readActivePid(tmpDir), 777);
+  });
+
+  it('reads legacy id-only files (no pid)', () => {
+    fs.writeFileSync(activeTaskPath(tmpDir), 'CU-legacy', 'utf8');
+    assert.equal(readActiveTaskFile(tmpDir), 'CU-legacy');
+    assert.equal(readActivePid(tmpDir), null);
+  });
+
+  it('keeps a purely numeric legacy id as the id, not a pid', () => {
+    fs.writeFileSync(activeTaskPath(tmpDir), '123', 'utf8');
+    assert.equal(readActiveTaskFile(tmpDir), '123');
+    assert.equal(readActivePid(tmpDir), null);
+  });
+
+  it('handles CRLF and returns null for missing/empty files', () => {
+    assert.equal(readActivePid(tmpDir), null);
+    assert.equal(readActiveTaskFile(tmpDir), null);
+    fs.writeFileSync(activeTaskPath(tmpDir), 'CU-1\r\n55\r\n', 'utf8');
+    assert.equal(readActiveTaskFile(tmpDir), 'CU-1');
+    assert.equal(readActivePid(tmpDir), 55);
+    fs.writeFileSync(activeTaskPath(tmpDir), '  \n', 'utf8');
+    assert.equal(readActiveTaskFile(tmpDir), null);
   });
 });
 
