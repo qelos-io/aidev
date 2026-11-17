@@ -212,6 +212,131 @@ describe('weeklyCleanupCommand (integration)', () => {
     assert.ok(localBranches(tmpDir).includes('task1/some-branch'));
   });
 
+  describe('stale worktrees', () => {
+    const wtPath = (branch: string) => path.join(tmpDir, '.aidev', 'worktrees', branch.replace('/', '-'));
+    const addWt = (branch: string) => {
+      fs.mkdirSync(path.join(tmpDir, '.aidev', 'worktrees'), { recursive: true });
+      gitCmd(['worktree', 'add', '-b', branch, wtPath(branch), 'main'], tmpDir);
+      // Make the branch diverge from main so it is not treated as merged.
+      fs.writeFileSync(path.join(wtPath(branch), 'x.txt'), branch);
+      gitCmd(['add', '.'], wtPath(branch));
+      gitCmd(['commit', '-m', 'work'], wtPath(branch));
+    };
+    const age = (p: string, days: number) => {
+      const t = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      fs.utimesSync(p, t, t);
+      // Activity also looks at the worktree's HEAD/index files, so age those too.
+      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(path.join(p, '.git'), 'utf8'));
+      if (m) {
+        for (const f of ['HEAD', 'index']) {
+          const fp = path.join(m[1].trim(), f);
+          if (fs.existsSync(fp)) fs.utimesSync(fp, t, t);
+        }
+      }
+    };
+
+    beforeEach(() => {
+      fs.appendFileSync(path.join(tmpDir, '.gitignore'), '.aidev/\n');
+      gitCmd(['commit', '-am', 'ignore aidev'], tmpDir);
+      gitCmd(['push', 'origin', 'main'], tmpDir);
+    });
+
+    it('removes the worktree and branch of a task that is no longer active, keeps active ones', async () => {
+      addWt('task1/done');
+      addWt('task2/active');
+
+      const result = await weeklyCleanupCommand(baseConfig, providerWithTasks(['task2']));
+
+      assert.ok(result);
+      assert.equal(result!.worktreesRemoved, 1);
+      assert.ok(!fs.existsSync(wtPath('task1/done')));
+      assert.ok(fs.existsSync(wtPath('task2/active')));
+      assert.deepEqual(result!.branchesDeleted, ['task1/done']);
+      assert.deepEqual(localBranches(tmpDir).sort(), ['main', 'task2/active']);
+    });
+
+    it('removes active-task worktrees with no activity for over 7 days', async () => {
+      addWt('task2/active');
+      age(wtPath('task2/active'), 8);
+
+      const result = await weeklyCleanupCommand(baseConfig, providerWithTasks(['task2']));
+
+      assert.equal(result!.worktreesRemoved, 1);
+      assert.ok(!fs.existsSync(wtPath('task2/active')));
+      assert.ok(localBranches(tmpDir).includes('task2/active'));
+    });
+
+    it('keeps a stale worktree that has uncommitted changes', async () => {
+      addWt('task2/dirty');
+      fs.writeFileSync(path.join(wtPath('task2/dirty'), 'wip.txt'), 'wip');
+      age(wtPath('task2/dirty'), 30);
+
+      const result = await weeklyCleanupCommand(baseConfig, providerWithTasks([]));
+
+      assert.equal(result!.worktreesRemoved, 0);
+      assert.ok(fs.existsSync(wtPath('task2/dirty')));
+    });
+
+    it('does not treat an unpushed branch still at base as merged', async () => {
+      fs.mkdirSync(path.join(tmpDir, '.aidev', 'worktrees'), { recursive: true });
+      gitCmd(['worktree', 'add', '-b', 'task2/fresh', wtPath('task2/fresh'), 'main'], tmpDir);
+
+      const result = await weeklyCleanupCommand(baseConfig, providerWithTasks(['task2']));
+
+      assert.equal(result!.worktreesRemoved, 0);
+      assert.ok(fs.existsSync(wtPath('task2/fresh')));
+    });
+
+    it('removes a clean worktree whose branch is merged into base', async () => {
+      fs.mkdirSync(path.join(tmpDir, '.aidev', 'worktrees'), { recursive: true });
+      gitCmd(['worktree', 'add', '-b', 'task2/merged', wtPath('task2/merged'), 'main'], tmpDir);
+      fs.writeFileSync(path.join(wtPath('task2/merged'), 'm.txt'), 'm');
+      gitCmd(['add', '.'], wtPath('task2/merged'));
+      gitCmd(['commit', '-m', 'work'], wtPath('task2/merged'));
+      gitCmd(['merge', '--no-ff', '-m', 'merge', 'task2/merged'], tmpDir);
+      gitCmd(['push', 'origin', 'main'], tmpDir);
+
+      const result = await weeklyCleanupCommand(baseConfig, providerWithTasks(['task2']));
+
+      assert.equal(result!.worktreesRemoved, 1);
+      assert.ok(!fs.existsSync(wtPath('task2/merged')));
+    });
+
+    it('never removes the worktree of the currently active task', async () => {
+      addWt('task1/running');
+      age(wtPath('task1/running'), 30);
+      fs.writeFileSync(path.join(tmpDir, '.aidev.lock'), String(process.pid));
+      fs.writeFileSync(path.join(tmpDir, '.aidev.active'), `task1\n${process.pid}`);
+
+      const result = await weeklyCleanupCommand(baseConfig, providerWithTasks([]));
+
+      assert.equal(result!.worktreesRemoved, 0);
+      assert.ok(fs.existsSync(wtPath('task1/running')));
+      fs.rmSync(path.join(tmpDir, '.aidev.lock'), { force: true });
+      fs.rmSync(path.join(tmpDir, '.aidev.active'), { force: true });
+    });
+
+    it('deletes orphan directories and prunes registrations whose directory is gone', async () => {
+      addWt('task2/active');
+      const orphan = path.join(tmpDir, '.aidev', 'worktrees', 'orphan');
+      fs.mkdirSync(orphan, { recursive: true });
+      fs.rmSync(wtPath('task2/active'), { recursive: true, force: true });
+
+      const result = await weeklyCleanupCommand(baseConfig, providerWithTasks(['task2']));
+
+      assert.ok(result);
+      assert.ok(!fs.existsSync(orphan));
+      const list = spawnSync('git', ['worktree', 'list'], { cwd: tmpDir, encoding: 'utf8' });
+      assert.ok(!list.stdout.includes('task2-active'));
+    });
+
+    it('cleanCommand --dry-run keeps worktrees', async () => {
+      addWt('task1/done');
+      await cleanCommand(baseConfig, providerWithTasks([]), { dryRun: true });
+      assert.ok(fs.existsSync(wtPath('task1/done')));
+    });
+  });
+
   it('prefers fetchBoardTasks so in-review task branches are not deleted', async () => {
     gitCmd(['branch', 'task1/in-review'], tmpDir);
     gitCmd(['branch', 'task2/done'], tmpDir);

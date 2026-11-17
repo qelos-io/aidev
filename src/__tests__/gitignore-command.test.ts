@@ -14,6 +14,7 @@ describe('gitignore command', () => {
   it('lists the expected patterns', () => {
     const patterns = getAidevGitignorePatterns();
     assert.ok(patterns.includes('.aidev/assets/'));
+    assert.ok(patterns.includes('.aidev/worktrees/'));
     assert.ok(patterns.includes('aidev.tasks.json'));
   });
 

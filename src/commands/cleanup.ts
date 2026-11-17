@@ -1,5 +1,7 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
+import { readActiveTask } from '../activeTask';
 import { Config } from '../types';
 import { TaskProvider } from '../providers';
 import * as git from '../git';
@@ -9,6 +11,7 @@ import { cleanupStatePath, cleanupStateRelPath, readLastCleanupAt, writeLastClea
 export interface CleanupSummary {
   branchesDeleted: string[];
   stashesCleared: number;
+  worktreesRemoved: number;
 }
 
 /**
@@ -31,6 +34,132 @@ async function fetchActiveTaskIds(provider: TaskProvider): Promise<Set<string>> 
 function isStaleBranch(branch: string, baseBranch: string, activeTaskIds: Set<string>): boolean {
   if (branch === baseBranch || git.isProtectedBranch(branch)) return false;
   return !activeTaskIds.has(branch.split('/')[0]);
+}
+
+/** Worktrees with no activity for this long are removed. */
+export const WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export interface StaleWorktree {
+  path: string;
+  branch: string | null;
+  reason: string;
+}
+
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+/**
+ * Latest modification time of a worktree: the root directory's mtime does not change when
+ * nested files are edited, so also consider the worktree's HEAD and index files.
+ */
+function lastActivityMs(wtPath: string): number {
+  let latest = 0;
+  const consider = (p: string) => {
+    try {
+      latest = Math.max(latest, fs.statSync(p).mtimeMs);
+    } catch {
+      /* missing */
+    }
+  };
+  consider(wtPath);
+  const gitFile = path.join(wtPath, '.git');
+  try {
+    const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(gitFile, 'utf8'));
+    if (m) {
+      const gitDir = path.resolve(wtPath, m[1].trim());
+      consider(path.join(gitDir, 'HEAD'));
+      consider(path.join(gitDir, 'index'));
+    }
+  } catch {
+    /* not a linked worktree file */
+  }
+  return latest;
+}
+
+/**
+ * Worktrees under `.aidev/worktrees` that are safe to remove: branch gone or merged,
+ * task no longer active, or no activity for 7 days — and in every case free of uncommitted
+ * changes. The currently active task's worktree and locked worktrees are never returned.
+ */
+export function findStaleWorktrees(
+  config: Config,
+  activeTaskIds: Set<string>,
+  now: number = Date.now(),
+  cwd: string = process.cwd(),
+): StaleWorktree[] {
+  const dir = git.worktreesDir(cwd);
+  const runningTask = readActiveTask(cwd);
+  const branches = new Set(git.listLocalBranches());
+  const stale: StaleWorktree[] = [];
+
+  for (const wt of git.listWorktrees(cwd)) {
+    if (!isInside(dir, wt.path) || wt.locked) continue;
+    const taskId = wt.branch ? wt.branch.split('/')[0] : null;
+    if (runningTask && taskId === runningTask) continue;
+
+    if (!fs.existsSync(wt.path)) {
+      stale.push({ path: wt.path, branch: wt.branch, reason: 'directory is missing' });
+      continue;
+    }
+
+    let reason: string | null = null;
+    if (wt.branch && !branches.has(wt.branch)) {
+      reason = 'branch no longer exists';
+    } else if (wt.branch && isStaleBranch(wt.branch, config.githubBaseBranch, activeTaskIds)) {
+      reason = 'task is no longer active';
+    } else if (
+      wt.branch &&
+      !git.isProtectedBranch(wt.branch) &&
+      git.isBranchMerged(wt.branch, config.githubBaseBranch, cwd)
+    ) {
+      reason = 'branch is merged';
+    } else if (now - lastActivityMs(wt.path) > WORKTREE_MAX_AGE_MS) {
+      reason = 'no activity for over 7 days';
+    }
+    if (!reason) continue;
+
+    // Never discard uncommitted work, whatever the reason (a deleted branch's worktree is
+    // still skipped when dirty so the user can recover the edits).
+    if (git.hasChanges(wt.path)) {
+      logger.warn(`Weekly cleanup: keeping worktree ${wt.path} (${reason}) — it has uncommitted changes`);
+      continue;
+    }
+    stale.push({ path: wt.path, branch: wt.branch, reason });
+  }
+  return stale;
+}
+
+/** Directories under `.aidev/worktrees` that git does not list as worktrees. */
+export function findOrphanWorktreeDirs(cwd: string = process.cwd()): string[] {
+  const dir = git.worktreesDir(cwd);
+  if (!fs.existsSync(dir)) return [];
+  const known = git.listWorktrees(cwd).map((w) => w.path);
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => path.join(dir, e.name))
+    .filter((p) => !known.some((k) => git.samePath(k, p)));
+}
+
+/** Removes stale worktrees, prunes git's registry, then deletes orphan directories. Returns how many were removed. */
+function removeStaleWorktrees(config: Config, activeTaskIds: Set<string>): number {
+  let removed = 0;
+  for (const wt of findStaleWorktrees(config, activeTaskIds)) {
+    logger.info(`Weekly cleanup: removing worktree ${wt.path} (${wt.reason})`);
+    if (git.removeWorktree(wt.path, true)) removed++;
+  }
+  git.pruneWorktrees();
+  for (const orphan of findOrphanWorktreeDirs()) {
+    try {
+      fs.rmSync(orphan, { recursive: true, force: true });
+      removed++;
+    } catch (err) {
+      logger.warn(`Weekly cleanup: could not delete orphan worktree dir ${orphan}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  return removed;
 }
 
 export async function weeklyCleanupCommand(config: Config, provider: TaskProvider): Promise<CleanupSummary | null> {
@@ -78,6 +207,10 @@ export async function weeklyCleanupCommand(config: Config, provider: TaskProvide
     return null;
   }
 
+  // Worktrees go first: git refuses to delete a branch that is checked out in a worktree.
+  const worktreesRemoved = removeStaleWorktrees(config, activeTaskIds);
+  logger.info(`Weekly cleanup: removed ${worktreesRemoved} stale worktree(s)`);
+
   const branchesDeleted: string[] = [];
   for (const branch of git.listLocalBranches()) {
     if (!isStaleBranch(branch, config.githubBaseBranch, activeTaskIds)) continue;
@@ -94,7 +227,7 @@ export async function weeklyCleanupCommand(config: Config, provider: TaskProvide
   }
 
   logger.success('Weekly cleanup complete');
-  return { branchesDeleted, stashesCleared };
+  return { branchesDeleted, stashesCleared, worktreesRemoved };
 }
 
 export interface CleanCommandOptions {
@@ -130,6 +263,15 @@ export async function cleanCommand(config: Config, provider: TaskProvider, opts:
     for (const b of staleBranches) console.log(`      ${b}`);
   } else {
     console.log('  - delete no local branches (none are stale)');
+  }
+  const staleWorktrees = findStaleWorktrees(config, activeTaskIds);
+  const orphanDirs = findOrphanWorktreeDirs();
+  if (staleWorktrees.length + orphanDirs.length > 0) {
+    console.log(`  - remove ${staleWorktrees.length + orphanDirs.length} stale git worktree(s) under ${git.WORKTREES_REL_DIR}:`);
+    for (const w of staleWorktrees) console.log(`      ${w.path} (${w.reason})`);
+    for (const o of orphanDirs) console.log(`      ${o} (not registered with git)`);
+  } else {
+    console.log('  - remove no git worktrees (none are stale)');
   }
   console.log(stashes > 0 ? `  - clear ${stashes} git stash(es)` : '  - clear no stashes (none found)');
   console.log('Remote branches are never touched.');

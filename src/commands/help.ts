@@ -62,7 +62,7 @@ ${b('COMMANDS')}
   ${c('tasks push')}                  Publish all queued tasks now (same as ${c('run tasks')})
   ${c('schedule set')} ${d('<cron>')}         Set cron schedule for this directory
   ${c('schedule get')}                Show current cron schedule
-  ${c('clean')} ${d('[--dry-run] [--y]')}     Delete stale local branches + clear stashes (asks y/N first)
+  ${c('clean')} ${d('[--dry-run] [--y]')}     Delete stale local branches + worktrees, clear stashes (asks y/N first)
   ${c('help')}                        Show this help message
 
 ${b('TRIGGER WORD')}
@@ -102,9 +102,20 @@ ${b('NON-CODE TASKS')}
   Jira project (${c('NON_CODE_JIRA_PROJECT')}) for non-code tasks.
   If ${c('NON_CODE_TAG')} is not set, it defaults to ${d('<folder-name>-other')}.
 
+${b('GIT WORKTREES')}
+  Opt in to run each task branch in its own ${c('git worktree')} under the git-ignored
+  ${d('.aidev/worktrees/<branch>')} folder instead of the main checkout. The agent, commits and
+  pushes all run inside it. Enable with ${c('AIDEV_WORKTREE=true')}, the ${c('--worktree')} /
+  ${c('--no-worktree')} flags on ${c('aidev run')}, or a task tag (${c('WORKTREE_TAG')}, default
+  ${d('worktree')}, case-insensitive). Precedence: flag > task tag > env.
+  The worktree is removed when the task ends (the branch is kept; a worktree with
+  uncommitted work is left in place). The weekly cleanup and ${c('aidev clean')} also remove
+  stale worktrees: branch deleted/merged, task no longer active, or unused for 7+ days.
+
 ${b('EXAMPLES')}
   ${d('$')} ${g('aidev init')}
   ${d('$')} ${g('aidev run')}
+  ${d('$')} ${g('aidev run --worktree')}
   ${d('$')} ${g('aidev run open')}
   ${d('$')} ${g('aidev schedule set "*/30 * * * *"')}
   ${d('$')} ${g('aidev schedule get')}
@@ -119,6 +130,8 @@ ${b('CONFIG')}  ${d('.env.aidev in your project directory')}
   ${d('AIDEV_TRIGGER_WORD')}   Trigger word to re-process a skipped task ${d('(default: aidev-continue)')}
   ${d('AIDEV_HOOKS_PATH')}     Optional hooks module ${d('(default from init: .aidev/aidev.hooks.ts)')}
   ${d('NON_CODE_TAG')}         Tag for non-code tasks ${d('(default: <folder-name>-other)')}
+  ${d('AIDEV_WORKTREE')}       Run task branches in git worktrees ${d('(default: false)')}
+  ${d('WORKTREE_TAG')}         Task tag that enables a worktree for that task ${d('(default: worktree)')}
   ${d('GIT_REMOTE')}           Remote name ${d('(auto-detected if unset)')}
   ${d('GITHUB_BASE_BRANCH')}   Base branch ${d('(default: main)')}
   ${d('GITHUB_REPO')}          ${d('owner/repo')} for PR links

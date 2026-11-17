@@ -28,7 +28,7 @@ export class CodexRunner implements AIRunner {
     logger.info('Running Codex CLI (exec)...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-    const cwd = process.cwd();
+    const cwd = options?.cwd ?? process.cwd();
     // Codex generates its own session ids; a follow-up resumes the most recent
     // session (`codex exec resume --last`).
     const args = options?.session?.resume

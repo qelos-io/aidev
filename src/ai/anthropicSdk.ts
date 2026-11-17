@@ -2,6 +2,7 @@ import { AIRunner, AIRunOptions, AIRunResult, AISessionOptions } from './base';
 import { logger } from '../logger';
 import { parseAnthropicTokens, pickNextToken } from '../config';
 import { getMcpState } from '../mcp';
+import { getAssetDirs } from './skillsContext';
 
 const SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk';
 const RUN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -118,7 +119,7 @@ export class AnthropicSdkRunner implements AIRunner {
         }
         logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-        const attemptResult = await this.runOnce(fullPrompt, model, options?.signal, options?.session);
+        const attemptResult = await this.runOnce(fullPrompt, model, options?.signal, options?.session, options?.cwd, options?.assetDirs);
         if (attemptResult.success) {
           return { success: true, output: attemptResult.output, error: '' };
         }
@@ -156,6 +157,8 @@ export class AnthropicSdkRunner implements AIRunner {
     model: string,
     signal?: AbortSignal,
     session?: AISessionOptions,
+    cwd?: string,
+    assetDirs?: string[],
   ): Promise<RunAttemptResult> {
     let output = '';
     let timedOut = false;
@@ -167,11 +170,13 @@ export class AnthropicSdkRunner implements AIRunner {
     try {
       const sdk: any = await this.loadSdk();
       const mcp = getMcpState();
+      const extraDirs = getAssetDirs(assetDirs);
       const allowedTools = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'];
       const q = sdk.query({
         prompt: fullPrompt,
         options: {
-          cwd: process.cwd(),
+          cwd: cwd ?? process.cwd(),
+          ...(extraDirs.length > 0 ? { additionalDirectories: extraDirs } : {}),
           allowedTools: mcp ? [...allowedTools, 'mcp__*'] : allowedTools,
           permissionMode: 'acceptEdits',
           systemPrompt: { type: 'preset', preset: 'claude_code' },

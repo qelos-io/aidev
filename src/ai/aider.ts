@@ -41,7 +41,7 @@ export class AiderRunner implements AIRunner {
     const result = await runSpawnAttempts('aider', [args], {
       encoding: 'utf8',
       timeout: 15 * 60 * 1000,
-      cwd: process.cwd(),
+      cwd: options?.cwd ?? process.cwd(),
       env: getUserShellEnv(),
       signal: options?.signal,
     }, () => false);

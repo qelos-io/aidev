@@ -24,7 +24,7 @@ async function runViaCli(fullPrompt: string, options?: AIRunOptions): Promise<AI
   logger.info('Running Devin CLI...');
   logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-  const cwd = process.cwd();
+  const cwd = options?.cwd ?? process.cwd();
   const promptFile = path.join(os.tmpdir(), `aidev-devin-${process.pid}-${Date.now()}.txt`);
 
   try {

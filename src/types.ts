@@ -169,6 +169,12 @@ export interface Config {
   continueAfterRun: boolean;
   /** After the whole run, stop leftover processes (dev servers, docker containers) started by agent clients. */
   autoShutdown: boolean;
+  /** Run task branches in a `git worktree` under `.aidev/worktrees/` (env `AIDEV_WORKTREE`). */
+  useWorktree: boolean;
+  /** Task tag that enables worktree mode for that task only (env `WORKTREE_TAG`, default 'worktree'). */
+  worktreeTag: string;
+  /** CLI override (`--worktree` / `--no-worktree`). Wins over the task tag and `useWorktree`. */
+  worktreeOverride?: boolean;
   // MCP (Model Context Protocol)
   mcpJsonPath: string;
   betterMcp: boolean;

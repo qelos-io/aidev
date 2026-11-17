@@ -959,6 +959,7 @@ describe('ensureGitignore', () => {
       assert.ok(content.includes('.env.*'));
       assert.ok(content.includes('*.log'));
       assert.ok(content.includes('.aidev/assets/'));
+      assert.ok(content.includes('.aidev/worktrees/'));
       assert.ok(!content.includes('.aidev/\n'));
     });
   });

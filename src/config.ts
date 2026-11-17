@@ -256,6 +256,9 @@ export function loadConfig(customEnvPath?: string): Config {
   const ttlParsed = ttlRaw === '' ? 14 : parseInt(ttlRaw, 10);
   const logTtlDays = Number.isFinite(ttlParsed) ? ttlParsed : 14;
 
+  const useWorktree = ['true', '1', 'yes'].includes((process.env.AIDEV_WORKTREE || '').trim().toLowerCase());
+  const worktreeTag = (process.env.WORKTREE_TAG || '').trim() || 'worktree';
+
   const mcpJsonPath = process.env.MCP_JSON_PATH || '';
   const betterMcpRaw = (process.env.BETTER_MCP || '').trim().toLowerCase();
   const betterMcp = ['true', '1', 'yes'].includes(betterMcpRaw);
@@ -336,6 +339,8 @@ export function loadConfig(customEnvPath?: string): Config {
     safeMode,
     continueAfterRun,
     autoShutdown,
+    useWorktree,
+    worktreeTag,
     mcpJsonPath,
     betterMcp,
     betterMcpConfigPath,

@@ -27,14 +27,26 @@ export function getExtraContextDirs(ctx: AIExtraContext | undefined): string[] {
   return Array.from(new Set(dirs));
 }
 
+/**
+ * Absolute, existing task-asset directories. Assets live in the main repo's
+ * `.aidev/`, which is outside the agent's cwd when it runs in a worktree, so
+ * runners must grant access to them explicitly.
+ */
+export function getAssetDirs(assetDirs: string[] | undefined): string[] {
+  if (!assetDirs) return [];
+  const dirs = assetDirs.map((d) => path.resolve(d)).filter(isDir);
+  return Array.from(new Set(dirs));
+}
+
 /** Prompt text telling the agent where the external, read-only skills/rules live. */
 export function buildSkillsHint(ctx: AIExtraContext | undefined): string {
   if (!ctx) return '';
   const lines: string[] = [];
-  if (ctx.skillsDir) lines.push(`- Skills: ${ctx.skillsDir} (each skill is a folder with a SKILL.md)`);
-  if (ctx.rulesDir) lines.push(`- Rules: ${ctx.rulesDir}`);
-  if (ctx.agentsDir) lines.push(`- Agents: ${ctx.agentsDir}`);
-  if (lines.length === 0) lines.push(`- Skills/rules root: ${ctx.rootDir}`);
+  // Absolute paths: a relative one would resolve against the agent's cwd (possibly a worktree).
+  if (ctx.skillsDir) lines.push(`- Skills: ${path.resolve(ctx.skillsDir)} (each skill is a folder with a SKILL.md)`);
+  if (ctx.rulesDir) lines.push(`- Rules: ${path.resolve(ctx.rulesDir)}`);
+  if (ctx.agentsDir) lines.push(`- Agents: ${path.resolve(ctx.agentsDir)}`);
+  if (lines.length === 0) lines.push(`- Skills/rules root: ${path.resolve(ctx.rootDir)}`);
   return [
     'An external skills/rules library is available outside the repository (read-only).',
     ...lines,

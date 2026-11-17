@@ -1657,3 +1657,79 @@ describe('ClaudeRunner – long prompts', () => {
     assert.equal(cap.inputs[0], longPrompt);
   });
 });
+
+// ─── options.cwd (git worktree support) ───────────────────────────────────────
+
+describe('AI runners – options.cwd', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    mock.restoreAll();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-runner-cwd-'));
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function captureAgentCwds(): { cwds: unknown[]; argv: string[][] } {
+    const cwds: unknown[] = [];
+    const argv: string[][] = [];
+    mockSpawnBoth((cmd: unknown, args: unknown, opts: unknown) => {
+      const command = String(cmd);
+      if (!command.endsWith('where.exe') && !command.endsWith('where') && !command.endsWith('which')) {
+        cwds.push((opts as { cwd?: string } | undefined)?.cwd);
+        argv.push([...((args as string[]) ?? [])]);
+      }
+      return { pid: 1, output: [], stdout: 'ok', stderr: '', status: 0, signal: null, error: undefined };
+    });
+    spyLogger();
+    return { cwds, argv };
+  }
+
+  const runners: Array<[string, () => { run: (p: string, n?: string, o?: object) => Promise<unknown> }]> = [
+    ['claude', () => new ClaudeRunner()],
+    ['cursor', () => new CursorRunner()],
+    ['aider', () => new AiderRunner()],
+    ['codex', () => new CodexRunner()],
+    ['opencode', () => new OpencodeRunner()],
+    ['devin', () => new DevinRunner()],
+    ['antigravity', () => new AntigravityRunner()],
+  ];
+
+  for (const [name, make] of runners) {
+    it(`${name} spawns in options.cwd when provided`, async () => {
+      const { cwds } = captureAgentCwds();
+      await make().run('do it', undefined, { cwd: tmpDir });
+      assert.ok(cwds.length > 0);
+      assert.equal(cwds[0], tmpDir);
+    });
+
+    it(`${name} defaults to process.cwd() without options.cwd`, async () => {
+      const { cwds } = captureAgentCwds();
+      await make().run('do it');
+      assert.equal(cwds[0], process.cwd());
+    });
+  }
+
+  it('cursor passes the custom cwd as --workspace', async () => {
+    const { argv } = captureAgentCwds();
+    await new CursorRunner().run('do it', undefined, { cwd: tmpDir });
+    const args = argv[0];
+    assert.equal(args[args.indexOf('--workspace') + 1], tmpDir);
+  });
+
+  it('claude grants --add-dir for absolute asset dirs outside the cwd', async () => {
+    const assets = path.join(tmpDir, 'main', '.aidev', 'assets', 'task-1');
+    fs.mkdirSync(assets, { recursive: true });
+    const work = path.join(tmpDir, 'worktree');
+    fs.mkdirSync(work);
+    const { argv } = captureAgentCwds();
+    await new ClaudeRunner().run('do it', undefined, { cwd: work, assetDirs: [assets, path.join(tmpDir, 'missing')] });
+    const args = argv[0];
+    assert.ok(args.includes('--add-dir'));
+    assert.ok(args.includes(path.resolve(assets)));
+    assert.ok(!args.includes(path.join(tmpDir, 'missing')));
+  });
+});

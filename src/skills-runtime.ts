@@ -50,6 +50,19 @@ function linkTargetsFor(runners: AIRunner[]): SkillsLinkTarget[] {
   return targets;
 }
 
+/** Source/runners of the current run, so a task worktree can get the same fallback links. */
+let current: { source: ResolvedSkillsSource; runners: AIRunner[] } | null = null;
+
+/**
+ * Creates the fallback skills links (for runners that cannot take the source directly) inside
+ * `dir`, e.g. a task's git worktree. Returns a cleanup function. No-op without a skills source.
+ */
+export function linkSkillsInto(dir: string): () => void {
+  if (!current || runnersNeedingSkillsLink(current.runners).length === 0) return () => {};
+  const links = linkSkills(dir, current.source, linkTargetsFor(current.runners));
+  return () => unlinkSkills(links);
+}
+
 /**
  * Resolves the configured skills source once (throws with a clear message when it is
  * unusable), hands it to the runners, and creates fallback symlinks only when some
@@ -63,7 +76,11 @@ export function setupSkills(
   resolve: typeof resolveSkillsSource = resolveSkillsSource,
 ): SkillsRuntime {
   const source = resolve(config);
-  if (!source) return { runners, source: null, cleanup: () => {} };
+  if (!source) {
+    current = null;
+    return { runners, source: null, cleanup: () => {} };
+  }
+  current = { source, runners };
 
   logger.info(`Skills source ready: ${source.rootDir}${source.isGit ? ' (git cache, read-only)' : ''}`);
   const wrapped = withSkillsContext(runners, toExtraContext(source));
@@ -81,6 +98,7 @@ export function setupSkills(
     cleanup: () => {
       const l = links;
       links = null;
+      current = null;
       unlinkSkills(l);
     },
   };

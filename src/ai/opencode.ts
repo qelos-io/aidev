@@ -27,7 +27,7 @@ export class OpencodeRunner implements AIRunner {
     logger.info('Running OpenCode CLI (run)...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-    const cwd = process.cwd();
+    const cwd = options?.cwd ?? process.cwd();
     const args = ['run', '--dangerously-skip-permissions', '--dir', cwd];
 
     // opencode generates its own session ids, so a follow-up continues the most
