@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { logger } from './logger';
 
 export const LOCK_FILENAME = '.aidev.lock';
 
@@ -47,7 +48,16 @@ export function acquireLock(cwd: string): boolean {
   if (existing !== null && isProcessAlive(existing)) {
     return false;
   }
-  // Write our PID (overwriting stale lock if present)
+  if (existing !== null || fs.existsSync(lockfilePath(cwd))) {
+    // Lock file present but its owner is dead (or the content is unparsable): stale.
+    logger.warn(
+      existing !== null
+        ? `Removing stale ${LOCK_FILENAME} (PID ${existing} is not running).`
+        : `Removing stale ${LOCK_FILENAME} (no valid PID recorded).`
+    );
+    releaseLock(cwd);
+  }
+  // Write our PID
   fs.writeFileSync(lockfilePath(cwd), String(process.pid), 'utf8');
   return true;
 }

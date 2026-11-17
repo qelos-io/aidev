@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isProcessAlive, readLock } from './lockfile';
+import { logger } from './logger';
 
 export const ACTIVE_TASK_FILENAME = '.aidev.active';
 
@@ -56,12 +57,36 @@ export function clearActiveTask(cwd: string): void {
 }
 
 /**
+ * Remove `.aidev.active` if its owner is not running. The owner is the PID in the
+ * file; legacy id-only files fall back to the lock's PID. A missing/unparsable owner
+ * counts as dead. Never removes a file owned by a live PID.
+ * Returns true when a stale file was removed.
+ */
+export function clearStaleActiveTask(cwd: string): boolean {
+  if (!fs.existsSync(activeTaskPath(cwd))) return false;
+  const owner = readActivePid(cwd) ?? readLock(cwd);
+  if (owner !== null && isProcessAlive(owner)) return false;
+  logger.warn(
+    owner !== null
+      ? `Removing stale ${ACTIVE_TASK_FILENAME} (PID ${owner} is not running).`
+      : `Removing stale ${ACTIVE_TASK_FILENAME} (no valid PID recorded).`
+  );
+  clearActiveTask(cwd);
+  return true;
+}
+
+/**
  * Task id currently being implemented by a live `aidev run` in `cwd`, if any.
  * Returns null when no lock is held, the holder is dead, or no task file exists.
  */
 export function readActiveTask(cwd: string): string | null {
   const pid = readLock(cwd);
   if (pid === null || !isProcessAlive(pid)) {
+    clearActiveTask(cwd);
+    return null;
+  }
+  const activePid = readActivePid(cwd);
+  if (activePid !== null && !isProcessAlive(activePid)) {
     clearActiveTask(cwd);
     return null;
   }

@@ -16,7 +16,7 @@ import {
 } from '../github';
 import { collectAndLogDiagnostics } from '../diagnostics';
 import { acquireLock, releaseLock, readLock } from '../lockfile';
-import { writeActiveTask, clearActiveTask } from '../activeTask';
+import { writeActiveTask, clearActiveTask, clearStaleActiveTask } from '../activeTask';
 import { startConfigServer, type ConfigServer, type ConfigInheritPayload } from '../ipc';
 import { envFileKeys } from '../config';
 import {
@@ -713,6 +713,9 @@ export async function runCommand(
   taskId?: string
 ): Promise<void> {
   const cwd = process.cwd();
+  // Drop a leftover .aidev.active whose owner died (before the lock check, so a
+  // legacy id-only file is judged against the previous lock holder's PID).
+  clearStaleActiveTask(cwd);
   if (!acquireLock(cwd)) {
     const pid = readLock(cwd);
     logger.warn(`aidev is already running in this directory (PID ${pid}). Use "aidev stop" to terminate it.`);

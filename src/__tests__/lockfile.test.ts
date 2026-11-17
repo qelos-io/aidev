@@ -125,6 +125,18 @@ describe('acquireLock', () => {
     assert.equal(readLock(tmpDir), process.pid);
   });
 
+  it('removes and replaces an unparsable (legacy/garbage) lock', () => {
+    fs.writeFileSync(lockfilePath(tmpDir), 'garbage', 'utf8');
+    assert.equal(acquireLock(tmpDir), true);
+    assert.equal(readLock(tmpDir), process.pid);
+  });
+
+  it('never steals a lock from a live PID', () => {
+    writeLock(tmpDir, process.pid);
+    assert.equal(acquireLock(tmpDir), false);
+    assert.equal(readLock(tmpDir), process.pid);
+  });
+
   it('fails when a live process holds the lock', () => {
     writeLock(tmpDir, process.pid); // current process = alive
     const ok = acquireLock(tmpDir);

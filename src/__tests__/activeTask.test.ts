@@ -11,6 +11,7 @@ import {
   readActivePid,
   readActiveTask,
   clearActiveTask,
+  clearStaleActiveTask,
 } from '../activeTask';
 import { acquireLock, releaseLock, lockfilePath } from '../lockfile';
 
@@ -100,6 +101,43 @@ describe('readActiveTask', () => {
     writeActiveTask(tmpDir, 'CU-stale');
     assert.equal(readActiveTask(tmpDir), null);
     assert.equal(readActiveTaskFile(tmpDir), null);
+  });
+});
+
+describe('clearStaleActiveTask', () => {
+  it('returns false when no file exists', () => {
+    assert.equal(clearStaleActiveTask(tmpDir), false);
+  });
+
+  it('removes a file whose pid is dead', () => {
+    writeActiveTask(tmpDir, 'CU-dead', 999999999);
+    assert.equal(clearStaleActiveTask(tmpDir), true);
+    assert.equal(fs.existsSync(activeTaskPath(tmpDir)), false);
+  });
+
+  it('keeps a file whose pid is alive', () => {
+    writeActiveTask(tmpDir, 'CU-live', process.pid);
+    assert.equal(clearStaleActiveTask(tmpDir), false);
+    assert.equal(readActiveTaskFile(tmpDir), 'CU-live');
+  });
+
+  it('legacy file: judged by the lock pid (live kept, dead removed, none removed)', () => {
+    fs.writeFileSync(activeTaskPath(tmpDir), 'CU-legacy', 'utf8');
+    fs.writeFileSync(lockfilePath(tmpDir), String(process.pid), 'utf8');
+    assert.equal(clearStaleActiveTask(tmpDir), false);
+    fs.writeFileSync(lockfilePath(tmpDir), '999999999', 'utf8');
+    assert.equal(clearStaleActiveTask(tmpDir), true);
+    fs.writeFileSync(activeTaskPath(tmpDir), 'CU-legacy', 'utf8');
+    fs.unlinkSync(lockfilePath(tmpDir));
+    assert.equal(clearStaleActiveTask(tmpDir), true);
+    assert.equal(fs.existsSync(activeTaskPath(tmpDir)), false);
+  });
+
+  it('readActiveTask returns null when the active file pid is dead', () => {
+    assert.ok(acquireLock(tmpDir));
+    writeActiveTask(tmpDir, 'CU-x', 999999999);
+    assert.equal(readActiveTask(tmpDir), null);
+    releaseLock(tmpDir);
   });
 });
 
