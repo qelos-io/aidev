@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildPRUrl, buildPRBody, buildCompletionComment, buildNoChangesCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, processNonCodeTask, processConsultTask, applyAutoApproveTag, applyAutoReviewTag, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions } from '../commands/run';
+import { buildPRUrl, buildPRBody, buildCompletionComment, buildNoChangesCompletionComment, buildNonCodeCompletionComment, buildNonCodePrompt, buildImplementPrompt, buildConflictResolutionPrompt, hasHumanReply, hasHumanComment, hasTriggerWord, hasAidevComment, filterAutomatedComments, DEFAULT_TRIGGER_WORD, checkNeedsClarification, sortTasksByPriority, getRunSkipReason, getConsultSkipReason, getBlockedBySkipReason, processNonCodeTask, processConsultTask, applyAutoApproveTag, applyAutoReviewTag, buildReviewPrompt, buildReviewCompletionComment, parseReplyDirectives, buildNonCodeAnalysisPrompt, buildNonCodeSubtaskPrompt, buildNonCodeThinkingCompletionComment, buildConsultPrompt, buildConsultCompletionComment, NonCodeSubTaskResult, SubTask, ThinkingTaskPlan, augmentPromptForAssets, buildAssetRunOptions, handleAllAgentsFailed, buildAllAgentsFailedComment, tailOfLog } from '../commands/run';
 import { filterUnresolvedByNonAidev, ReviewThread } from '../github';
 import type { Config, Comment } from '../types';
 import type { Task } from '../types';
@@ -1536,4 +1536,110 @@ describe('blocked-by check for non-code and consult tasks', () => {
       assert.equal(touched, false);
     });
   }
+});
+
+// ─── all-agents-failed handling ───────────────────────────────────────────────
+
+describe('handleAllAgentsFailed', () => {
+  const failConfig = { commentPrefix: '[aidev]', clickupPendingStatus: 'pending', taskProvider: 'clickup' } as unknown as Config;
+  const failTask = { id: 'T-1', name: 'Task', description: '', status: 'in progress', url: '', tags: [] } as unknown as Task;
+
+  function fakeProvider(opts: { failComment?: boolean; failStatus?: boolean } = {}) {
+    const calls = { comments: [] as string[], statuses: [] as string[] };
+    const provider = {
+      ...mockProvider,
+      postComment: async (_id: string, text: string) => {
+        if (opts.failComment) throw new Error('comment boom');
+        calls.comments.push(text);
+      },
+      updateStatus: async (_id: string, status: string) => {
+        if (opts.failStatus) throw new Error('status boom');
+        calls.statuses.push(status);
+      },
+    } as unknown as TaskProvider;
+    return { provider, calls };
+  }
+
+  it('posts the log tail, the retry question and sets pending status', async () => {
+    const { provider, calls } = fakeProvider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-fail-'));
+    try {
+      const res = await handleAllAgentsFailed(failTask, failConfig, provider, {}, undefined, 'boom: it broke', { saveDiff: false, cwd: dir });
+      assert.equal(res.commented, true);
+      assert.equal(res.statusUpdated, true);
+      assert.equal(calls.comments.length, 1);
+      assert.match(calls.comments[0], /boom: it broke/);
+      assert.ok(calls.comments[0].trimEnd().endsWith('Should I try again?'));
+      assert.deepEqual(calls.statuses, ['pending']);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not throw when the provider fails, and still tries the status update', async () => {
+    const { provider, calls } = fakeProvider({ failComment: true });
+    const res = await handleAllAgentsFailed(failTask, failConfig, provider, {}, undefined, 'err', { saveDiff: false });
+    assert.equal(res.commented, false);
+    assert.equal(res.statusUpdated, true);
+    assert.deepEqual(calls.statuses, ['pending']);
+
+    const { provider: p2 } = fakeProvider({ failStatus: true });
+    const res2 = await handleAllAgentsFailed(failTask, failConfig, p2, {}, undefined, 'err', { saveDiff: false });
+    assert.equal(res2.commented, true);
+    assert.equal(res2.statusUpdated, false);
+  });
+
+  it('saves the working tree diff into the assets folder and mentions it', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-fail-git-'));
+    const run = (...args: string[]) => spawnSync('git', args, { cwd: dir });
+    try {
+      run('init', '-q');
+      run('config', 'user.email', 't@t.t');
+      run('config', 'user.name', 't');
+      run('config', 'commit.gpgsign', 'false');
+      fs.writeFileSync(path.join(dir, 'a.txt'), 'one\n');
+      run('add', '-A');
+      run('commit', '-q', '-m', 'init');
+      fs.writeFileSync(path.join(dir, 'a.txt'), 'two\n');
+      fs.writeFileSync(path.join(dir, 'new.txt'), 'fresh\n');
+
+      const { provider, calls } = fakeProvider();
+      const res = await handleAllAgentsFailed(failTask, failConfig, provider, {}, undefined, 'err', { cwd: dir });
+      assert.ok(res.diffPath, 'diff path returned');
+      assert.ok(fs.existsSync(res.diffPath!));
+      assert.match(res.diffPath!.split(path.sep).join('/'), /\.aidev\/assets\/T-1\/uncommitted\.diff$/);
+      assert.match(fs.readFileSync(res.diffPath!, 'utf8'), /new\.txt/);
+      assert.match(calls.comments[0], /uncommitted\.diff/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('omits the diff note when there is nothing to save (clean repo)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-fail-empty-'));
+    try {
+      const { provider, calls } = fakeProvider();
+      const res = await handleAllAgentsFailed(failTask, failConfig, provider, {}, undefined, 'err', { cwd: dir });
+      assert.equal(res.diffPath, null);
+      assert.doesNotMatch(calls.comments[0], /uncommitted\.diff/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('tailOfLog / buildAllAgentsFailedComment', () => {
+  it('keeps the end of a long log', () => {
+    const log = Array.from({ length: 2000 }, (_, i) => `line ${i}`).join('\n');
+    const tail = tailOfLog(log, 200);
+    assert.ok(tail.length <= 201);
+    assert.match(tail, /line 1999$/);
+    assert.ok(tail.startsWith('…'));
+  });
+
+  it('ends with the retry question', () => {
+    const c = buildAllAgentsFailedComment({ commentPrefix: '[aidev]' } as Config, '', null);
+    assert.ok(c.endsWith('Should I try again?'));
+  });
 });

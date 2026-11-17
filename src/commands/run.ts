@@ -42,7 +42,7 @@ import {
   getInReviewStatus,
 } from '../taskStatus';
 import { prepareForTaskCommit } from '../assetsGitignore';
-import {   getExistingAssetDirs, listTaskAssetFiles } from '../aidevAssets';
+import { getExistingAssetDirs, listTaskAssetFiles, writeUncommittedDiff } from '../aidevAssets';
 import {
   buildAssetsAccessInstructions,
   buildCompletionComment,
@@ -157,6 +157,89 @@ async function ensureImplementationStillActive(
     branchExists,
   );
   return false;
+}
+
+const FAILURE_LOG_TAIL_MAX = 3000;
+export const RETRY_QUESTION = 'Should I try again?';
+
+/** Keeps the end of the log (where the actual error usually is), cut on a line boundary. */
+export function tailOfLog(log: string, max = FAILURE_LOG_TAIL_MAX): string {
+  const trimmed = log.trim();
+  if (trimmed.length <= max) return trimmed;
+  const cut = trimmed.slice(trimmed.length - max);
+  const newline = cut.indexOf('\n');
+  return `…${newline >= 0 && newline < cut.length - 1 ? cut.slice(newline + 1) : cut}`;
+}
+
+export function buildAllAgentsFailedComment(
+  config: Config,
+  errorLog: string,
+  diffPath: string | null,
+  headline = 'All AI runners failed.',
+): string {
+  const lines = [`${config.commentPrefix} ${headline}`];
+  const tail = tailOfLog(errorLog);
+  if (tail) lines.push('', 'Error log (tail):', '```', tail, '```');
+  if (diffPath) {
+    lines.push(
+      '',
+      `The uncommitted changes from this attempt were saved to \`${diffPath.split(path.sep).join('/')}\` and will be re-applied if the task continues.`,
+    );
+  }
+  lines.push('', RETRY_QUESTION);
+  return lines.join('\n');
+}
+
+/**
+ * Terminal handling when every agent failed: snapshot uncommitted work into the
+ * task's assets folder, comment the error log + "Should I try again?", and set the
+ * task to pending (so it is only picked up again after a human reply). Every step
+ * is best-effort — a provider/git/fs failure must never mask the original failure.
+ */
+export async function handleAllAgentsFailed(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  hooks: AidevHooks,
+  vm: HookVM | undefined,
+  errorLog: string,
+  options: { saveDiff?: boolean; headline?: string; cwd?: string } = {},
+): Promise<{ diffPath: string | null; commented: boolean; statusUpdated: boolean }> {
+  const cwd = options.cwd ?? process.cwd();
+  let diffPath: string | null = null;
+  if (options.saveDiff !== false) {
+    try {
+      const diff = git.createWorkingTreeDiff(cwd);
+      if (diff) {
+        diffPath = writeUncommittedDiff(task.id, diff, cwd);
+        if (diffPath) logger.info(`Saved uncommitted changes to ${diffPath}`);
+        else logger.warn('Could not write the uncommitted changes diff file');
+      }
+    } catch (err) {
+      logger.warn(`Could not save uncommitted changes: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  let commented = false;
+  try {
+    await postCommentWithHooks(
+      task,
+      buildAllAgentsFailedComment(config, errorLog, diffPath, options.headline),
+      config, provider, hooks, vm,
+    );
+    commented = true;
+  } catch (err) {
+    logger.warn(`Could not post failure comment: ${err instanceof Error ? err.message : err}`);
+  }
+
+  let statusUpdated = false;
+  try {
+    await provider.updateStatus(task.id, getPendingStatus(config));
+    statusUpdated = true;
+  } catch (err) {
+    logger.warn(`Could not set status to pending after failure: ${err instanceof Error ? err.message : err}`);
+  }
+  return { diffPath, commented, statusUpdated };
 }
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete', 'resolved', 'completed']);
@@ -1568,11 +1651,8 @@ async function implementTask(
 
     logger.error('All AI runners failed or produced no changes');
     const diagnostics = collectAndLogDiagnostics();
-    await postCommentWithHooks(
-      task,
-      `${config.commentPrefix} All AI runners failed. Manual implementation needed.\n\n${diagnostics}`,
-      config, provider, hooks, vm
-    );
+    // Snapshot happens before deleteBranch so uncommitted work is not lost with the branch.
+    await handleAllAgentsFailed(task, config, provider, hooks, vm, [previousNotes, diagnostics].filter(Boolean).join('\n\n'));
     if (!branchExists) {
       git.deleteBranch(branchName);
     }
@@ -2667,11 +2747,8 @@ async function implementNonCodeTask(
 
     logger.error('All AI runners failed');
     const diagnostics = collectAndLogDiagnostics();
-    await postCommentWithHooks(
-      task,
-      `${config.commentPrefix} All AI runners failed. Manual intervention needed.\n\n${diagnostics}`,
-      config, provider, hooks, vm
-    );
+    // Non-code tasks have no working-tree changes worth saving.
+    await handleAllAgentsFailed(task, config, provider, hooks, vm, [previousNotes, diagnostics].filter(Boolean).join('\n\n'), { saveDiff: false });
     return;
   }
 
