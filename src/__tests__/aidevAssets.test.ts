@@ -10,6 +10,10 @@ import {
   listTaskAssetFiles,
   getExistingAssetDirs,
   secretsFileRelPath,
+  uncommittedDiffPath,
+  writeUncommittedDiff,
+  readUncommittedDiffPath,
+  removeUncommittedDiff,
 } from '../aidevAssets';
 
 describe('aidevAssets path helpers', () => {
@@ -79,5 +83,25 @@ describe('aidevAssets path helpers', () => {
     fs.mkdirSync(rootDir, { recursive: true });
 
     assert.deepEqual(getExistingAssetDirs('no-task-dir', tmpDir), [rootDir]);
+  });
+
+  it('round-trips an uncommitted diff in the task assets folder', () => {
+    assert.equal(readUncommittedDiffPath('t1', tmpDir), null);
+
+    const written = writeUncommittedDiff('t1', Buffer.from('diff --git a/x b/x\n'), tmpDir);
+    assert.equal(written, uncommittedDiffPath('t1', tmpDir));
+    assert.equal(written, path.join(tmpDir, '.aidev', 'assets', 't1', 'uncommitted.diff'));
+    assert.equal(readUncommittedDiffPath('t1', tmpDir), written);
+    assert.equal(fs.readFileSync(written!, 'utf8'), 'diff --git a/x b/x\n');
+
+    removeUncommittedDiff('t1', tmpDir);
+    assert.equal(readUncommittedDiffPath('t1', tmpDir), null);
+    removeUncommittedDiff('t1', tmpDir); // idempotent
+  });
+
+  it('skips writing an empty diff', () => {
+    assert.equal(writeUncommittedDiff('t2', '', tmpDir), null);
+    assert.equal(writeUncommittedDiff('t2', Buffer.alloc(0), tmpDir), null);
+    assert.equal(fs.existsSync(taskAssetsDir('t2', tmpDir)), false);
   });
 });

@@ -15,8 +15,9 @@ import {
   ReviewThread,
 } from '../github';
 import { collectAndLogDiagnostics } from '../diagnostics';
-import { acquireLock, releaseLock, readLock } from '../lockfile';
-import { writeActiveTask, clearActiveTask } from '../activeTask';
+import { acquireLock, readLock } from '../lockfile';
+import { cleanupBookkeeping, registerBookkeepingCleanup } from '../bookkeeping';
+import { writeActiveTask, clearActiveTask, clearStaleActiveTask } from '../activeTask';
 import { startConfigServer, type ConfigServer, type ConfigInheritPayload } from '../ipc';
 import { envFileKeys } from '../config';
 import {
@@ -41,9 +42,10 @@ import {
   getInReviewStatus,
 } from '../taskStatus';
 import { prepareForTaskCommit } from '../assetsGitignore';
-import {   getExistingAssetDirs, listTaskAssetFiles } from '../aidevAssets';
+import { getExistingAssetDirs, listTaskAssetFiles, readUncommittedDiffPath, removeUncommittedDiff, writeUncommittedDiff } from '../aidevAssets';
 import {
   buildAssetsAccessInstructions,
+  buildSavedDiffNotice,
   buildCompletionComment,
   buildConflictResolutionPrompt,
   buildContinuePrompt,
@@ -101,6 +103,32 @@ export function augmentPromptForAssets(prompt: string, taskId: string, cwd = pro
   return instructions ? prompt + instructions : prompt;
 }
 
+/**
+ * Re-applies the `uncommitted.diff` saved after an all-agents-failed run, when
+ * the task resumes. Returns a context note for the prompt ('' if no diff).
+ * The diff is removed once applied; if it cannot be applied it is kept and the
+ * agent is pointed at it instead. Never throws.
+ */
+export function restoreSavedDiff(taskId: string, cwd = process.cwd()): string {
+  try {
+    const diffPath = readUncommittedDiffPath(taskId, cwd);
+    if (!diffPath) return '';
+    const relPath = path.relative(cwd, diffPath).split(path.sep).join('/');
+
+    const result = git.applySavedDiff(cwd, diffPath);
+    if (result.applied) {
+      logger.info(`Re-applied saved changes from ${relPath}${result.conflicts ? ' (with conflicts)' : ''}`);
+      removeUncommittedDiff(taskId, cwd);
+      return buildSavedDiffNotice(result.conflicts ? 'conflicts' : 'applied', relPath);
+    }
+    logger.warn(`Could not re-apply ${relPath}; leaving it for the agent`);
+    return buildSavedDiffNotice('failed', relPath, result.error);
+  } catch (err) {
+    logger.warn(`Saved diff restore failed: ${err instanceof Error ? err.message : err}`);
+    return '';
+  }
+}
+
 export function buildAssetRunOptions(taskId: string, cwd = process.cwd()): Pick<AIRunOptions, 'assetDirs'> {
   const assetDirs = getExistingAssetDirs(taskId, cwd);
   return assetDirs.length > 0 ? { assetDirs } : {};
@@ -156,6 +184,113 @@ async function ensureImplementationStillActive(
     branchExists,
   );
   return false;
+}
+
+const FAILURE_LOG_TAIL_MAX = 3000;
+export const RETRY_QUESTION = 'Should I try again?';
+
+/** Keeps the end of the log (where the actual error usually is), cut on a line boundary. */
+export function tailOfLog(log: string, max = FAILURE_LOG_TAIL_MAX): string {
+  const trimmed = log.trim();
+  if (trimmed.length <= max) return trimmed;
+  const cut = trimmed.slice(trimmed.length - max);
+  const newline = cut.indexOf('\n');
+  return `…${newline >= 0 && newline < cut.length - 1 ? cut.slice(newline + 1) : cut}`;
+}
+
+/** Mask known secret values and `SECRET_KEY=value` style assignments before posting externally. */
+export function redactForComment(text: string, cwd = process.cwd()): string {
+  let result = text;
+  try {
+    const values = [...new Set(collectSecrets(cwd).values())].sort((a, b) => b.length - a.length);
+    for (const value of values) result = result.split(value).join('[REDACTED]');
+  } catch { /* best-effort */ }
+  return result.replace(
+    /\b([A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Za-z0-9_]*)(\s*[=:]\s*)(["']?)[^\s"']{4,}\3/gi,
+    '$1$2[REDACTED]',
+  );
+}
+
+/** A backtick fence longer than any backtick run in `text` (min 3). */
+function fenceFor(text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((m) => m.length));
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
+export function buildAllAgentsFailedComment(
+  config: Config,
+  errorLog: string,
+  diffPath: string | null,
+  headline = 'All AI runners failed.',
+  cwd = process.cwd(),
+): string {
+  const lines = [`${config.commentPrefix} ${headline}`];
+  const tail = tailOfLog(redactForComment(errorLog, cwd));
+  if (tail) {
+    const fence = fenceFor(tail);
+    lines.push('', 'Error log (tail):', fence, tail, fence);
+  }
+  if (diffPath) {
+    const rel = path.isAbsolute(diffPath) ? path.relative(cwd, diffPath) : diffPath;
+    lines.push(
+      '',
+      `The uncommitted changes from this attempt were saved to \`${rel.split(path.sep).join('/')}\` and will be re-applied if the task continues.`,
+    );
+  }
+  lines.push('', RETRY_QUESTION);
+  return lines.join('\n');
+}
+
+/**
+ * Terminal handling when every agent failed: snapshot uncommitted work into the
+ * task's assets folder, comment the error log + "Should I try again?", and set the
+ * task to pending (so it is only picked up again after a human reply). Every step
+ * is best-effort — a provider/git/fs failure must never mask the original failure.
+ */
+export async function handleAllAgentsFailed(
+  task: Task,
+  config: Config,
+  provider: TaskProvider,
+  hooks: AidevHooks,
+  vm: HookVM | undefined,
+  errorLog: string,
+  options: { saveDiff?: boolean; headline?: string; cwd?: string } = {},
+): Promise<{ diffPath: string | null; commented: boolean; statusUpdated: boolean }> {
+  const cwd = options.cwd ?? process.cwd();
+  let diffPath: string | null = null;
+  if (options.saveDiff !== false) {
+    try {
+      const diff = git.createWorkingTreeDiff(cwd);
+      if (diff) {
+        diffPath = writeUncommittedDiff(task.id, diff, cwd);
+        if (diffPath) logger.info(`Saved uncommitted changes to ${diffPath}`);
+        else logger.warn('Could not write the uncommitted changes diff file');
+      }
+    } catch (err) {
+      logger.warn(`Could not save uncommitted changes: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  let commented = false;
+  try {
+    await postCommentWithHooks(
+      task,
+      buildAllAgentsFailedComment(config, errorLog, diffPath, options.headline, cwd),
+      config, provider, hooks, vm,
+    );
+    commented = true;
+  } catch (err) {
+    logger.warn(`Could not post failure comment: ${err instanceof Error ? err.message : err}`);
+  }
+
+  let statusUpdated = false;
+  try {
+    await provider.updateStatus(task.id, getPendingStatus(config));
+    statusUpdated = true;
+  } catch (err) {
+    logger.warn(`Could not set status to pending after failure: ${err instanceof Error ? err.message : err}`);
+  }
+  return { diffPath, commented, statusUpdated };
 }
 
 const SKIP_STATUSES = new Set(['closed', 'done', 'cancelled', 'complete', 'resolved', 'completed']);
@@ -713,11 +848,24 @@ export async function runCommand(
   taskId?: string
 ): Promise<void> {
   const cwd = process.cwd();
+  // Drop a leftover .aidev.active whose owner died (before the lock check, so a
+  // legacy id-only file is judged against the previous lock holder's PID).
+  clearStaleActiveTask(cwd);
   if (!acquireLock(cwd)) {
     const pid = readLock(cwd);
     logger.warn(`aidev is already running in this directory (PID ${pid}). Use "aidev stop" to terminate it.`);
     process.exit(1);
   }
+
+  // From here on we own the bookkeeping files: remove them on exit, SIGHUP and fatal
+  // errors (SIGINT/SIGTERM are handled below, after async teardown).
+  // Async teardown (agents/dev servers/containers, config server, skills) is wired in
+  // below once those exist; fatal errors and SIGHUP run it before the lock is released.
+  let teardown: () => Promise<void> = async () => {};
+  const cleanupRegistration = registerBookkeepingCleanup(cwd, {
+    signals: ['SIGHUP'],
+    onShutdown: () => teardown(),
+  });
 
   // Clear a crash-leftover index.lock up front so every later git operation
   // (fetch, checkout, commit, ...) works, not just the clean-tree check.
@@ -775,19 +923,25 @@ export async function runCommand(
     try { skills?.cleanup(); } catch { /* best-effort */ }
     try { unlinkAllSkills(); } catch { /* best-effort */ }
   };
+  teardown = async (): Promise<void> => {
+    cleanupSkills();
+    await shutdownTracked();
+    try { configServer.close(); } catch { /* ignore */ }
+  };
   const onSignal = (signal: NodeJS.Signals): void => {
     logger.warn(`Received ${signal} — cleaning up...`);
     cleanupSkills();
     void shutdownTracked().finally(() => {
       try { configServer.close(); } catch { /* ignore */ }
-      try { clearActiveTask(cwd); } catch { /* ignore */ }
-      try { releaseLock(cwd); } catch { /* ignore */ }
+      cleanupBookkeeping(cwd);
       process.exit(signal === 'SIGINT' ? 130 : 143);
     });
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
+  // Everything after the lock is acquired runs inside try/finally so the files are
+  // released even when setup or a task throws.
   try {
     // Resolve the skills source once for the whole run (this is the only place that
     // clones/updates a git source; descendant aidev processes inherit the config but
@@ -911,8 +1065,8 @@ export async function runCommand(
     } catch {
       // ignore — best-effort cleanup
     }
-    clearActiveTask(cwd);
-    releaseLock(cwd);
+    cleanupBookkeeping(cwd);
+    cleanupRegistration.dispose();
   }
 }
 
@@ -1450,6 +1604,9 @@ async function implementTask(
     }
   }
 
+  // Re-apply uncommitted work saved by a previous all-agents-failed run
+  context += restoreSavedDiff(task.id);
+
   // Fetch unresolved PR review comments for existing branches
   const reviewThreads = branchExists
     ? fetchPrReviewComments(config, branchName)
@@ -1559,11 +1716,8 @@ async function implementTask(
 
     logger.error('All AI runners failed or produced no changes');
     const diagnostics = collectAndLogDiagnostics();
-    await postCommentWithHooks(
-      task,
-      `${config.commentPrefix} All AI runners failed. Manual implementation needed.\n\n${diagnostics}`,
-      config, provider, hooks, vm
-    );
+    // Snapshot happens before deleteBranch so uncommitted work is not lost with the branch.
+    await handleAllAgentsFailed(task, config, provider, hooks, vm, [previousNotes, diagnostics].filter(Boolean).join('\n\n'));
     if (!branchExists) {
       git.deleteBranch(branchName);
     }
@@ -2658,11 +2812,8 @@ async function implementNonCodeTask(
 
     logger.error('All AI runners failed');
     const diagnostics = collectAndLogDiagnostics();
-    await postCommentWithHooks(
-      task,
-      `${config.commentPrefix} All AI runners failed. Manual intervention needed.\n\n${diagnostics}`,
-      config, provider, hooks, vm
-    );
+    // Non-code tasks have no working-tree changes worth saving.
+    await handleAllAgentsFailed(task, config, provider, hooks, vm, [previousNotes, diagnostics].filter(Boolean).join('\n\n'), { saveDiff: false });
     return;
   }
 

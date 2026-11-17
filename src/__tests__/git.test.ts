@@ -32,6 +32,8 @@ import {
   isAidevScratchPath,
   isAidevSkillsPath,
   AIDEV_SKILLS_LINK_NAME,
+  createWorkingTreeDiff,
+  applySavedDiff,
 } from '../git';
 
 // ─── slugify ──────────────────────────────────────────────────────────────────
@@ -1125,5 +1127,105 @@ describe('never committing new files under .aidev/', () => {
     assert.equal(commit('task commit', 'task1/fix'), true);
     const files = spawnSync('git', ['show', '--name-only', '--pretty=format:', 'HEAD'], { cwd: tmpDir, encoding: 'utf8' }).stdout.trim().split('\n').sort();
     assert.deepEqual(files, ['.aidev/aidev.hooks.ts', '.aidev/tracked.txt']);
+  });
+});
+
+// ─── createWorkingTreeDiff / applySavedDiff ───────────────────────────────────
+
+describe('createWorkingTreeDiff / applySavedDiff (integration)', () => {
+  let tmpDir: string;
+  let scratch: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-diff-'));
+    scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-git-diff-out-'));
+    initRepo(tmpDir);
+    // Byte-exact round-trips: don't let a global core.autocrlf rewrite line endings.
+    gitCmd(['config', 'core.autocrlf', 'false'], tmpDir);
+    fs.rmSync(path.join(tmpDir, 'README.md'));
+    gitCmd(['checkout', '--', 'README.md'], tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it('returns null for a clean tree', () => {
+    assert.equal(createWorkingTreeDiff(tmpDir), null);
+  });
+
+  it('returns null when only aidev bookkeeping/scratch files changed', () => {
+    fs.writeFileSync(path.join(tmpDir, '.aidev.lock'), '1');
+    fs.writeFileSync(path.join(tmpDir, '.aidev.active'), 'x');
+    fs.mkdirSync(path.join(tmpDir, '.aidev', 'assets', 't'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aidev', 'assets', 't', 'a.txt'), 'a');
+    assert.equal(createWorkingTreeDiff(tmpDir), null);
+  });
+
+  it('round-trips tracked, deleted, untracked and binary changes without touching the repo', () => {
+    fs.writeFileSync(path.join(tmpDir, 'gone.txt'), 'bye\n');
+    gitCmd(['add', 'gone.txt'], tmpDir);
+    gitCmd(['commit', '-m', 'add gone'], tmpDir);
+
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# test\nmore\n');
+    fs.rmSync(path.join(tmpDir, 'gone.txt'));
+    fs.writeFileSync(path.join(tmpDir, 'new file.txt'), 'brand new\n');
+    const bin = Buffer.from([0, 1, 2, 255, 254, 0, 9]);
+    fs.writeFileSync(path.join(tmpDir, 'blob.bin'), bin);
+    fs.writeFileSync(path.join(tmpDir, '.aidev.lock'), '1');
+
+    const diff = createWorkingTreeDiff(tmpDir);
+    assert.ok(diff && diff.length > 0);
+    assert.ok(!diff.toString('latin1').includes('.aidev.lock'));
+
+    // Real index must be untouched: nothing staged.
+    const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: tmpDir, encoding: 'utf8' });
+    assert.equal(staged.stdout.trim(), '');
+
+    const diffFile = path.join(scratch, 'uncommitted.diff');
+    fs.writeFileSync(diffFile, diff);
+
+    gitCmd(['reset', '--hard', 'HEAD'], tmpDir);
+    gitCmd(['clean', '-fd'], tmpDir);
+    assert.equal(fs.readFileSync(path.join(tmpDir, 'README.md'), 'utf8'), '# test\n');
+    assert.ok(fs.existsSync(path.join(tmpDir, 'gone.txt')));
+
+    const result = applySavedDiff(tmpDir, diffFile);
+    assert.equal(result.applied, true);
+    assert.equal(result.conflicts, false);
+
+    assert.equal(fs.readFileSync(path.join(tmpDir, 'README.md'), 'utf8'), '# test\nmore\n');
+    assert.equal(fs.existsSync(path.join(tmpDir, 'gone.txt')), false);
+    assert.equal(fs.readFileSync(path.join(tmpDir, 'new file.txt'), 'utf8'), 'brand new\n');
+    assert.deepEqual(fs.readFileSync(path.join(tmpDir, 'blob.bin')), bin);
+  });
+
+  it('reports conflicts when the base moved under the patch', () => {
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# changed by agent\n');
+    const diff = createWorkingTreeDiff(tmpDir);
+    assert.ok(diff);
+    const diffFile = path.join(scratch, 'uncommitted.diff');
+    fs.writeFileSync(diffFile, diff);
+
+    gitCmd(['checkout', '--', 'README.md'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# changed by someone else\n');
+    gitCmd(['commit', '-am', 'diverge'], tmpDir);
+
+    const result = applySavedDiff(tmpDir, diffFile);
+    assert.equal(result.applied, true);
+    assert.equal(result.conflicts, true);
+    assert.match(fs.readFileSync(path.join(tmpDir, 'README.md'), 'utf8'), /<<<<<<</);
+  });
+
+  it('fails gracefully for a missing or garbage diff', () => {
+    const missing = applySavedDiff(tmpDir, path.join(scratch, 'nope.diff'));
+    assert.equal(missing.applied, false);
+    assert.ok(missing.error);
+
+    const garbage = path.join(scratch, 'garbage.diff');
+    fs.writeFileSync(garbage, 'not a diff at all\n');
+    const result = applySavedDiff(tmpDir, garbage);
+    assert.equal(result.applied, false);
   });
 });

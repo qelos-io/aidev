@@ -61,6 +61,18 @@ This matters because AI agents frequently shell out to other `aidev` commands (e
 
 Because `aidev run` holds the directory lock while running, a child `aidev run` invoked in the same directory will exit at the lock rather than start a second concurrent run.
 
+## Crash recovery and failed-run handling
+
+**Stale lock detection.** `.aidev.lock` and `.aidev.active` both record the owning PID (an older `.aidev.active` holding only a task id is still readable). On start, if the recorded process is no longer alive (or the PID is unparsable), aidev logs a warning, removes the stale file and continues. A lock held by a live process is never taken over.
+
+**Graceful cleanup.** Both files are removed on normal exit, `SIGINT`, `SIGTERM`, `SIGHUP`, uncaught exceptions and unhandled rejections (signals and fatal errors exit non-zero). Cleanup is idempotent, best-effort (one retry, never throws) and only removes files owned by the current PID.
+
+**When every agent fails on a task**, aidev:
+- posts a comment with the tail of the error log ending in "Should I try again?" and sets the task to the configured pending status. The task is not retried until a human replies;
+- snapshots uncommitted work (tracked changes, untracked files, binaries; aidev scratch files excluded) to `.aidev/assets/<taskId>/uncommitted.diff` (git-ignored) and mentions it in the comment. An empty diff is skipped.
+
+**When the task continues** after a reply, aidev re-applies `uncommitted.diff` with `git apply --3way` (falling back to a plain apply), removes the file on success and tells the agent in the prompt context. If the patch applies with conflicts, the agent is told to resolve the markers; if it cannot be applied at all, the file is kept and the agent is pointed at its path.
+
 ## Auto-shutdown of agent sub-processes
 
 Agent clients (claude, cursor, …) often leave things running: dev servers (node, python, go) and docker containers. With `AIDEV_AUTO_SHUTDOWN` enabled (the default), aidev stops those leftovers once the whole run is finished and every task is done. Processes are left alone between task iterations.

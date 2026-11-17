@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildAssetsAccessInstructions } from '../prompts/assets';
+import { buildAssetsAccessInstructions, buildSavedDiffNotice } from '../prompts/assets';
 import { secretsFileRelPath } from '../safeMode';
 
 describe('buildAssetsAccessInstructions', () => {
@@ -92,5 +92,30 @@ describe('buildAssetsAccessInstructions', () => {
     assert.ok(section.includes(`\`${relPath}\``));
     assert.ok(section.includes('Secret values were redacted'));
     assert.ok(!section.includes('The following attachment files'));
+  });
+});
+
+describe('buildSavedDiffNotice', () => {
+  const rel = '.aidev/assets/t1/uncommitted.diff';
+
+  it('says the changes were re-applied', () => {
+    const notice = buildSavedDiffNotice('applied', rel);
+    assert.ok(notice.includes('previous failed attempt'));
+    assert.ok(notice.includes('re-applied'));
+    assert.ok(!notice.includes(rel));
+  });
+
+  it('asks the agent to resolve conflict markers', () => {
+    const notice = buildSavedDiffNotice('conflicts', rel);
+    assert.ok(notice.includes('conflict'));
+    assert.ok(notice.includes('<<<<<<<'));
+  });
+
+  it('points at the diff path when it could not be applied', () => {
+    const notice = buildSavedDiffNotice('failed', rel, 'patch does not apply\nmore');
+    assert.ok(notice.includes(`\`${rel}\``));
+    assert.ok(notice.includes('could not be re-applied'));
+    assert.ok(notice.includes('patch does not apply'));
+    assert.ok(!notice.includes('more'));
   });
 });

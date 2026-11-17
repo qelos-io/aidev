@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { dirname, isAbsolute, posix, resolve } from 'node:path';
+import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import { logger } from './logger';
 import { LOCK_FILENAME } from './lockfile';
 import { ACTIVE_TASK_FILENAME } from './activeTask';
@@ -346,6 +347,106 @@ export function listWorkingTreeChanges(): string[] {
     paths.push(path);
   }
   return paths;
+}
+
+/**
+ * Snapshots every uncommitted change (tracked edits, deletions, and untracked
+ * files, binary-safe) as a single patch that `applySavedDiff` can re-apply.
+ * aidev's own bookkeeping/scratch files are excluded (same rules as
+ * listWorkingTreeChanges). The repo's real index and working tree are never
+ * touched: staging happens in a throw-away copy of the index.
+ * Returns null when there is nothing to save or the snapshot could not be made.
+ */
+export function createWorkingTreeDiff(cwd?: string): Buffer | null {
+  const dir = cwd || process.cwd();
+  const head = git(['rev-parse', '--verify', '-q', 'HEAD'], dir);
+  if (head.status !== 0) return null;
+
+  const paths = withCwd(dir, () => listWorkingTreeChanges());
+  if (paths.length === 0) return null;
+
+  const indexPathResult = git(['rev-parse', '--git-path', 'index'], dir);
+  if (indexPathResult.status !== 0 || !indexPathResult.stdout.trim()) return null;
+  const realIndex = resolve(dir, indexPathResult.stdout.trim());
+
+  const tmpDir = mkdtempSync(join(tmpdir(), 'aidev-diff-'));
+  const tmpIndex = join(tmpDir, 'index');
+  try {
+    if (existsSync(realIndex)) copyFileSync(realIndex, tmpIndex);
+    const env = { ...process.env, GIT_INDEX_FILE: tmpIndex };
+
+    // --literal-pathspecs: file names are data, never globs. -A also records deletions.
+    const add = git(['--literal-pathspecs', 'add', '-A', '--', ...paths], dir, { env });
+    if (add.status !== 0) {
+      logger.warn(`Could not snapshot working tree changes: ${add.stderr.trim()}`);
+      return null;
+    }
+
+    // Raw bytes: a text patch may contain non-UTF8 content that a utf8 decode would corrupt.
+    const diff = spawnSync(
+      'git',
+      ['diff', '--cached', '--binary', '--no-color', '--no-ext-diff', 'HEAD', '--'],
+      { cwd: dir, env, maxBuffer: 1024 * 1024 * 1024 },
+    );
+    if (diff.status !== 0 || !diff.stdout || diff.stdout.length === 0) {
+      if (diff.status !== 0) logger.warn(`git diff failed while snapshotting changes: ${String(diff.stderr).trim()}`);
+      return null;
+    }
+    return diff.stdout;
+  } catch (err) {
+    logger.warn(`Could not snapshot working tree changes: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+/** listWorkingTreeChanges() reads process.cwd(); run it against another directory. */
+function withCwd<T>(dir: string, fn: () => T): T {
+  const previous = process.cwd();
+  if (resolve(previous) === resolve(dir)) return fn();
+  process.chdir(dir);
+  try {
+    return fn();
+  } finally {
+    process.chdir(previous);
+  }
+}
+
+export interface ApplyDiffResult {
+  applied: boolean;
+  /** Applied via a 3-way merge that left conflict markers to resolve. */
+  conflicts: boolean;
+  /** How the patch went in: a 3-way merge or a plain (context-exact) apply. */
+  method?: '3way' | 'plain';
+  error?: string;
+}
+
+/**
+ * Re-applies a patch made by createWorkingTreeDiff. Tries `git apply --3way`
+ * first (tolerates a moved base; stages what it applies), then falls back to a
+ * plain `git apply` for patches whose blobs are unavailable. Never throws.
+ */
+export function applySavedDiff(cwd: string, diffPath: string): ApplyDiffResult {
+  if (!existsSync(diffPath)) {
+    return { applied: false, conflicts: false, error: `Diff file not found: ${diffPath}` };
+  }
+
+  const threeWay = git(['apply', '--3way', '--whitespace=nowarn', '--', diffPath], cwd);
+  if (threeWay.status === 0) return { applied: true, conflicts: false, method: '3way' };
+  // 3-way exits non-zero but still applies the patch, with markers, on content conflicts.
+  if (/with conflicts/i.test(threeWay.stderr)) {
+    logger.warn(`Saved diff applied with conflicts: ${threeWay.stderr.trim()}`);
+    return { applied: true, conflicts: true, method: '3way' };
+  }
+
+  logger.debug(`git apply --3way failed (${threeWay.stderr.trim()}) — trying plain apply`);
+  const plain = git(['apply', '--whitespace=nowarn', '--', diffPath], cwd);
+  if (plain.status === 0) return { applied: true, conflicts: false, method: 'plain' };
+
+  const error = (plain.stderr || threeWay.stderr).trim();
+  logger.warn(`Could not re-apply saved diff ${diffPath}: ${error}`);
+  return { applied: false, conflicts: false, error };
 }
 
 /** Discards uncommitted working tree and untracked files on the current branch. */

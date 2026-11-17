@@ -16,6 +16,46 @@ export function taskAssetsDir(taskId: string, cwd = process.cwd()): string {
   return path.join(cwd, taskAssetsRelPath(taskId));
 }
 
+/** Snapshot of a failed attempt's uncommitted changes, kept in the gitignored task assets folder. */
+export const UNCOMMITTED_DIFF_FILENAME = 'uncommitted.diff';
+
+export function uncommittedDiffPath(taskId: string, cwd = process.cwd()): string {
+  return path.join(taskAssetsDir(taskId, cwd), UNCOMMITTED_DIFF_FILENAME);
+}
+
+/** Writes the diff; returns its absolute path, or null if empty or the write failed (never throws). */
+export function writeUncommittedDiff(taskId: string, diff: Buffer | string, cwd = process.cwd()): string | null {
+  if (diff.length === 0) return null;
+  const file = uncommittedDiffPath(taskId, cwd);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, diff);
+    return file;
+  } catch {
+    return null;
+  }
+}
+
+/** Absolute path of the saved diff if one exists and is non-empty, else null. */
+export function readUncommittedDiffPath(taskId: string, cwd = process.cwd()): string | null {
+  const file = uncommittedDiffPath(taskId, cwd);
+  try {
+    const stat = fs.statSync(file);
+    return stat.isFile() && stat.size > 0 ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Removes the saved diff (e.g. after it was re-applied). Best-effort. */
+export function removeUncommittedDiff(taskId: string, cwd = process.cwd()): void {
+  try {
+    fs.rmSync(uncommittedDiffPath(taskId, cwd), { force: true });
+  } catch {
+    // best-effort
+  }
+}
+
 export function listTaskAssetFiles(taskId: string, cwd = process.cwd()): string[] {
   const taskDir = taskAssetsDir(taskId, cwd);
   if (!fs.existsSync(taskDir)) return [];

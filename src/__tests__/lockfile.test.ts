@@ -8,6 +8,7 @@ import {
   LOCK_FILENAME,
   isProcessAlive,
   readLock,
+  readLockPid,
   acquireLock,
   releaseLock,
   stopProcess,
@@ -58,6 +59,36 @@ describe('isProcessAlive', () => {
     // We rely on errno ESRCH (no such process).
     assert.equal(isProcessAlive(999999999), false);
   });
+
+  it('returns false for invalid pids (0, negative, NaN)', () => {
+    assert.equal(isProcessAlive(0), false);
+    assert.equal(isProcessAlive(-5), false);
+    assert.equal(isProcessAlive(NaN), false);
+  });
+
+  it('treats EPERM as alive and ESRCH as dead', (t) => {
+    t.mock.method(process, 'kill', () => {
+      throw Object.assign(new Error('eperm'), { code: 'EPERM' });
+    });
+    assert.equal(isProcessAlive(4242), true);
+    t.mock.restoreAll();
+    t.mock.method(process, 'kill', () => {
+      throw Object.assign(new Error('esrch'), { code: 'ESRCH' });
+    });
+    assert.equal(isProcessAlive(4242), false);
+  });
+});
+
+// ─── readLockPid ──────────────────────────────────────────────────────────────
+
+describe('readLockPid', () => {
+  it('returns null when absent, the pid when present, null when unparsable', () => {
+    assert.equal(readLockPid(tmpDir), null);
+    writeLock(tmpDir, 4321);
+    assert.equal(readLockPid(tmpDir), 4321);
+    fs.writeFileSync(lockfilePath(tmpDir), 'garbage', 'utf8');
+    assert.equal(readLockPid(tmpDir), null);
+  });
 });
 
 // ─── readLock ─────────────────────────────────────────────────────────────────
@@ -91,6 +122,18 @@ describe('acquireLock', () => {
     writeLock(tmpDir, 999999999); // dead PID
     const ok = acquireLock(tmpDir);
     assert.equal(ok, true);
+    assert.equal(readLock(tmpDir), process.pid);
+  });
+
+  it('removes and replaces an unparsable (legacy/garbage) lock', () => {
+    fs.writeFileSync(lockfilePath(tmpDir), 'garbage', 'utf8');
+    assert.equal(acquireLock(tmpDir), true);
+    assert.equal(readLock(tmpDir), process.pid);
+  });
+
+  it('never steals a lock from a live PID', () => {
+    writeLock(tmpDir, process.pid);
+    assert.equal(acquireLock(tmpDir), false);
     assert.equal(readLock(tmpDir), process.pid);
   });
 
@@ -131,4 +174,24 @@ describe('stopProcess', () => {
 
   // Note: we cannot test 'killed' safely in a unit test without spawning a
   // real child process, so the live-kill path is exercised by integration tests.
+});
+
+describe('acquireLock atomicity', () => {
+  it('does not overwrite a lock created by a live process (wx semantics)', () => {
+    writeLock(tmpDir, process.ppid || 1);
+    // Another live owner: must refuse and leave the file untouched.
+    if (isProcessAlive(process.ppid || 1)) {
+      assert.equal(acquireLock(tmpDir), false);
+      assert.equal(readLock(tmpDir), process.ppid || 1);
+    }
+  });
+
+  it('replaces a stale lock and a second acquire in the same dir then fails', () => {
+    writeLock(tmpDir, 999999999);
+    assert.equal(acquireLock(tmpDir), true);
+    assert.equal(readLock(tmpDir), process.pid);
+    // The lock is now held by a live process (us) — a racing acquirer must lose.
+    assert.equal(acquireLock(tmpDir), false);
+    assert.equal(readLock(tmpDir), process.pid);
+  });
 });
