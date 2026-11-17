@@ -70,6 +70,7 @@ export function prepareForTaskCommit(
       if (!git.commit(
         `${commitPrefix} Remove .aidev/assets from repository\n\nTask asset downloads must remain git-ignored.`,
         branchName,
+        cwd,
       )) {
         logger.error('Failed to commit .aidev/assets removal');
         return false;
@@ -91,6 +92,7 @@ export function prepareForTaskCommit(
     if (!git.commit(
       `${commitPrefix} Stop tracking aidev operational files\n\nUntracked: ${operational.join(', ')}`,
       branchName,
+      cwd,
     )) {
       logger.error('Failed to commit removal of aidev operational files');
       return false;
@@ -117,7 +119,7 @@ export function prepareForTaskCommit(
     const message = hasAssetsIssues
       ? `${commitPrefix} Ignore .aidev/assets/\n\nEnsure task asset downloads are never committed.`
       : `${commitPrefix} Update .gitignore\n\nEnsure aidev-managed files are git-ignored.`;
-    if (!git.commit(message, branchName)) {
+    if (!git.commit(message, branchName, cwd)) {
       logger.error('Failed to commit .gitignore update');
       return false;
     }

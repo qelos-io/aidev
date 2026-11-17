@@ -27,7 +27,9 @@ import {
 } from '../hooks';
 import { buildCompressedContext } from '../sessions';
 import { ProcessTracker } from '../processCleanup';
-import { setupSkills, type SkillsRuntime } from '../skills-runtime';
+import { setupSkills, linkSkillsInto, type SkillsRuntime } from '../skills-runtime';
+import { shouldUseWorktree } from '../worktree';
+import { absolutizeAssetPaths, releaseAllWorktrees, releaseWorktree, trackWorktree, withCwd } from '../worktreeSession';
 import { unlinkAllSkills } from '../skills-link';
 import { resolveDoneStatus } from './accepted';
 import { collectSecrets, sanitizeTaskForSafeMode } from '../safeMode';
@@ -109,13 +111,14 @@ export function augmentPromptForAssets(prompt: string, taskId: string, cwd = pro
  * The diff is removed once applied; if it cannot be applied it is kept and the
  * agent is pointed at it instead. Never throws.
  */
-export function restoreSavedDiff(taskId: string, cwd = process.cwd()): string {
+export function restoreSavedDiff(taskId: string, cwd = process.cwd(), applyDir = cwd): string {
   try {
     const diffPath = readUncommittedDiffPath(taskId, cwd);
     if (!diffPath) return '';
     const relPath = path.relative(cwd, diffPath).split(path.sep).join('/');
 
-    const result = git.applySavedDiff(cwd, diffPath);
+    // The diff is stored with the task's assets in `cwd`; it is applied in `applyDir` (e.g. a worktree).
+    const result = git.applySavedDiff(applyDir, diffPath);
     if (result.applied) {
       logger.info(`Re-applied saved changes from ${relPath}${result.conflicts ? ' (with conflicts)' : ''}`);
       removeUncommittedDiff(taskId, cwd);
@@ -127,6 +130,11 @@ export function restoreSavedDiff(taskId: string, cwd = process.cwd()): string {
     logger.warn(`Saved diff restore failed: ${err instanceof Error ? err.message : err}`);
     return '';
   }
+}
+
+/** True when `workDir` is a task worktree rather than the main checkout (the process CWD). */
+export function isWorktreeDir(workDir: string): boolean {
+  return !git.samePath(workDir, process.cwd());
 }
 
 export function buildAssetRunOptions(taskId: string, cwd = process.cwd()): Pick<AIRunOptions, 'assetDirs'> {
@@ -143,11 +151,18 @@ async function handleImplementationStoppedByStatus(
   vm: HookVM | undefined,
   branchName?: string,
   branchExists?: boolean,
+  workDir: string = process.cwd(),
 ): Promise<void> {
   logger.warn(`Stopping implementation: ${reason}`);
-  git.discardWorkingChanges();
+  git.discardWorkingChanges(workDir);
 
-  if (branchName && branchExists === false) {
+  if (isWorktreeDir(workDir)) {
+    // The branch is checked out in the worktree: drop the worktree first, then (for a brand-new branch) the branch.
+    const removed = releaseWorktree(workDir, process.cwd());
+    if (branchName && branchExists === false && removed) {
+      git.forceDeleteBranch(branchName);
+    }
+  } else if (branchName && branchExists === false) {
     git.deleteBranch(branchName);
   }
 
@@ -254,13 +269,14 @@ export async function handleAllAgentsFailed(
   hooks: AidevHooks,
   vm: HookVM | undefined,
   errorLog: string,
-  options: { saveDiff?: boolean; headline?: string; cwd?: string } = {},
+  options: { saveDiff?: boolean; headline?: string; cwd?: string; workDir?: string } = {},
 ): Promise<{ diffPath: string | null; commented: boolean; statusUpdated: boolean }> {
   const cwd = options.cwd ?? process.cwd();
   let diffPath: string | null = null;
   if (options.saveDiff !== false) {
     try {
-      const diff = git.createWorkingTreeDiff(cwd);
+      // `cwd` is the main repo (where the diff file is stored); `workDir` is where the changes are (a worktree).
+      const diff = git.createWorkingTreeDiff(options.workDir ?? cwd);
       if (diff) {
         diffPath = writeUncommittedDiff(task.id, diff, cwd);
         if (diffPath) logger.info(`Saved uncommitted changes to ${diffPath}`);
@@ -462,6 +478,7 @@ export async function escalateTaskToThinkingMode(
   hooks: AidevHooks,
   vm: HookVM | undefined,
   failureDiagnostics: string,
+  workDir: string = process.cwd(),
 ): Promise<string | null> {
   const tag = config.thinkingTag;
   if (!tag || !provider.addTag) return null;
@@ -488,7 +505,7 @@ export async function escalateTaskToThinkingMode(
 
   logger.info(`[${task.id}] Escalating to thinking mode (tag: "${tag}")`);
 
-  return buildThinkingEscalationContext(failureDiagnostics, git.listWorkingTreeChanges());
+  return buildThinkingEscalationContext(failureDiagnostics, git.listWorkingTreeChanges(workDir));
 }
 
 function tryParseJson(text: string): unknown | null {
@@ -926,12 +943,14 @@ export async function runCommand(
   teardown = async (): Promise<void> => {
     cleanupSkills();
     await shutdownTracked();
+    releaseAllWorktrees();
     try { configServer.close(); } catch { /* ignore */ }
   };
   const onSignal = (signal: NodeJS.Signals): void => {
     logger.warn(`Received ${signal} — cleaning up...`);
     cleanupSkills();
     void shutdownTracked().finally(() => {
+      releaseAllWorktrees();
       try { configServer.close(); } catch { /* ignore */ }
       cleanupBookkeeping(cwd);
       process.exit(signal === 'SIGINT' ? 130 : 143);
@@ -1058,6 +1077,7 @@ export async function runCommand(
     // Final capture catches anything started since the last agent call, then stop it all.
     try { tracker?.capture(); } catch { /* best-effort */ }
     await shutdownTracked();
+    releaseAllWorktrees();
     // Close the IPC server before releasing the lock so children can no longer
     // connect once the parent is releasing its directory ownership.
     try {
@@ -1304,9 +1324,10 @@ async function resolveConflictsWithAI(
   context: string,
   hooks: AidevHooks,
   vm: HookVM | undefined,
-  branchName: string
+  branchName: string,
+  workDir: string = process.cwd(),
 ): Promise<boolean> {
-  const check = git.checkConflictsWithBase(config.gitRemote, config.githubBaseBranch);
+  const check = git.checkConflictsWithBase(config.gitRemote, config.githubBaseBranch, workDir);
 
   if (check.behindCommits === 0) {
     logger.debug('Branch is up to date with base — no merge needed');
@@ -1315,12 +1336,12 @@ async function resolveConflictsWithAI(
 
   if (check.clean) {
     logger.info(`Branch is ${check.behindCommits} commit(s) behind base — merging (no conflicts)`);
-    if (!git.mergeBaseBranch(config.gitRemote, config.githubBaseBranch)) {
+    if (!git.mergeBaseBranch(config.gitRemote, config.githubBaseBranch, workDir)) {
       logger.warn('Clean merge unexpectedly failed — continuing without merge');
       return true;
     }
 
-    if (!git.push(config.gitRemote, branchName)) {
+    if (!git.push(config.gitRemote, branchName, workDir)) {
       logger.warn('Failed to push merge commit — continuing anyway');
     }
 
@@ -1341,7 +1362,7 @@ async function resolveConflictsWithAI(
     );
   } catch { /* ignore */ }
 
-  if (!git.mergeBaseBranch(config.gitRemote, config.githubBaseBranch)) {
+  if (!git.mergeBaseBranch(config.gitRemote, config.githubBaseBranch, workDir)) {
     const { task: safeTask, context: safeContext } = applySafeMode(task, context, config);
     let prompt = buildConflictResolutionPrompt(safeTask, check.conflictFiles, safeContext);
 
@@ -1353,6 +1374,7 @@ async function resolveConflictsWithAI(
     }
 
     prompt = augmentPromptForAssets(prompt, task.id);
+    if (isWorktreeDir(workDir)) prompt = absolutizeAssetPaths(prompt, process.cwd());
     const assetOptions = buildAssetRunOptions(task.id);
 
     let resolved = false;
@@ -1367,7 +1389,7 @@ async function resolveConflictsWithAI(
       );
 
       if (result.stoppedByStatus) {
-        git.abortMerge();
+        git.abortMerge(workDir);
         await handleImplementationStoppedByStatus(
           task,
           result.stopReason || 'task status changed externally',
@@ -1377,11 +1399,12 @@ async function resolveConflictsWithAI(
           vm,
           branchName,
           true,
+          workDir,
         );
         return false;
       }
 
-      if (result.success && !git.hasChanges()) {
+      if (result.success && !git.hasChanges(workDir)) {
         logger.warn(`${runner.name} made no changes to resolve conflicts — trying next runner`);
         previousNotes = `Previous runner (${runner.name}) made no file changes. The conflict markers still need to be resolved.`;
         continue;
@@ -1411,7 +1434,7 @@ async function resolveConflictsWithAI(
           await executeHook(hooks, 'afterResolveConflicts', afterFailCtx, vm);
         }
       } finally {
-        git.abortMerge();
+        git.abortMerge(workDir);
       }
       try {
         await postCommentWithHooks(
@@ -1423,13 +1446,13 @@ async function resolveConflictsWithAI(
       return false;
     }
 
-    if (!git.commitMerge(`Merge ${config.githubBaseBranch} into ${branchName} — resolve conflicts`)) {
+    if (!git.commitMerge(`Merge ${config.githubBaseBranch} into ${branchName} — resolve conflicts`, workDir)) {
       logger.error('Failed to commit merge resolution');
-      git.abortMerge();
+      git.abortMerge(workDir);
       return false;
     }
 
-    if (!git.push(config.gitRemote, branchName)) {
+    if (!git.push(config.gitRemote, branchName, workDir)) {
       logger.warn('Failed to push conflict resolution — continuing anyway');
     }
 
@@ -1573,7 +1596,25 @@ async function implementTask(
     logger.warn(`Could not update task status: ${err}`);
   }
 
-  if (branchExists) {
+  const repoRoot = process.cwd();
+  let workDir = repoRoot;
+  let unlinkWorktreeSkills: () => void = () => {};
+
+  if (shouldUseWorktree(config, task)) {
+    // Worktree mode: the branch lives in .aidev/worktrees/<branch>; the main checkout is left
+    // untouched (so it may be dirty and no branch switch happens there).
+    git.ensureLocalExclude(repoRoot);
+    const wt = git.addWorktree(config.gitRemote, config.githubBaseBranch, branchName, branchExists, repoRoot);
+    if (!wt.ok) {
+      logger.error(`Failed to create worktree for branch ${branchName}`);
+      await postCommentWithHooks(task, `${config.commentPrefix} Failed to prepare git worktree. Manual intervention needed.`, config, provider, hooks, vm);
+      return;
+    }
+    workDir = wt.path;
+    trackWorktree(workDir, repoRoot);
+    unlinkWorktreeSkills = linkSkillsInto(workDir);
+    logger.info(`${wt.reused ? 'Reusing' : 'Using'} worktree ${workDir} for branch ${branchName}`);
+  } else if (branchExists) {
     if (!git.fetchAndCheckoutBranch(config.gitRemote, branchName)) {
       logger.error(`Failed to checkout existing branch ${branchName}`);
       await postCommentWithHooks(task, `${config.commentPrefix} Failed to checkout existing branch. Manual intervention needed.`, config, provider, hooks, vm);
@@ -1588,16 +1629,58 @@ async function implementTask(
     }
   }
 
+  if (workDir === repoRoot) {
+    return implementTaskOnBranch(task, branchName, branchExists, config, provider, runners, hooks, vm, workDir);
+  }
+
+  try {
+    return await implementTaskOnBranch(task, branchName, branchExists, config, provider, runners, hooks, vm, workDir);
+  } finally {
+    unlinkWorktreeSkills();
+    // Keeps the branch; leaves the worktree only when it still holds uncommitted work.
+    releaseWorktree(workDir, repoRoot);
+  }
+}
+
+/** The implementation flow once the task branch is checked out in `workDir` (main checkout or worktree). */
+async function implementTaskOnBranch(
+  task: Task,
+  branchName: string,
+  branchExists: boolean,
+  config: Config,
+  provider: TaskProvider,
+  runners: AIRunner[],
+  hooks: AidevHooks,
+  vm: HookVM | undefined,
+  workDir: string,
+): Promise<void> {
+  const inWorktree = isWorktreeDir(workDir);
+  const repoRoot = process.cwd();
+  // Agents run in the worktree; `runners` (unwrapped) stay available for flows that continue in the main checkout.
+  const agentRunners = inWorktree ? withCwd(runners, workDir) : runners;
+  /** Prompts reference `.aidev/assets/` relatively; make them absolute for an agent running in a worktree. */
+  const forAgent = (prompt: string): string => (inWorktree ? absolutizeAssetPaths(prompt, repoRoot) : prompt);
+
+  /** Removes a branch this run created. In a worktree the worktree goes first (git refuses to delete a checked-out branch). */
+  const discardBranchAfterFailure = (): void => {
+    if (branchExists) return;
+    if (!inWorktree) {
+      git.deleteBranch(branchName);
+    } else if (releaseWorktree(workDir, repoRoot)) {
+      git.forceDeleteBranch(branchName);
+    }
+  };
+
   let context = '';
   try {
     const comments = await provider.getComments(task.id);
-    context = await buildConversationContext(task, comments, config, runners);
+    context = await buildConversationContext(task, comments, config, agentRunners);
   } catch {
     // ignore
   }
 
   if (branchExists) {
-    const conflictsOk = await resolveConflictsWithAI(task, config, provider, runners, context, hooks, vm, branchName);
+    const conflictsOk = await resolveConflictsWithAI(task, config, provider, agentRunners, context, hooks, vm, branchName, workDir);
     if (!conflictsOk) {
       logger.error('Cannot proceed — merge conflicts could not be resolved');
       return;
@@ -1605,7 +1688,7 @@ async function implementTask(
   }
 
   // Re-apply uncommitted work saved by a previous all-agents-failed run
-  context += restoreSavedDiff(task.id);
+  context += restoreSavedDiff(task.id, repoRoot, workDir);
 
   // Fetch unresolved PR review comments for existing branches
   const reviewThreads = branchExists
@@ -1627,7 +1710,7 @@ async function implementTask(
     implementPrompt = modified.prompt;
   }
 
-  implementPrompt = augmentPromptForAssets(implementPrompt, task.id);
+  implementPrompt = forAgent(augmentPromptForAssets(implementPrompt, task.id));
   const assetOptions = buildAssetRunOptions(task.id);
 
   // Run AI runners in order with fallback
@@ -1636,7 +1719,7 @@ async function implementTask(
   let previousNotes = '';
   let noChangeResponse: string | undefined;
 
-  for (const runner of runners) {
+  for (const runner of agentRunners) {
     if (!runner.isAvailable()) {
       logger.debug(`${runner.name} not available, skipping`);
       continue;
@@ -1657,16 +1740,17 @@ async function implementTask(
         vm,
         branchName,
         branchExists,
+        workDir,
       );
       return;
     }
 
-    if (result.success && git.hasChanges()) {
+    if (result.success && git.hasChanges(workDir)) {
       implemented = true;
       break;
     }
 
-    if (result.success && !git.hasChanges() && git.hasCommitsAhead(config.gitRemote, config.githubBaseBranch)) {
+    if (result.success && !git.hasChanges(workDir) && git.hasCommitsAhead(config.gitRemote, config.githubBaseBranch, workDir)) {
       logger.info(`${runner.name} produced no new file changes, but branch already has commits ahead of ${config.githubBaseBranch}`);
       implemented = true;
       break;
@@ -1696,18 +1780,22 @@ async function implementTask(
       } catch (err) {
         logger.warn(`Could not update task status: ${err}`);
       }
-      if (!branchExists) {
-        git.deleteBranch(branchName);
-      }
+      discardBranchAfterFailure();
       return;
     }
 
     if (canEscalateToThinkingMode(task, config, provider, { hadExplicitRunnerFailure })) {
       const failureDiagnostics = previousNotes || collectAndLogDiagnostics();
       const escalationContext = await escalateTaskToThinkingMode(
-        task, provider, config, hooks, vm, failureDiagnostics,
+        task, provider, config, hooks, vm, failureDiagnostics, workDir,
       );
       if (escalationContext !== null) {
+        if (inWorktree) {
+          // The thinking flow works in the main checkout, which can't check out a branch that a
+          // worktree holds: drop the worktree (its uncommitted work is already in the escalation context).
+          git.discardWorkingChanges(workDir);
+          releaseWorktree(workDir, repoRoot);
+        }
         return implementThinkingTask(
           task, branchName, true, config, provider, runners, hooks, vm, escalationContext,
         );
@@ -1717,25 +1805,29 @@ async function implementTask(
     logger.error('All AI runners failed or produced no changes');
     const diagnostics = collectAndLogDiagnostics();
     // Snapshot happens before deleteBranch so uncommitted work is not lost with the branch.
-    await handleAllAgentsFailed(task, config, provider, hooks, vm, [previousNotes, diagnostics].filter(Boolean).join('\n\n'));
-    if (!branchExists) {
-      git.deleteBranch(branchName);
-    }
+    const failed = await handleAllAgentsFailed(
+      task, config, provider, hooks, vm, [previousNotes, diagnostics].filter(Boolean).join('\n\n'),
+      { cwd: repoRoot, workDir },
+    );
+    // The changes are saved as a diff (re-applied on retry), so the worktree can be dropped; without
+    // a saved diff it is kept when dirty so nothing is lost.
+    if (inWorktree && failed.diffPath) git.discardWorkingChanges(workDir);
+    discardBranchAfterFailure();
     return;
   }
 
   // Commit and push (only if there are new changes to commit)
-  if (git.hasChanges()) {
-    if (!prepareForTaskCommit(branchName, config.commentPrefix)) {
+  if (git.hasChanges(workDir)) {
+    if (!prepareForTaskCommit(branchName, config.commentPrefix, workDir)) {
       logger.error('Failed to validate .aidev/assets gitignore before commit');
       return;
     }
-    if (!git.addAll() || !git.commit(`${config.commentPrefix} Implement: ${task.name}\n\nTask: ${task.url}`, branchName)) {
+    if (!git.addAll(workDir) || !git.commit(`${config.commentPrefix} Implement: ${task.name}\n\nTask: ${task.url}`, branchName, workDir)) {
       logger.error('Failed to commit changes');
       return;
     }
 
-    if (!git.push(config.gitRemote, branchName)) {
+    if (!git.push(config.gitRemote, branchName, workDir)) {
       logger.error('Failed to push branch');
       return;
     }
