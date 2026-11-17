@@ -307,3 +307,15 @@ describe('worktree operations (temp repos)', () => {
     assert.equal(exclude.split('.aidev/worktrees/').length - 1, 1);
   });
 });
+
+describe('samePath', () => {
+  it('equates a path with its native realpath and trailing separators', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-samepath-'));
+    try {
+      assert.ok(samePath(dir, fs.realpathSync.native(dir)));
+      assert.ok(samePath(dir, dir + path.sep));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

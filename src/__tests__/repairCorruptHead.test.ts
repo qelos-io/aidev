@@ -42,6 +42,12 @@ describe('repairCorruptHead', () => {
     assert.equal(repairCorruptHead('origin', 'main', work), 'ok');
   });
 
+  it('returns ok when cwd is not a git repository', () => {
+    const plain = path.join(root, 'plain');
+    fs.mkdirSync(plain);
+    assert.equal(repairCorruptHead('origin', 'main', plain), 'ok');
+  });
+
   it('treats an unborn branch as healthy', () => {
     const fresh = path.join(root, 'fresh');
     fs.mkdirSync(fresh);
