@@ -124,6 +124,15 @@ describe('worktree operations (temp repos)', () => {
     assert.equal(findWorktreeForBranch('task/one', repo)?.branch, 'task/one');
   });
 
+  it('disambiguates colliding branch folders (a/b vs a-b) with a hash suffix', () => {
+    const first = addWorktree('origin', 'main', 'a/b', false, repo);
+    const second = addWorktree('origin', 'main', 'a-b', false, repo);
+    assert.equal(first.ok, true);
+    assert.equal(second.ok, true);
+    assert.ok(!samePath(first.path, second.path));
+    assert.equal(getCurrentBranch(second.path), 'a-b');
+  });
+
   it('reuses the worktree when called again for the same branch', () => {
     const first = addWorktree('origin', 'main', 'task/two', false, repo);
     const second = addWorktree('origin', 'main', 'task/two', true, repo);

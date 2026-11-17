@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
@@ -1068,8 +1069,20 @@ export function findWorktreeForBranch(branch: string, cwd?: string): WorktreeInf
   return listWorktrees(cwd).find((w) => w.branch === branch) ?? null;
 }
 
-/** True when `branch`'s tip is an ancestor of (already merged into) `base`. */
+/**
+ * True when `branch` has commits of its own and its tip is an ancestor of (already merged into)
+ * `base`. A branch sitting exactly at `base` counts only if it was pushed (fast-forward merged);
+ * an unpushed one is just not started.
+ */
 export function isBranchMerged(branch: string, base: string, cwd?: string): boolean {
+  const tip = git(['rev-parse', '--verify', '-q', `refs/heads/${branch}`], cwd);
+  const baseTip = git(['rev-parse', '--verify', '-q', base], cwd);
+  if (tip.status !== 0 || baseTip.status !== 0) return false;
+  if (tip.stdout.trim() === baseTip.stdout.trim()) {
+    // Same commit as base: either fast-forward merged (the branch was pushed) or never started.
+    const pushed = git(['for-each-ref', '--format=%(refname)', `refs/remotes/*/${branch}`], cwd);
+    if (pushed.status !== 0 || pushed.stdout.trim() === '') return false;
+  }
   return git(['merge-base', '--is-ancestor', `refs/heads/${branch}`, base], cwd).status === 0;
 }
 
@@ -1130,11 +1143,18 @@ export function addWorktree(
   cwd?: string,
 ): AddWorktreeResult {
   const root = cwd || process.cwd();
-  const path = worktreePathForBranch(branch, root);
-  const fail: AddWorktreeResult = { ok: false, path, reused: false };
+  let path = worktreePathForBranch(branch, root);
 
   // Drop registrations whose directory vanished (crash leftovers), then reuse a live one.
   pruneWorktrees(root);
+  // worktreePathForBranch is lossy (`a/b` and `a-b` share a folder). When the folder already
+  // belongs to a different branch, disambiguate with a short hash of the full branch name.
+  const occupant = listWorktrees(root).find((w) => samePath(w.path, path));
+  if (occupant && occupant.branch !== branch) {
+    const hash = createHash('sha1').update(branch).digest('hex').slice(0, 8);
+    path = `${path}-${hash}`;
+  }
+  const fail: AddWorktreeResult = { ok: false, path, reused: false };
   const registered = findWorktreeForBranch(branch, root);
   if (registered && existsSync(registered.path) && !samePath(registered.path, root)) {
     return { ok: true, path: registered.path, reused: true };

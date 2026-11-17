@@ -225,6 +225,14 @@ describe('weeklyCleanupCommand (integration)', () => {
     const age = (p: string, days: number) => {
       const t = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
       fs.utimesSync(p, t, t);
+      // Activity also looks at the worktree's HEAD/index files, so age those too.
+      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(path.join(p, '.git'), 'utf8'));
+      if (m) {
+        for (const f of ['HEAD', 'index']) {
+          const fp = path.join(m[1].trim(), f);
+          if (fs.existsSync(fp)) fs.utimesSync(fp, t, t);
+        }
+      }
     };
 
     beforeEach(() => {
@@ -258,9 +266,35 @@ describe('weeklyCleanupCommand (integration)', () => {
       assert.ok(localBranches(tmpDir).includes('task2/active'));
     });
 
+    it('keeps a stale worktree that has uncommitted changes', async () => {
+      addWt('task2/dirty');
+      fs.writeFileSync(path.join(wtPath('task2/dirty'), 'wip.txt'), 'wip');
+      age(wtPath('task2/dirty'), 30);
+
+      const result = await weeklyCleanupCommand(baseConfig, providerWithTasks([]));
+
+      assert.equal(result!.worktreesRemoved, 0);
+      assert.ok(fs.existsSync(wtPath('task2/dirty')));
+    });
+
+    it('does not treat an unpushed branch still at base as merged', async () => {
+      fs.mkdirSync(path.join(tmpDir, '.aidev', 'worktrees'), { recursive: true });
+      gitCmd(['worktree', 'add', '-b', 'task2/fresh', wtPath('task2/fresh'), 'main'], tmpDir);
+
+      const result = await weeklyCleanupCommand(baseConfig, providerWithTasks(['task2']));
+
+      assert.equal(result!.worktreesRemoved, 0);
+      assert.ok(fs.existsSync(wtPath('task2/fresh')));
+    });
+
     it('removes a clean worktree whose branch is merged into base', async () => {
       fs.mkdirSync(path.join(tmpDir, '.aidev', 'worktrees'), { recursive: true });
       gitCmd(['worktree', 'add', '-b', 'task2/merged', wtPath('task2/merged'), 'main'], tmpDir);
+      fs.writeFileSync(path.join(wtPath('task2/merged'), 'm.txt'), 'm');
+      gitCmd(['add', '.'], wtPath('task2/merged'));
+      gitCmd(['commit', '-m', 'work'], wtPath('task2/merged'));
+      gitCmd(['merge', '--no-ff', '-m', 'merge', 'task2/merged'], tmpDir);
+      gitCmd(['push', 'origin', 'main'], tmpDir);
 
       const result = await weeklyCleanupCommand(baseConfig, providerWithTasks(['task2']));
 

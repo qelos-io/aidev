@@ -53,11 +53,14 @@ export function releaseWorktree(workDir: string, repoRoot: string): boolean {
     }
     if (git.hasChanges(workDir)) {
       logger.warn(`Keeping worktree ${workDir} — it has uncommitted changes`);
+      // Intentionally kept (work would be lost): stop tracking so shutdown doesn't retry.
       activeWorktrees.delete(workDir);
       return false;
     }
-    activeWorktrees.delete(workDir);
-    return git.removeWorktree(workDir, true, repoRoot);
+    const removed = git.removeWorktree(workDir, true, repoRoot);
+    // Keep tracking on failure so releaseAllWorktrees can retry on shutdown.
+    if (removed) activeWorktrees.delete(workDir);
+    return removed;
   } catch (err) {
     logger.warn(`Could not release worktree ${workDir}: ${err instanceof Error ? err.message : String(err)}`);
     return false;

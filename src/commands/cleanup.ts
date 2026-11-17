@@ -51,9 +51,37 @@ function isInside(parent: string, child: string): boolean {
 }
 
 /**
- * Worktrees under `.aidev/worktrees` that are safe to remove: branch gone or merged (and clean),
- * task no longer active, or no activity for 7 days. The currently active task's worktree
- * and locked worktrees are never returned.
+ * Latest modification time of a worktree: the root directory's mtime does not change when
+ * nested files are edited, so also consider the worktree's HEAD and index files.
+ */
+function lastActivityMs(wtPath: string): number {
+  let latest = 0;
+  const consider = (p: string) => {
+    try {
+      latest = Math.max(latest, fs.statSync(p).mtimeMs);
+    } catch {
+      /* missing */
+    }
+  };
+  consider(wtPath);
+  const gitFile = path.join(wtPath, '.git');
+  try {
+    const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(gitFile, 'utf8'));
+    if (m) {
+      const gitDir = path.resolve(wtPath, m[1].trim());
+      consider(path.join(gitDir, 'HEAD'));
+      consider(path.join(gitDir, 'index'));
+    }
+  } catch {
+    /* not a linked worktree file */
+  }
+  return latest;
+}
+
+/**
+ * Worktrees under `.aidev/worktrees` that are safe to remove: branch gone or merged,
+ * task no longer active, or no activity for 7 days — and in every case free of uncommitted
+ * changes. The currently active task's worktree and locked worktrees are never returned.
  */
 export function findStaleWorktrees(
   config: Config,
@@ -71,6 +99,11 @@ export function findStaleWorktrees(
     const taskId = wt.branch ? wt.branch.split('/')[0] : null;
     if (runningTask && taskId === runningTask) continue;
 
+    if (!fs.existsSync(wt.path)) {
+      stale.push({ path: wt.path, branch: wt.branch, reason: 'directory is missing' });
+      continue;
+    }
+
     let reason: string | null = null;
     if (wt.branch && !branches.has(wt.branch)) {
       reason = 'branch no longer exists';
@@ -79,19 +112,21 @@ export function findStaleWorktrees(
     } else if (
       wt.branch &&
       !git.isProtectedBranch(wt.branch) &&
-      git.isBranchMerged(wt.branch, config.githubBaseBranch, cwd) &&
-      fs.existsSync(wt.path) &&
-      !git.hasChanges(wt.path)
+      git.isBranchMerged(wt.branch, config.githubBaseBranch, cwd)
     ) {
       reason = 'branch is merged';
-    } else {
-      try {
-        if (now - fs.statSync(wt.path).mtimeMs > WORKTREE_MAX_AGE_MS) reason = 'no activity for over 7 days';
-      } catch {
-        reason = 'directory is missing';
-      }
+    } else if (now - lastActivityMs(wt.path) > WORKTREE_MAX_AGE_MS) {
+      reason = 'no activity for over 7 days';
     }
-    if (reason) stale.push({ path: wt.path, branch: wt.branch, reason });
+    if (!reason) continue;
+
+    // Never discard uncommitted work, whatever the reason (a deleted branch's worktree is
+    // still skipped when dirty so the user can recover the edits).
+    if (git.hasChanges(wt.path)) {
+      logger.warn(`Weekly cleanup: keeping worktree ${wt.path} (${reason}) — it has uncommitted changes`);
+      continue;
+    }
+    stale.push({ path: wt.path, branch: wt.branch, reason });
   }
   return stale;
 }
