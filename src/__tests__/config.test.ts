@@ -416,6 +416,29 @@ describe('loadConfig tag defaults', () => {
     assert.equal(config.consultedTag, `${folderName}-consulted`);
   });
 
+  it('parses AIDEV_WORKTREE and WORKTREE_TAG with defaults', () => {
+    delete process.env.AIDEV_WORKTREE;
+    delete process.env.WORKTREE_TAG;
+    let config = loadConfig();
+    assert.equal(config.useWorktree, false);
+    assert.equal(config.worktreeTag, 'worktree');
+    assert.equal(config.worktreeOverride, undefined);
+    try {
+      process.env.AIDEV_WORKTREE = '1';
+      process.env.WORKTREE_TAG = 'wt';
+      config = loadConfig();
+      assert.equal(config.useWorktree, true);
+      assert.equal(config.worktreeTag, 'wt');
+      process.env.AIDEV_WORKTREE = 'TRUE';
+      assert.equal(loadConfig().useWorktree, true);
+      process.env.AIDEV_WORKTREE = 'false';
+      assert.equal(loadConfig().useWorktree, false);
+    } finally {
+      delete process.env.AIDEV_WORKTREE;
+      delete process.env.WORKTREE_TAG;
+    }
+  });
+
   it('defaults commentPrefix to [aidev-<folder>] when AIDEV_COMMENT_PREFIX is unset', () => {
     delete process.env.AIDEV_COMMENT_PREFIX;
     const config = loadConfig();

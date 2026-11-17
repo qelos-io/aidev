@@ -65,7 +65,7 @@ program
     helpCommand();
   });
 
-async function runWithFilter(filter: string | undefined, taskId?: string): Promise<void> {
+async function runWithFilter(filter: string | undefined, taskId?: string, worktree?: boolean): Promise<void> {
   const validFilters = ['all', 'open', 'pending', 'review', 'tasks', 'accepted'];
 
   if (filter && !validFilters.includes(filter)) {
@@ -76,6 +76,7 @@ async function runWithFilter(filter: string | undefined, taskId?: string): Promi
   try {
     const { env } = program.opts<{ env?: string }>();
     const config = await loadConfigWithInheritance(env);
+    if (worktree !== undefined) config.worktreeOverride = worktree;
     const provider = createProvider(config);
 
     // No-AI weekly housekeeping (stale branches, stashes, base branch sync). Runs at
@@ -163,12 +164,14 @@ program
   .description('Process tasks: all (default), open, pending, review, tasks, or accepted. Also checks review tasks for unresolved PR comments and runs agent review on tagged in-review tasks.')
   .option('--task <id>', 'process only the task with this provider id (skips local-task push, non-code, agent review, accepted, and review phases)')
   .option('--status <status>', 'alias for the positional filter — used by the aidev ui dashboard (open, pending, review, all)')
-  .action(async (filter: string | undefined, opts: { task?: string; status?: string }) => {
+  .option('--worktree', 'run each task branch in a git worktree under .aidev/worktrees (overrides AIDEV_WORKTREE and the worktree tag)')
+  .option('--no-worktree', 'never use git worktrees, even if AIDEV_WORKTREE or the worktree tag is set')
+  .action(async (filter: string | undefined, opts: { task?: string; status?: string; worktree?: boolean }) => {
     // --status is just a long-form alias for the positional filter so the UI's
     // Run screen can spawn `aidev run --status <status>` without worrying about
     // commander positional parsing. Explicit positional wins if both are given.
     const effectiveFilter = filter ?? opts.status;
-    await runWithFilter(effectiveFilter, opts.task);
+    await runWithFilter(effectiveFilter, opts.task, opts.worktree);
   });
 
 program
