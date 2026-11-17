@@ -6,6 +6,9 @@ import {
   isGhAuthenticated,
   mergePullRequest,
   getPullRequestMergeability,
+  fetchFailingPrChecks,
+  fetchPendingPrChecks,
+  type FailedPrCheck,
 } from '../github';
 import * as git from '../git';
 import { getInReviewStatus } from './run';
@@ -61,6 +64,33 @@ export function buildAcceptedMergeFailureComment(
     `${config.commentPrefix} Failed to merge accepted pull request for branch \`${branchName}\`.\n\n` +
     `Reason:\n\`\`\`\n${trimmed}\n\`\`\``
   );
+}
+
+/** Stable phrase in the CI-failure comment, used to detect it as the last comment. */
+export const ACCEPTED_CI_FAILURE_MARKER = 'failed CI workflow(s) and cannot be merged';
+
+export function buildAcceptedCiFailureComment(
+  config: Config,
+  branchName: string,
+  failed: FailedPrCheck[],
+): string {
+  const list = failed
+    .map((c) => (c.link ? `- [${c.name}](${c.link})` : `- ${c.name}`))
+    .join('\n');
+  return (
+    `${config.commentPrefix} Not merging accepted pull request for branch \`${branchName}\` — ` +
+    `it has ${ACCEPTED_CI_FAILURE_MARKER}:\n\n${list}\n\n` +
+    `Fix the failures (or retrigger the task) before this can be merged.`
+  );
+}
+
+/** True when the most recent comment is an aidev CI-failure notice. */
+export function isLastCommentCiFailureNotice(
+  comments: Comment[],
+  commentPrefix: string,
+): boolean {
+  const last = comments[comments.length - 1];
+  return !!last && last.text.startsWith(commentPrefix) && last.text.includes(ACCEPTED_CI_FAILURE_MARKER);
 }
 
 export function hasAlreadyNotifiedConflict(
@@ -204,6 +234,44 @@ export async function acceptedCommand(
       } catch (err) {
         logger.warn(
           `[${task.id}] Failed to post conflict notice: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      continue;
+    }
+
+    const pendingChecks = fetchPendingPrChecks(branchName);
+    if (pendingChecks.length > 0) {
+      logger.info(
+        `[${task.id}] Skipping — CI still running (${pendingChecks.map((c) => c.name).join(', ')}); will retry next run.`,
+      );
+      continue;
+    }
+
+    const failedChecks = fetchFailingPrChecks(branchName);
+    if (failedChecks.length > 0) {
+      let existingComments: Comment[] = [];
+      try {
+        existingComments = await provider.getComments(task.id);
+      } catch (err) {
+        logger.warn(
+          `[${task.id}] Failed to fetch comments to check for prior CI failure notice: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      if (isLastCommentCiFailureNotice(existingComments, config.commentPrefix)) {
+        logger.info(`[${task.id}] Skipping — CI failed and the ticket was already notified.`);
+        continue;
+      }
+
+      try {
+        await provider.postComment(
+          task.id,
+          buildAcceptedCiFailureComment(config, branchName, failedChecks),
+        );
+        logger.warn(`[${task.id}] CI failed — posted notice and skipping merge.`);
+      } catch (err) {
+        logger.warn(
+          `[${task.id}] Failed to post CI failure notice: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
       continue;
