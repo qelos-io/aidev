@@ -147,6 +147,97 @@ export function removeStaleIndexLock(cwd?: string): boolean {
   }
 }
 
+export type HeadRepairResult = 'ok' | 'repaired' | 'failed';
+
+/**
+ * Cheap startup check that HEAD resolves to a readable commit, repairing it if
+ * not. Corruption (zero-byte ref file after a crash, garbled HEAD, missing
+ * commit object) makes every later git command fail. Repair: drop the broken
+ * branch ref, refetch, and point the branch (or the base branch) at its remote
+ * counterpart, then reset the index to match. A brand-new repo with no commits
+ * is not corruption. Returns 'ok' if healthy, 'repaired' if fixed, 'failed' if
+ * HEAD is still broken.
+ */
+export function repairCorruptHead(remote: string, baseBranch: string, cwd?: string): HeadRepairResult {
+  const dir = cwd || process.cwd();
+  const healthy = () => git(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], dir).status === 0 &&
+    git(['cat-file', '-e', 'HEAD^{commit}'], dir).status === 0;
+  if (healthy()) return 'ok';
+
+  const sym = git(['symbolic-ref', '-q', 'HEAD'], dir);
+  let ref = sym.status === 0 ? sym.stdout.trim() : '';
+
+  if (ref) {
+    // Unborn branch (no commits yet): the ref simply doesn't exist.
+    const refPathResult = git(['rev-parse', '--git-path', ref], dir);
+    const refPath = refPathResult.status === 0 ? resolve(dir, refPathResult.stdout.trim()) : '';
+    const packed = git(['show-ref', '--verify', '-q', ref], dir).status === 0;
+    if (!packed && (!refPath || !existsSync(refPath))) return 'ok';
+  }
+
+  // Only repair genuine ref/object corruption. A non-repo cwd, a lock, or a
+  // permissions error must not cause any mutation.
+  if (git(['rev-parse', '--git-dir'], dir).status !== 0) {
+    logger.error('Cannot check git HEAD: not a git repository');
+    return 'failed';
+  }
+  if (!ref) {
+    const probe = git(['rev-parse', '--verify', 'HEAD'], dir);
+    if (/lock|permission denied|not a git repository/i.test(probe.stderr || '')) {
+      logger.error(`Cannot check git HEAD (${(probe.stderr || '').trim()}) — not repairing`);
+      return 'failed';
+    }
+  }
+
+  logger.warn(`Git HEAD is corrupted${ref ? ` (${ref})` : ''} — attempting repair`);
+
+  const branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : baseBranch;
+
+  const fetch = git(['fetch', remote], dir);
+  if (fetch.status !== 0) {
+    logger.warn(`git fetch ${remote} failed (${(fetch.stderr || '').trim()}) — repair may use a stale remote-tracking ref`);
+  }
+
+  const removeLooseRef = (fullRef: string) => {
+    const pathResult = git(['rev-parse', '--git-path', fullRef], dir);
+    if (pathResult.status !== 0) return;
+    try {
+      rmSync(resolve(dir, pathResult.stdout.trim()), { force: true });
+    } catch (err) {
+      logger.warn(`Failed to remove broken ref ${fullRef}: ${err instanceof Error ? err.message : err}`);
+    }
+  };
+
+  const candidates = branch === baseBranch ? [branch] : [branch, baseBranch];
+  for (const candidate of candidates) {
+    const target = `refs/remotes/${remote}/${candidate}`;
+    // Skip this candidate before touching anything if the remote ref is unusable.
+    if (git(['rev-parse', '--verify', '-q', `${target}^{commit}`], dir).status !== 0) continue;
+    const localRef = `refs/heads/${candidate}`;
+    const isBrokenBranch = candidate === branch && ref.startsWith('refs/heads/');
+    const localHealthy = !isBrokenBranch &&
+      git(['rev-parse', '--verify', '-q', `${localRef}^{commit}`], dir).status === 0;
+
+    // Only touch the ref if it is broken or missing; never overwrite a healthy local branch.
+    if (!localHealthy) {
+      removeLooseRef(localRef);
+      if (git(['update-ref', localRef, target], dir).status !== 0) continue;
+    }
+    // Only switch HEAD after the branch ref is known good.
+    if (git(['symbolic-ref', 'HEAD', localRef], dir).status !== 0) continue;
+    git(['reset', '-q'], dir);
+    if (healthy()) {
+      logger.warn(localHealthy
+        ? `Repaired git HEAD: switched to existing healthy branch ${candidate}`
+        : `Repaired git HEAD: ${candidate} reset to ${remote}/${candidate}`);
+      return 'repaired';
+    }
+  }
+
+  logger.error('Could not repair git HEAD automatically. Please repair the repository manually.');
+  return 'failed';
+}
+
 /**
  * Verifies the working tree is clean before a branch-switching operation.
  * Leftovers from failed tasks would otherwise block every later checkout, so

@@ -871,6 +871,14 @@ export async function runCommand(
   // (fetch, checkout, commit, ...) works, not just the clean-tree check.
   git.removeStaleIndexLock(cwd);
 
+  // Quick sanity check that HEAD is readable; repair it from the remote if corrupted.
+  const headRepair = git.repairCorruptHead(config.gitRemote, config.githubBaseBranch, cwd);
+  if (headRepair === 'repaired') {
+    logger.warn('Git HEAD was corrupted and has been repaired from the remote.');
+  } else if (headRepair === 'failed') {
+    throw new Error('Git HEAD is unreadable and could not be repaired automatically. Fix the repository manually and re-run.');
+  }
+
   // Publish the resolved config + env vars over a local IPC socket so descendant
   // `aidev` processes (spawned by AI agents) can adopt the same config. Failure
   // to start the server is non-fatal — `run` must still proceed.
