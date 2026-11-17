@@ -46,6 +46,35 @@ export function buildAssetsAccessInstructions(
   return lines.join('\n');
 }
 
+export type SavedDiffOutcome = 'applied' | 'conflicts' | 'failed';
+
+/**
+ * Prompt/context note about the `uncommitted.diff` snapshot left by a previous
+ * failed attempt, describing whether it was re-applied to the working tree.
+ */
+export function buildSavedDiffNotice(outcome: SavedDiffOutcome, diffRelPath: string, error?: string): string {
+  const lines: string[] = ['', '## Changes from the previous failed attempt', ''];
+  if (outcome === 'applied') {
+    lines.push(
+      'A previous attempt on this task failed and left uncommitted changes. They were re-applied to the working tree ' +
+        '(staged, not committed). Review them, keep what is correct, and build on them rather than starting over.'
+    );
+  } else if (outcome === 'conflicts') {
+    lines.push(
+      'A previous attempt on this task failed and left uncommitted changes. They were re-applied with merge conflicts: ' +
+        'look for conflict markers (`<<<<<<<`) in the working tree and resolve them before continuing.'
+    );
+  } else {
+    lines.push(
+      'A previous attempt on this task failed and left uncommitted changes, but they could not be re-applied automatically' +
+        (error ? ` (${error.split('\n')[0]})` : '') +
+        `. The patch is saved at \`${diffRelPath}\` (git-ignored). Inspect it and, if useful, apply the relevant parts ` +
+        'manually (e.g. `git apply --3way`).'
+    );
+  }
+  return lines.join('\n');
+}
+
 function resolveSecretsRelPath(
   taskId: string,
   cwd: string,

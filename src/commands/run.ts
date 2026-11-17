@@ -42,9 +42,10 @@ import {
   getInReviewStatus,
 } from '../taskStatus';
 import { prepareForTaskCommit } from '../assetsGitignore';
-import { getExistingAssetDirs, listTaskAssetFiles, writeUncommittedDiff } from '../aidevAssets';
+import { getExistingAssetDirs, listTaskAssetFiles, readUncommittedDiffPath, removeUncommittedDiff, writeUncommittedDiff } from '../aidevAssets';
 import {
   buildAssetsAccessInstructions,
+  buildSavedDiffNotice,
   buildCompletionComment,
   buildConflictResolutionPrompt,
   buildContinuePrompt,
@@ -100,6 +101,32 @@ export function augmentPromptForAssets(prompt: string, taskId: string, cwd = pro
 
   const instructions = buildAssetsAccessInstructions(taskId, cwd, { assetFiles });
   return instructions ? prompt + instructions : prompt;
+}
+
+/**
+ * Re-applies the `uncommitted.diff` saved after an all-agents-failed run, when
+ * the task resumes. Returns a context note for the prompt ('' if no diff).
+ * The diff is removed once applied; if it cannot be applied it is kept and the
+ * agent is pointed at it instead. Never throws.
+ */
+export function restoreSavedDiff(taskId: string, cwd = process.cwd()): string {
+  try {
+    const diffPath = readUncommittedDiffPath(taskId, cwd);
+    if (!diffPath) return '';
+    const relPath = path.relative(cwd, diffPath).split(path.sep).join('/');
+
+    const result = git.applySavedDiff(cwd, diffPath);
+    if (result.applied) {
+      logger.info(`Re-applied saved changes from ${relPath}${result.conflicts ? ' (with conflicts)' : ''}`);
+      removeUncommittedDiff(taskId, cwd);
+      return buildSavedDiffNotice(result.conflicts ? 'conflicts' : 'applied', relPath);
+    }
+    logger.warn(`Could not re-apply ${relPath}; leaving it for the agent`);
+    return buildSavedDiffNotice('failed', relPath, result.error);
+  } catch (err) {
+    logger.warn(`Saved diff restore failed: ${err instanceof Error ? err.message : err}`);
+    return '';
+  }
 }
 
 export function buildAssetRunOptions(taskId: string, cwd = process.cwd()): Pick<AIRunOptions, 'assetDirs'> {
@@ -1541,6 +1568,9 @@ async function implementTask(
       return;
     }
   }
+
+  // Re-apply uncommitted work saved by a previous all-agents-failed run
+  context += restoreSavedDiff(task.id);
 
   // Fetch unresolved PR review comments for existing branches
   const reviewThreads = branchExists

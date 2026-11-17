@@ -1,5 +1,5 @@
-export { buildAssetsAccessInstructions } from './assets';
-export type { AssetsAccessInstructionsOptions } from './assets';
+export { buildAssetsAccessInstructions, buildSavedDiffNotice } from './assets';
+export type { AssetsAccessInstructionsOptions, SavedDiffOutcome } from './assets';
 export {
   buildCompletionComment,
   buildConsultCompletionComment,
