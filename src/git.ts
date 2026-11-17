@@ -44,8 +44,8 @@ export function isProtectedBranch(branch: string): boolean {
   return PROTECTED_BRANCHES.has(branch.toLowerCase());
 }
 
-export function getCurrentBranch(): string | null {
-  const result = git(['rev-parse', '--abbrev-ref', 'HEAD']);
+export function getCurrentBranch(cwd?: string): string | null {
+  const result = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
   if (result.status !== 0) return null;
   return result.stdout.trim() || null;
 }
@@ -317,18 +317,18 @@ export function createBranchFromRemote(remote: string, baseBranch: string, branc
   return true;
 }
 
-export function hasChanges(): boolean {
-  return listWorkingTreeChanges().length > 0;
+export function hasChanges(cwd?: string): boolean {
+  return listWorkingTreeChanges(cwd).length > 0;
 }
 
 /** Returns relative paths of files with uncommitted working-tree changes. */
-export function listWorkingTreeChanges(): string[] {
+export function listWorkingTreeChanges(cwd?: string): string[] {
   // -uall lists untracked files individually instead of collapsing a whole
   // untracked directory (e.g. `.aidev/`) into one entry.
   // -z gives NUL-separated, unquoted paths (git otherwise quotes names with
   // spaces/non-ASCII characters, which breaks later pathspec use). In -z mode
   // a rename/copy entry is followed by an extra entry holding the old path.
-  const result = git(['status', '--porcelain', '-z', '-uall']);
+  const result = git(['status', '--porcelain', '-z', '-uall'], cwd);
   if (result.status !== 0) return [];
 
   const paths: string[] = [];
@@ -362,7 +362,7 @@ export function createWorkingTreeDiff(cwd?: string): Buffer | null {
   const head = git(['rev-parse', '--verify', '-q', 'HEAD'], dir);
   if (head.status !== 0) return null;
 
-  const paths = withCwd(dir, () => listWorkingTreeChanges());
+  const paths = listWorkingTreeChanges(dir);
   if (paths.length === 0) return null;
 
   const indexPathResult = git(['rev-parse', '--git-path', 'index'], dir);
@@ -398,18 +398,6 @@ export function createWorkingTreeDiff(cwd?: string): Buffer | null {
     return null;
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
-  }
-}
-
-/** listWorkingTreeChanges() reads process.cwd(); run it against another directory. */
-function withCwd<T>(dir: string, fn: () => T): T {
-  const previous = process.cwd();
-  if (resolve(previous) === resolve(dir)) return fn();
-  process.chdir(dir);
-  try {
-    return fn();
-  } finally {
-    process.chdir(previous);
   }
 }
 
@@ -450,14 +438,14 @@ export function applySavedDiff(cwd: string, diffPath: string): ApplyDiffResult {
 }
 
 /** Discards uncommitted working tree and untracked files on the current branch. */
-export function discardWorkingChanges(): boolean {
-  const reset = git(['reset', '--hard', 'HEAD']);
+export function discardWorkingChanges(cwd?: string): boolean {
+  const reset = git(['reset', '--hard', 'HEAD'], cwd);
   if (reset.status !== 0) {
     logger.error(`git reset --hard failed: ${reset.stderr}`);
     return false;
   }
 
-  const clean = git(['clean', '-fd']);
+  const clean = git(['clean', '-fd'], cwd);
   if (clean.status !== 0) {
     logger.warn(`git clean -fd failed: ${clean.stderr}`);
     return false;
@@ -469,8 +457,8 @@ export function discardWorkingChanges(): boolean {
 /**
  * Returns true if the current branch has commits ahead of the remote base branch.
  */
-export function hasCommitsAhead(remote: string, baseBranch: string): boolean {
-  const result = git(['rev-list', '--count', `${remote}/${baseBranch}..HEAD`]);
+export function hasCommitsAhead(remote: string, baseBranch: string, cwd?: string): boolean {
+  const result = git(['rev-list', '--count', `${remote}/${baseBranch}..HEAD`], cwd);
   if (result.status !== 0) return false;
   const count = parseInt(result.stdout.trim(), 10) || 0;
   return count > 0;
@@ -482,11 +470,11 @@ export function hasCommitsAhead(remote: string, baseBranch: string): boolean {
  * staged (user already tracks such a path, or the exclude is bypassed) is
  * unstaged afterwards.
  */
-export function addAll(): boolean {
-  ensureLocalExclude();
-  const result = git(['add', '-A']);
+export function addAll(cwd?: string): boolean {
+  ensureLocalExclude(cwd);
+  const result = git(['add', '-A'], cwd);
   if (result.status !== 0) return false;
-  return unstageAidevSkills();
+  return unstageAidevSkills(cwd);
 }
 
 // ─── aidev-skills never-commit guard ─────────────────────────────────────────
@@ -515,8 +503,13 @@ export function isAidevSkillsPath(relativePath: string): boolean {
   return relativePath.split(/[\\/]+/).includes(AIDEV_SKILLS_LINK_NAME);
 }
 
+/** Repo-relative folder holding per-task git worktrees (git-ignored). */
+export const WORKTREES_REL_DIR = '.aidev/worktrees';
+
+const LOCAL_EXCLUDE_PATTERNS = [AIDEV_SKILLS_LINK_NAME, `${WORKTREES_REL_DIR}/`];
+
 /**
- * Appends the aidev-skills pattern to `.git/info/exclude` (local only; the
+ * Appends the aidev-skills and worktrees patterns to `.git/info/exclude` (local only; the
  * user's .gitignore is untouched). Idempotent. A slash-less pattern matches at
  * any depth, for files, directories and symlinks alike.
  */
@@ -530,10 +523,11 @@ export function ensureLocalExclude(cwd?: string): boolean {
   try {
     const existing = existsSync(excludePath) ? readFileSync(excludePath, 'utf8') : '';
     const lines = existing.split(/\r?\n/).map((line) => line.trim());
-    if (lines.includes(AIDEV_SKILLS_LINK_NAME)) return true;
+    const missing = LOCAL_EXCLUDE_PATTERNS.filter((pattern) => !lines.includes(pattern));
+    if (missing.length === 0) return true;
     mkdirSync(dirname(excludePath), { recursive: true });
     const prefix = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
-    appendFileSync(excludePath, `${prefix}${AIDEV_SKILLS_LINK_NAME}\n`);
+    appendFileSync(excludePath, `${prefix}${missing.join('\n')}\n`);
     return true;
   } catch (err) {
     logger.warn(`Could not update .git/info/exclude: ${err instanceof Error ? err.message : String(err)}`);
@@ -657,9 +651,9 @@ export function removePathFromIndexAndTree(relativePath: string, cwd?: string): 
   return true;
 }
 
-export function commit(message: string, expectedBranch?: string): boolean {
+export function commit(message: string, expectedBranch?: string, cwd?: string): boolean {
   if (expectedBranch) {
-    const current = getCurrentBranch();
+    const current = getCurrentBranch(cwd);
     if (current !== expectedBranch) {
       logger.error(`Refusing to commit: expected branch "${expectedBranch}" but currently on "${current}"`);
       return false;
@@ -670,9 +664,9 @@ export function commit(message: string, expectedBranch?: string): boolean {
     }
   }
   // Last line of defence: whatever staged the files, never commit skills links.
-  if (!unstageAidevSkills()) return false;
+  if (!unstageAidevSkills(cwd)) return false;
   logger.debug(`git commit -m "${message}"`);
-  const result = git(['commit', '-m', message]);
+  const result = git(['commit', '-m', message], cwd);
   if (result.status !== 0) {
     // git reports e.g. "nothing to commit" and hook output on stdout, so include both.
     logger.error(`git commit failed: ${(result.stderr || result.stdout).trim()}`);
@@ -681,8 +675,8 @@ export function commit(message: string, expectedBranch?: string): boolean {
   return true;
 }
 
-export function push(remote: string, branch: string): boolean {
-  const current = getCurrentBranch();
+export function push(remote: string, branch: string, cwd?: string): boolean {
+  const current = getCurrentBranch(cwd);
   if (current !== branch) {
     logger.error(`Refusing to push: current branch "${current}" does not match target branch "${branch}"`);
     return false;
@@ -692,7 +686,7 @@ export function push(remote: string, branch: string): boolean {
     return false;
   }
   logger.debug(`git push ${remote} HEAD:refs/heads/${branch}`);
-  const result = git(['push', remote, `HEAD:refs/heads/${branch}`]);
+  const result = git(['push', remote, `HEAD:refs/heads/${branch}`], cwd);
   if (result.status !== 0) {
     logger.error(`git push failed: ${result.stderr}`);
     return false;
@@ -761,25 +755,25 @@ export interface ConflictCheckResult {
  * Checks whether the current branch can merge cleanly with the remote base
  * branch. Performs a trial merge and aborts it regardless of the outcome.
  */
-export function checkConflictsWithBase(remote: string, baseBranch: string): ConflictCheckResult {
-  const logResult = git(['rev-list', '--count', `HEAD..${remote}/${baseBranch}`]);
+export function checkConflictsWithBase(remote: string, baseBranch: string, cwd?: string): ConflictCheckResult {
+  const logResult = git(['rev-list', '--count', `HEAD..${remote}/${baseBranch}`], cwd);
   const behindCommits = logResult.status === 0 ? parseInt(logResult.stdout.trim(), 10) || 0 : 0;
 
   if (behindCommits === 0) {
     return { clean: true, conflictFiles: [], behindCommits: 0 };
   }
 
-  const merge = git(['merge', '--no-commit', '--no-ff', `${remote}/${baseBranch}`]);
+  const merge = git(['merge', '--no-commit', '--no-ff', `${remote}/${baseBranch}`], cwd);
 
   if (merge.status === 0) {
-    git(['merge', '--abort']);
+    git(['merge', '--abort'], cwd);
     return { clean: true, conflictFiles: [], behindCommits };
   }
 
-  const diffResult = git(['diff', '--name-only', '--diff-filter=U']);
+  const diffResult = git(['diff', '--name-only', '--diff-filter=U'], cwd);
   const files = diffResult.stdout.trim().split('\n').filter(Boolean);
 
-  git(['merge', '--abort']);
+  git(['merge', '--abort'], cwd);
   return { clean: false, conflictFiles: files, behindCommits };
 }
 
@@ -787,26 +781,26 @@ export function checkConflictsWithBase(remote: string, baseBranch: string): Conf
  * Starts a real merge of the remote base branch into the current branch.
  * Returns true if the merge completed without conflicts.
  */
-export function mergeBaseBranch(remote: string, baseBranch: string): boolean {
-  const result = git(['merge', `${remote}/${baseBranch}`, '--no-edit']);
+export function mergeBaseBranch(remote: string, baseBranch: string, cwd?: string): boolean {
+  const result = git(['merge', `${remote}/${baseBranch}`, '--no-edit'], cwd);
   return result.status === 0;
 }
 
-export function abortMerge(): void {
-  git(['merge', '--abort']);
+export function abortMerge(cwd?: string): void {
+  git(['merge', '--abort'], cwd);
 }
 
 /**
  * Returns the content of files with conflict markers for AI resolution context.
  */
-export function getConflictDetails(): string {
-  const diffResult = git(['diff', '--name-only', '--diff-filter=U']);
+export function getConflictDetails(cwd?: string): string {
+  const diffResult = git(['diff', '--name-only', '--diff-filter=U'], cwd);
   const files = diffResult.stdout.trim().split('\n').filter(Boolean);
 
   const details: string[] = [];
   for (const file of files) {
-    const content = git(['show', `:2:${file}`]);
-    const theirs = git(['show', `:3:${file}`]);
+    const content = git(['show', `:2:${file}`], cwd);
+    const theirs = git(['show', `:3:${file}`], cwd);
     details.push(
       `### ${file}\n\n` +
       `**Our version (task branch):**\n\`\`\`\n${content.stdout.slice(0, 3000)}\n\`\`\`\n\n` +
@@ -817,15 +811,15 @@ export function getConflictDetails(): string {
 }
 
 /** Completes a merge after conflicts have been manually resolved. */
-export function commitMerge(message: string): boolean {
-  ensureLocalExclude();
-  const add = git(['add', '-A']);
+export function commitMerge(message: string, cwd?: string): boolean {
+  ensureLocalExclude(cwd);
+  const add = git(['add', '-A'], cwd);
   if (add.status !== 0) {
     logger.error(`git add failed during merge resolution: ${add.stderr}`);
     return false;
   }
-  if (!unstageAidevSkills()) return false;
-  const result = git(['commit', '-m', message]);
+  if (!unstageAidevSkills(cwd)) return false;
+  const result = git(['commit', '-m', message], cwd);
   if (result.status !== 0) {
     logger.error(`git merge commit failed: ${result.stderr}`);
     return false;
@@ -907,6 +901,188 @@ export function remoteDefaultBranch(dir: string, remote: string): string | null 
   if (r.status !== 0) return null;
   const match = r.stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m);
   return match ? match[1] : null;
+}
+
+// ─── git worktree support ────────────────────────────────────────────────────
+
+/** `<cwd>/.aidev/worktrees` — where per-task worktrees live. */
+export function worktreesDir(cwd?: string): string {
+  return join(cwd || process.cwd(), '.aidev', 'worktrees');
+}
+
+/**
+ * Directory for a branch's worktree. Path separators and characters that are
+ * illegal in Windows file names are replaced so the branch maps to one folder.
+ */
+export function worktreePathForBranch(branch: string, cwd?: string): string {
+  const safe = branch.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^\.+/, '_').replace(/-+$/, '') || 'branch';
+  return join(worktreesDir(cwd), safe);
+}
+
+export interface WorktreeInfo {
+  path: string;
+  head: string | null;
+  /** Short branch name, or null for a detached HEAD. */
+  branch: string | null;
+  bare: boolean;
+  locked: boolean;
+  prunable: boolean;
+}
+
+/** Parses `git worktree list --porcelain` output (blocks separated by blank lines). */
+export function parseWorktreeList(output: string): WorktreeInfo[] {
+  const result: WorktreeInfo[] = [];
+  for (const block of output.split(/\r?\n\r?\n/)) {
+    let info: WorktreeInfo | null = null;
+    for (const rawLine of block.split(/\r?\n/)) {
+      const line = rawLine.trimEnd();
+      if (line.startsWith('worktree ')) {
+        info = { path: line.slice('worktree '.length), head: null, branch: null, bare: false, locked: false, prunable: false };
+      } else if (!info) {
+        continue;
+      } else if (line.startsWith('HEAD ')) {
+        info.head = line.slice('HEAD '.length);
+      } else if (line.startsWith('branch ')) {
+        info.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+      } else if (line === 'bare') {
+        info.bare = true;
+      } else if (line === 'locked' || line.startsWith('locked ')) {
+        info.locked = true;
+      } else if (line === 'prunable' || line.startsWith('prunable ')) {
+        info.prunable = true;
+      }
+    }
+    if (info) result.push(info);
+  }
+  return result;
+}
+
+/** Lists all worktrees registered for the repo at `cwd` (the main one first). */
+export function listWorktrees(cwd?: string): WorktreeInfo[] {
+  const result = git(['worktree', 'list', '--porcelain'], cwd);
+  if (result.status !== 0) return [];
+  return parseWorktreeList(result.stdout);
+}
+
+/** Case-insensitive on Windows/macOS, separator-insensitive everywhere. */
+export function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => resolve(p).replace(/[\\/]+$/, '');
+  return process.platform === 'win32' || process.platform === 'darwin'
+    ? norm(a).toLowerCase() === norm(b).toLowerCase()
+    : norm(a) === norm(b);
+}
+
+/** Finds the registered worktree that has `branch` checked out. */
+export function findWorktreeForBranch(branch: string, cwd?: string): WorktreeInfo | null {
+  return listWorktrees(cwd).find((w) => w.branch === branch) ?? null;
+}
+
+/** Removes registrations of worktrees whose directory is gone (`git worktree prune`). */
+export function pruneWorktrees(cwd?: string): boolean {
+  const result = git(['worktree', 'prune'], cwd);
+  if (result.status !== 0) {
+    logger.warn(`git worktree prune failed: ${result.stderr.trim()}`);
+    return false;
+  }
+  return true;
+}
+
+/** `git worktree remove` (with --force when `force`), then deletes any leftover directory. */
+export function removeWorktree(worktreePath: string, force = true, cwd?: string): boolean {
+  const args = ['worktree', 'remove', ...(force ? ['--force'] : []), worktreePath];
+  logger.debug(`git ${args.join(' ')}`);
+  const result = git(args, cwd);
+  if (result.status !== 0) {
+    if (!force) {
+      logger.warn(`git worktree remove failed: ${result.stderr.trim()}`);
+      return false;
+    }
+    // Unregistered or half-removed directory: fall back to deleting it and pruning.
+    logger.debug(`git worktree remove failed (${result.stderr.trim()}) — deleting directory`);
+  }
+  if (existsSync(worktreePath)) {
+    try {
+      rmSync(worktreePath, { recursive: true, force: true });
+    } catch (err) {
+      logger.warn(`Could not delete worktree directory ${worktreePath}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  }
+  pruneWorktrees(cwd);
+  return true;
+}
+
+export interface AddWorktreeResult {
+  ok: boolean;
+  path: string;
+  /** True when an already-registered worktree for the branch was reused. */
+  reused: boolean;
+}
+
+/**
+ * Creates (or reuses) the worktree for `branch` under `.aidev/worktrees/`.
+ * - existingBranch = false: new branch `branch` from `<remote>/<baseBranch>` (an existing
+ *   local branch of that name is checked out instead).
+ * - existingBranch = true: check out the existing local branch, or create it from `<remote>/<branch>`.
+ * If the branch is already checked out in another worktree, that worktree is reused.
+ */
+export function addWorktree(
+  remote: string,
+  baseBranch: string,
+  branch: string,
+  existingBranch: boolean,
+  cwd?: string,
+): AddWorktreeResult {
+  const root = cwd || process.cwd();
+  const path = worktreePathForBranch(branch, root);
+  const fail: AddWorktreeResult = { ok: false, path, reused: false };
+
+  // Drop registrations whose directory vanished (crash leftovers), then reuse a live one.
+  pruneWorktrees(root);
+  const registered = findWorktreeForBranch(branch, root);
+  if (registered && existsSync(registered.path) && !samePath(registered.path, root)) {
+    return { ok: true, path: registered.path, reused: true };
+  }
+
+  // Leftover directory that git no longer knows about: clear it so `worktree add` can recreate it.
+  if (existsSync(path) && !listWorktrees(root).some((w) => samePath(w.path, path))) {
+    rmSync(path, { recursive: true, force: true });
+  }
+  mkdirSync(worktreesDir(root), { recursive: true });
+
+  logger.debug(`git fetch ${remote}`);
+  const fetchResult = git(['fetch', remote], root);
+  if (fetchResult.status !== 0) {
+    logger.error(`git fetch failed: ${fetchResult.stderr}`);
+    return fail;
+  }
+
+  const localExists = git(['rev-parse', '--verify', '-q', `refs/heads/${branch}`], root).status === 0;
+  const remoteExists = git(['rev-parse', '--verify', '-q', `refs/remotes/${remote}/${branch}`], root).status === 0;
+
+  let result: { stdout: string; stderr: string; status: number };
+  if (localExists) {
+    result = git(['worktree', 'add', path, branch], root);
+  } else if (existingBranch) {
+    if (!remoteExists) {
+      logger.error(`Branch "${branch}" does not exist locally or on ${remote}`);
+      return fail;
+    }
+    result = git(['worktree', 'add', '-B', branch, path, `${remote}/${branch}`], root);
+  } else {
+    result = git(['worktree', 'add', '-b', branch, path, `${remote}/${baseBranch}`], root);
+  }
+
+  if (result.status !== 0) {
+    // The branch is checked out elsewhere — reuse that worktree.
+    const other = findWorktreeForBranch(branch, root);
+    if (other && existsSync(other.path) && !samePath(other.path, root)) {
+      return { ok: true, path: other.path, reused: true };
+    }
+    logger.error(`git worktree add failed: ${result.stderr.trim()}`);
+    return fail;
+  }
+  return { ok: true, path, reused: false };
 }
 
 export function slugify(text: string): string {

@@ -1016,6 +1016,7 @@ describe('aidev-skills commit guard (integration)', () => {
     assert.equal(ensureLocalExclude(), true);
     const content = fs.readFileSync(path.join(tmpDir, '.git', 'info', 'exclude'), 'utf8');
     assert.equal(content.split('\n').filter((l) => l.trim() === AIDEV_SKILLS_LINK_NAME).length, 1);
+    assert.equal(content.split('\n').filter((l) => l.trim() === '.aidev/worktrees/').length, 1);
   });
 
   it('isAidevSkillsPath matches at any depth, with either separator', () => {
