@@ -27,6 +27,8 @@ export interface AIRunOptions {
   signal?: AbortSignal;
   assetDirs?: string[];
   session?: AISessionOptions;
+  /** Working directory for the agent process (e.g. a git worktree). Defaults to `process.cwd()`. */
+  cwd?: string;
 }
 
 export interface AIRunResult {

@@ -3,7 +3,7 @@ import { logger } from '../logger';
 import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
 import { getMcpState } from '../mcp';
-import { buildSkillsHint, getExtraContextDirs } from './skillsContext';
+import { buildSkillsHint, getAssetDirs, getExtraContextDirs } from './skillsContext';
 
 const DEFAULT_MODEL = 'opusplan';
 
@@ -35,13 +35,13 @@ function looksLikeAuthError(...texts: string[]): boolean {
  * failure (expired token, revoked credentials) from an API/transport error that
  * merely mentions authentication. Best-effort: never throws.
  */
-function logClaudeAuthStatus(): void {
+function logClaudeAuthStatus(cwd: string = process.cwd()): void {
   logger.warn('Running `claude auth status` for diagnostics...');
   try {
     const result = spawnCommand('claude', ['auth', 'status'], {
       encoding: 'utf8',
       timeout: 15000,
-      cwd: process.cwd(),
+      cwd,
       env: getUserShellEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -91,7 +91,11 @@ export class ClaudeRunner implements AIRunner {
     // --add-dir is variadic, so each dir gets its own flag and the prompt
     // stays ahead of it.
     const contextArgs: string[] = [];
-    for (const dir of getExtraContextDirs(options?.extraContext)) contextArgs.push('--add-dir', dir);
+    const addDirs = new Set<string>([
+      ...getExtraContextDirs(options?.extraContext),
+      ...getAssetDirs(options?.assetDirs),
+    ]);
+    for (const dir of addDirs) contextArgs.push('--add-dir', dir);
     const hint = buildSkillsHint(options?.extraContext);
     if (hint) contextArgs.push('--append-system-prompt', hint);
 
@@ -107,7 +111,7 @@ export class ClaudeRunner implements AIRunner {
     const result = await runSpawnAttempts('claude', attempts, {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
-      cwd: process.cwd(),
+      cwd: options?.cwd ?? process.cwd(),
       env: getUserShellEnv(),
       signal: options?.signal,
       ...(promptViaStdin ? { input: fullPrompt } : {}),
@@ -130,7 +134,7 @@ export class ClaudeRunner implements AIRunner {
       if (error) logger.warn(`claude stderr: ${error.slice(0, 500)}`);
       if (result.error) logger.warn(`claude spawn error: ${result.error.message}`);
       if (looksLikeAuthError(output, error)) {
-        logClaudeAuthStatus();
+        logClaudeAuthStatus(options?.cwd ?? process.cwd());
       }
     }
 

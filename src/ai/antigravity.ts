@@ -21,7 +21,7 @@ export class AntigravityRunner implements AIRunner {
     logger.info('Running Antigravity agent...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-    const cwd = process.cwd();
+    const cwd = options?.cwd ?? process.cwd();
     const bin = commandExists('agy') ? 'agy' : 'antigravity';
     const baseArgs = ['.'];
     const attempts: string[][] = [

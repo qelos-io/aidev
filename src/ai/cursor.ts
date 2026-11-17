@@ -1,11 +1,9 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { AIRunner, AIRunOptions, AIRunResult } from './base';
 import { logger } from '../logger';
 import { commandExists, getUserShellEnv, spawnCommand } from '../platform';
 import { runSpawnAttempts } from './spawnAttempts';
 import { getMcpState } from '../mcp';
-import { getExtraContextDirs, withSkillsHint } from './skillsContext';
+import { getAssetDirs, getExtraContextDirs, withSkillsHint } from './skillsContext';
 
 /**
  * Cursor Agent CLI runner. Uses the `agent` binary on all platforms.
@@ -46,21 +44,14 @@ export class CursorRunner implements AIRunner {
     logger.info('Running Cursor Agent...');
     logger.debug(`Prompt: ${fullPrompt.slice(0, 200)}...`);
 
-    const cwd = process.cwd();
+    const cwd = options?.cwd ?? process.cwd();
     const baseArgs = ['--print', '--force', '--trust', '--workspace', cwd];
 
     if (getMcpState()) {
       baseArgs.push('--approve-mcps');
     }
 
-    if (options?.assetDirs) {
-      for (const dir of options.assetDirs) {
-        const absPath = path.resolve(dir);
-        if (fs.existsSync(absPath) && fs.statSync(absPath).isDirectory()) {
-          baseArgs.push('--add-dir', absPath);
-        }
-      }
-    }
+    for (const dir of getAssetDirs(options?.assetDirs)) baseArgs.push('--add-dir', dir);
 
     for (const dir of getExtraContextDirs(options?.extraContext)) {
       if (!baseArgs.includes(dir)) baseArgs.push('--add-dir', dir);
