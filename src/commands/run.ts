@@ -15,7 +15,8 @@ import {
   ReviewThread,
 } from '../github';
 import { collectAndLogDiagnostics } from '../diagnostics';
-import { acquireLock, releaseLock, readLock } from '../lockfile';
+import { acquireLock, readLock } from '../lockfile';
+import { cleanupBookkeeping, registerBookkeepingCleanup } from '../bookkeeping';
 import { writeActiveTask, clearActiveTask, clearStaleActiveTask } from '../activeTask';
 import { startConfigServer, type ConfigServer, type ConfigInheritPayload } from '../ipc';
 import { envFileKeys } from '../config';
@@ -722,6 +723,10 @@ export async function runCommand(
     process.exit(1);
   }
 
+  // From here on we own the bookkeeping files: remove them on exit, SIGHUP and fatal
+  // errors (SIGINT/SIGTERM are handled below, after async teardown).
+  const cleanupRegistration = registerBookkeepingCleanup(cwd, { signals: ['SIGHUP'] });
+
   // Clear a crash-leftover index.lock up front so every later git operation
   // (fetch, checkout, commit, ...) works, not just the clean-tree check.
   git.removeStaleIndexLock(cwd);
@@ -783,14 +788,15 @@ export async function runCommand(
     cleanupSkills();
     void shutdownTracked().finally(() => {
       try { configServer.close(); } catch { /* ignore */ }
-      try { clearActiveTask(cwd); } catch { /* ignore */ }
-      try { releaseLock(cwd); } catch { /* ignore */ }
+      cleanupBookkeeping(cwd);
       process.exit(signal === 'SIGINT' ? 130 : 143);
     });
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
+  // Everything after the lock is acquired runs inside try/finally so the files are
+  // released even when setup or a task throws.
   try {
     // Resolve the skills source once for the whole run (this is the only place that
     // clones/updates a git source; descendant aidev processes inherit the config but
@@ -914,8 +920,8 @@ export async function runCommand(
     } catch {
       // ignore — best-effort cleanup
     }
-    clearActiveTask(cwd);
-    releaseLock(cwd);
+    cleanupBookkeeping(cwd);
+    cleanupRegistration.dispose();
   }
 }
 
