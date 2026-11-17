@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import { logger } from './logger';
@@ -179,8 +179,8 @@ export function repairCorruptHead(remote: string, baseBranch: string, cwd?: stri
   // Only repair genuine ref/object corruption. A non-repo cwd, a lock, or a
   // permissions error must not cause any mutation.
   if (git(['rev-parse', '--git-dir'], dir).status !== 0) {
-    logger.error('Cannot check git HEAD: not a git repository');
-    return 'failed';
+    // Nothing to repair outside a repository; later git operations report that themselves.
+    return 'ok';
   }
   if (!ref) {
     const probe = git(['rev-parse', '--verify', 'HEAD'], dir);
@@ -1058,7 +1058,12 @@ export function listWorktrees(cwd?: string): WorktreeInfo[] {
 
 /** Case-insensitive on Windows/macOS, separator-insensitive everywhere. */
 export function samePath(a: string, b: string): boolean {
-  const norm = (p: string) => resolve(p).replace(/[\\/]+$/, '');
+  const norm = (p: string) => {
+    const abs = resolve(p);
+    let real = abs;
+    try { real = realpathSync.native(abs); } catch { /* path may not exist yet */ }
+    return real.replace(/[\\/]+$/, '');
+  };
   return process.platform === 'win32' || process.platform === 'darwin'
     ? norm(a).toLowerCase() === norm(b).toLowerCase()
     : norm(a) === norm(b);
