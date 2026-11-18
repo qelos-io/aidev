@@ -2,6 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ACCEPTED_CONFLICT_MARKER,
+  ACCEPTED_CI_FAILURE_MARKER,
+  buildAcceptedCiFailureComment,
+  isLastCommentCiFailureNotice,
   buildAcceptedConflictComment,
   buildAcceptedMergeComment,
   buildAcceptedMergeFailureComment,
@@ -37,6 +40,30 @@ describe('buildAcceptedConflictComment', () => {
     assert.ok(text.includes('`abc/fix`'));
     assert.ok(text.includes('`main`'));
     assert.ok(text.includes(ACCEPTED_CONFLICT_MARKER));
+  });
+});
+
+describe('CI failure notice', () => {
+  const config = { commentPrefix: '[aidev]' } as Config;
+  const mk = (text: string): Comment => ({ text } as Comment);
+
+  it('lists failed workflows with links and embeds the marker', () => {
+    const text = buildAcceptedCiFailureComment(config, 'a/b', [
+      { name: 'build', link: 'https://github.com/o/r/actions/runs/1' },
+      { name: 'lint', link: '' },
+    ]);
+    assert.ok(text.startsWith('[aidev] '));
+    assert.ok(text.includes('[build](https://github.com/o/r/actions/runs/1)'));
+    assert.ok(text.includes('- lint'));
+    assert.ok(text.includes(ACCEPTED_CI_FAILURE_MARKER));
+  });
+
+  it('detects the notice only when it is the last comment', () => {
+    const notice = buildAcceptedCiFailureComment(config, 'a/b', [{ name: 'x', link: '' }]);
+    assert.equal(isLastCommentCiFailureNotice([mk(notice)], '[aidev]'), true);
+    assert.equal(isLastCommentCiFailureNotice([mk(notice), mk('human reply')], '[aidev]'), false);
+    assert.equal(isLastCommentCiFailureNotice([], '[aidev]'), false);
+    assert.equal(isLastCommentCiFailureNotice([mk(`other ${ACCEPTED_CI_FAILURE_MARKER}`)], '[aidev]'), false);
   });
 });
 

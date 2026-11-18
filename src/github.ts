@@ -335,6 +335,15 @@ export interface FailedPrCheck {
  * Returns [] when there are no checks, none fail, or gh cannot report them.
  */
 export function fetchFailingPrChecks(branch: string): FailedPrCheck[] {
+  return fetchPrChecksByBucket(branch, 'fail');
+}
+
+/** Lists CI checks/workflows on the PR for `branch` that are still running / queued. */
+export function fetchPendingPrChecks(branch: string): FailedPrCheck[] {
+  return fetchPrChecksByBucket(branch, 'pending');
+}
+
+function fetchPrChecksByBucket(branch: string, bucket: string): FailedPrCheck[] {
   // `gh pr checks` exits non-zero when checks fail/pend, but still prints JSON.
   const result = gh(['pr', 'checks', branch, '--json', 'name,bucket,link']);
   if (!result.stdout.trim()) return [];
@@ -342,7 +351,7 @@ export function fetchFailingPrChecks(branch: string): FailedPrCheck[] {
     const parsed = JSON.parse(result.stdout) as Array<{ name?: string; bucket?: string; link?: string }>;
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((c) => c.bucket === 'fail')
+      .filter((c) => c.bucket === bucket)
       .map((c) => ({ name: c.name ?? '(unnamed check)', link: c.link ?? '' }));
   } catch {
     return [];
