@@ -10,12 +10,13 @@
 | `aidev run pending` | Only pending tasks — check for human replies |
 | `aidev run accepted` | Auto-merge PRs for tasks in review with the accepted tag |
 | `aidev run tasks` | Publish all entries in `aidev.tasks.json` and exit (no AI run) |
+| `aidev run --worktree` / `--no-worktree` | Force [git worktrees](/guide/worktrees) on or off for this run (overrides `AIDEV_WORKTREE` and the task tag) |
 | `aidev tasks add` | Add a new entry to `aidev.tasks.json` (interactive) |
 | `aidev tasks ls` | List entries currently queued in `aidev.tasks.json` |
 | `aidev tasks update [id]` | Edit a queued entry (interactive if `id` omitted) |
 | `aidev tasks remove [id]` | Delete a queued entry (interactive if `id` omitted) |
 | `aidev tasks push` | Same as `aidev run tasks` — publish all queued entries and exit |
-| `aidev clean` | Remove stale local branches and clear git stashes, after confirmation (see [below](#aidev-clean)) |
+| `aidev clean` | Remove stale local branches and git worktrees and clear git stashes, after confirmation (see [below](#aidev-clean)) |
 | `aidev clean --dry-run` | Show what would be removed without changing anything |
 | `aidev clean -y` | Clean without the confirmation prompt (`--yes`) |
 | `aidev stop` | Stop any running aidev process in the current directory |
@@ -34,7 +35,8 @@ When run, it:
 
 1. Fetches the base branch (`GITHUB_BASE_BRANCH`) from the remote and checks it out, updating it to match the remote.
 2. Force-deletes every **local** branch that does not belong to an active task. Branches follow the `<taskId>/<task-name>` convention, so a branch is kept if its leading `<taskId>` matches a task that is still active (open, pending, in progress or in review). The base branch and protected branches are never deleted.
-3. Clears all git stashes.
+3. Removes stale [git worktrees](/guide/worktrees#cleanup) under `.aidev/worktrees` (branch deleted or merged, task no longer active, or unused for more than 7 days) and runs `git worktree prune`. The active task's worktree is never removed.
+4. Clears all git stashes.
 
 Remote branches are never touched. If the active task list can't be fetched from the provider, `aidev clean` aborts without deleting anything.
 

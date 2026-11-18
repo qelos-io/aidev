@@ -50,6 +50,7 @@ export default defineConfig({
           { text: 'Agent review', link: '/guide/agent-review' },
           { text: 'Code review', link: '/guide/code-review' },
           { text: 'Auto-merge', link: '/guide/auto-merge' },
+          { text: 'Git worktrees', link: '/guide/worktrees' },
           { text: 'Dev notes mode', link: '/guide/dev-notes' },
           { text: 'Blocked tasks', link: '/guide/blocked-tasks' },
           { text: 'Auto-compress', link: '/guide/auto-compress' },
