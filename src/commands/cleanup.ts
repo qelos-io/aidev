@@ -45,8 +45,20 @@ export interface StaleWorktree {
   reason: string;
 }
 
+/** Resolves symlinks / Windows 8.3 short names so paths from git and from the OS compare equal. */
+function canonicalPath(p: string): string {
+  const abs = path.resolve(p);
+  let real = abs;
+  try {
+    real = fs.realpathSync.native(abs);
+  } catch {
+    /* path may not exist */
+  }
+  return process.platform === 'win32' || process.platform === 'darwin' ? real.toLowerCase() : real;
+}
+
 function isInside(parent: string, child: string): boolean {
-  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  const rel = path.relative(canonicalPath(parent), canonicalPath(child));
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
