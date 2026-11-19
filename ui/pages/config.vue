@@ -455,6 +455,7 @@ const FIELD_SECTIONS: SectionDef[] = [
           { key: 'AIDEV_COMMENT_PREFIX', label: 'Label on aidev’s comments', help: 'Shown at the start of everything aidev writes, so you can tell it apart.', placeholder: '[aidev]' },
           { key: 'ASSIGNEE_TAG', label: 'Only my tasks (tag)', help: 'Optional. Limits aidev to tasks carrying this tag.' },
           { key: 'DONE_STATUS', label: 'Status that means “finished”', help: 'Tasks in this status are left alone.' },
+          { key: 'NON_BLOCKING_STATUSES', label: 'Statuses that unblock other tasks', help: 'Comma-separated. A task waiting on another is released once that one reaches any of these (the “finished” status always counts).', placeholder: 'closed,done,deployed,prod,released' },
         ],
       },
       {
