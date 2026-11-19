@@ -161,6 +161,8 @@ export interface Config {
   /** When true, apply {@link agentReviewTag} as soon as an open task is picked up */
   autoReview: boolean;
   doneStatus: string;
+  /** Statuses (lowercase) that mean a blocker task no longer blocks. Default: closed,done,deployed,prod,released (+ doneStatus). */
+  nonBlockingStatuses?: string[];
   autoCompress: boolean;
   compressThreshold: number;
   logTtlDays: number;

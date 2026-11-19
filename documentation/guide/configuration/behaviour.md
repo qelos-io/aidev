@@ -15,6 +15,7 @@
 | `AGENT_REVIEW_TAG` | `agent-review` | Tasks in review with this tag get an automated PR code review (see [Agent review](/guide/agent-review)) |
 | `AUTO_REVIEW` | `false` | When `true`, apply `AGENT_REVIEW_TAG` as soon as an open task is picked up |
 | `DONE_STATUS` | auto-detected | Status to set after auto-merging an accepted PR |
+| `NON_BLOCKING_STATUSES` | `closed,done,deployed,prod,released` | Comma-separated statuses of a blocker task that mean it no longer blocks. `DONE_STATUS` is always included |
 | `PR_SIGNATURE` | `Automated PR by aidev.` | Custom signature line appended to the PR body |
 | `AIDEV_SAFE_MODE` | `true` | Redact secret env values from AI prompts (see [Safe mode](#safe-mode) below) |
 | `AIDEV_AUTO_SHUTDOWN` | `true` | After the whole run finishes, stop leftover processes (dev servers, docker containers) started by agent clients. Never touches aidev itself or pre-existing processes. Set `false` / `0` / `no` to disable |

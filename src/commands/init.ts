@@ -512,6 +512,8 @@ export function renderEnv(a: Answers): string {
     `AUTO_APPROVE=${a.autoApprove ? 'true' : 'false'}`,
     `# DONE_STATUS: status to set after auto-merging an accepted PR`,
     a.doneStatus ? `DONE_STATUS=${envVal(a.doneStatus)}` : `# DONE_STATUS=done`,
+    `# NON_BLOCKING_STATUSES: comma-separated statuses of a blocker task that no longer block (DONE_STATUS is always included)`,
+    `# NON_BLOCKING_STATUSES=closed,done,deployed,prod,released`,
     ``,
     `# AGENT_REVIEW_TAG: tasks in review with this tag get an automated PR code review`,
     line('AGENT_REVIEW_TAG', a.agentReviewTag),

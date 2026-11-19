@@ -1368,6 +1368,22 @@ describe('getBlockedBySkipReason', () => {
     assert.equal(result, null);
   });
 
+  it('treats prod/deployed/released and doneStatus blockers as non-blocking by default', async () => {
+    for (const status of ['prod', 'Deployed', 'released', 'shipped']) {
+      const blocker: Task = { id: 'b', name: 'B', description: '', status, url: '', tags: [] };
+      const result = await getBlockedBySkipReason(makeBlockedTask(['b']), makeProviderWithFetchById(blocker), { doneStatus: 'shipped' });
+      assert.equal(result, null, status);
+    }
+  });
+
+  it('respects a custom nonBlockingStatuses list', async () => {
+    const blocker: Task = { id: 'b', name: 'B', description: '', status: 'qa-passed', url: '', tags: [] };
+    const provider = makeProviderWithFetchById(blocker);
+    const task = makeBlockedTask(['b']);
+    assert.ok(await getBlockedBySkipReason(task, provider, { doneStatus: '', nonBlockingStatuses: ['prod'] }));
+    assert.equal(await getBlockedBySkipReason(task, provider, { doneStatus: '', nonBlockingStatuses: ['qa-passed'] }), null);
+  });
+
   it('returns null when the blocker status has surrounding whitespace', async () => {
     const blocker: Task = { id: 'blocker1', name: 'Blocker', description: '', status: ' Closed ', url: '', tags: [] };
     const provider = makeProviderWithFetchById(blocker);

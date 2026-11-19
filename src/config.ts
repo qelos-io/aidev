@@ -241,6 +241,10 @@ export function loadConfig(customEnvPath?: string): Config {
   const autoReviewRaw = (process.env.AUTO_REVIEW || '').trim().toLowerCase();
   const autoReview = ['true', '1', 'yes'].includes(autoReviewRaw);
   const doneStatus = process.env.DONE_STATUS || '';
+  const nonBlockingStatuses = (process.env.NON_BLOCKING_STATUSES || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const autoCompressRaw = (process.env.AIDEV_AUTO_COMPRESS || '').trim().toLowerCase();
   const autoCompress = !['false', '0', 'no'].includes(autoCompressRaw);
@@ -333,6 +337,7 @@ export function loadConfig(customEnvPath?: string): Config {
     agentReviewTag,
     autoReview,
     doneStatus,
+    nonBlockingStatuses: nonBlockingStatuses.length > 0 ? nonBlockingStatuses : undefined,
     autoCompress,
     compressThreshold,
     logTtlDays,

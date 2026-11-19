@@ -425,19 +425,34 @@ export async function applyAutoReviewTag(
   logger.info(`[${task.id}] Applied agent review tag "${tag}" (autoReview)`);
 }
 
-export async function getBlockedBySkipReason(task: Task, provider: TaskProvider): Promise<string | null> {
+export const DEFAULT_NON_BLOCKING_STATUSES = ['closed', 'done', 'deployed', 'prod', 'released'];
+
+export function getNonBlockingStatuses(config?: Pick<Config, 'doneStatus' | 'nonBlockingStatuses'>): Set<string> {
+  const base = config?.nonBlockingStatuses?.length ? config.nonBlockingStatuses : DEFAULT_NON_BLOCKING_STATUSES;
+  const set = new Set([...SKIP_STATUSES, ...base.map((s) => s.trim().toLowerCase())]);
+  const done = config?.doneStatus?.trim().toLowerCase();
+  if (done) set.add(done);
+  return set;
+}
+
+export async function getBlockedBySkipReason(
+  task: Task,
+  provider: TaskProvider,
+  config?: Pick<Config, 'doneStatus' | 'nonBlockingStatuses'>,
+): Promise<string | null> {
   if (!task.blockedBy || task.blockedBy.length === 0) return null;
   if (!provider.fetchTaskById) {
     logger.debug(`[${task.id}] provider does not support fetchTaskById — skipping blocked-by check`);
     return null;
   }
+  const nonBlocking = getNonBlockingStatuses(config);
   for (const blockerId of task.blockedBy) {
     const blocker = await provider.fetchTaskById(blockerId);
     if (blocker === null) {
       logger.debug(`[${task.id}] blocker ${blockerId} not found — treating as non-blocking`);
       continue;
     }
-    if (!SKIP_STATUSES.has(blocker.status.trim().toLowerCase())) {
+    if (!nonBlocking.has(blocker.status.trim().toLowerCase())) {
       return `blocked by task ${blockerId} (status: ${blocker.status})`;
     }
     logger.debug(`[${task.id}] blocker ${blockerId} is closed (status: ${blocker.status}) — not blocking`);
@@ -1120,7 +1135,7 @@ async function processTask(
     return 'skipped';
   }
 
-  const blockedReason = await getBlockedBySkipReason(task, provider);
+  const blockedReason = await getBlockedBySkipReason(task, provider, config);
   if (blockedReason) {
     logger.info(`[${task.id}] "${task.name}" skipped — ${blockedReason}`);
     return 'skipped';
@@ -2750,7 +2765,7 @@ export async function processNonCodeTask(
     return 'skipped';
   }
 
-  const blockedReason = await getBlockedBySkipReason(task, provider);
+  const blockedReason = await getBlockedBySkipReason(task, provider, config);
   if (blockedReason) {
     logger.info(`[${task.id}] "${task.name}" skipped — ${blockedReason}`);
     return 'skipped';
@@ -2957,7 +2972,7 @@ export async function processConsultTask(
     return 'skipped';
   }
 
-  const blockedReason = await getBlockedBySkipReason(task, provider);
+  const blockedReason = await getBlockedBySkipReason(task, provider, config);
   if (blockedReason) {
     logger.info(`[${task.id}] "${task.name}" skipped — ${blockedReason}`);
     return 'skipped';
